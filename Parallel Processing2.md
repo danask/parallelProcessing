@@ -116,7 +116,129 @@ combinedFuture.thenAccept(ignored -> {
 `thenCompose`와 같은 메소드는 비동기 코드를 더 간단하게 작성하고 관리할 수 있도록 도와주므로, 복잡한 비동기 시나리오에서 특히 유용합니다.
 
 ---------------------------
+`방법1`과 `방법2`는 성능 측면에서는 유사하며, 실제로 어떤 것이 "더 나은" 것인지를 결정하는 데에는 여러 요인이 영향을 미칩니다. 아래에서 두 가지 방법에 대한 각각의 장단점과 주요 고려 사항을 살펴보겠습니다.
 
+**방법1:**
+
+```java
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> "Hello");
+CompletableFuture<String> future2 = CompletableFuture.supplyAsync(() -> "CompletableFuture");
+
+try {
+    if (future1.get() == null) 
+        throw new Exception("error");
+} catch (Exception ex) {
+}
+
+CompletableFuture<Void> combinedFuture = CompletableFuture.allOf(future1, future2);
+```
+
+**장점:**
+
+- 두 작업이 독립적으로 실행되기 때문에 병렬로 실행됩니다.
+- 첫 번째 작업의 결과에 대한 예외 처리를 수행할 수 있습니다.
+
+**단점 및 고려 사항:**
+
+- 첫 번째 작업이 예외를 발생시키더라도 두 번째 작업은 계속 실행됩니다. 따라서 두 번째 작업을 인터럽트하고 싶다면 추가적인 로직이 필요합니다.
+- 작업 사이에 의존성이 없으므로 첫 번째 작업이 끝난 후에 두 번째 작업이 시작됩니다.
+
+**방법2:**
+
+```java
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> {
+    boolean condition = true; // 인터럽트할 조건을 정의하세요
+
+    if (condition) {
+        CompletableFuture<String> future2 = new CompletableFuture<>();
+        future2.completeExceptionally(new InterruptedException("Second task interrupted"));
+        return future2.join(); // 첫 번째 작업이 인터럽트되고 예외가 발생
+    }
+
+    return "Result of first task"; // 첫 번째 작업이 정상적으로 완료
+});
+
+try {
+    String result = future1.join(); // 첫 번째 작업의 결과를 얻습니다.
+    System.out.println(result);
+} catch (Exception e) {
+    System.out.println("Exception: " + e.getMessage()); // 두 번째 작업에서 발생한 예외 출력
+}
+```
+
+**장점:**
+
+- 첫 번째 작업의 결과에 따라 두 번째 작업을 인터럽트하거나 예외를 발생시킬 수 있습니다.
+- 작업 사이에 명시적인 의존성을 설정하고 첫 번째 작업의 결과를 사용할 수 있습니다.
+
+**단점 및 고려 사항:**
+
+- 두 작업이 독립적으로 실행되지 않고 첫 번째 작업이 끝나야 두 번째 작업이 실행됩니다.
+- 작업이 순차적으로 진행되므로 두 번째 작업이 시작되기까지 시간이 걸릴 수 있습니다.
+
+성능 측면에서는 두 가지 방법이 비슷합니다. 성능 차이는 작업이 병렬로 실행되느냐, 순차적으로 실행되느냐에 따라 다를 수 있지만 큰 차이는 없을 것입니다. 이 두 방법 중 선택하는 것은 프로젝트의 요구 사항과 의도에 따라 다를 것입니다. 첫 번째 작업의 결과에 의존성이 있는 경우 `방법2`가 더 적합할 수 있습니다. 반면에 병렬로 실행해야 하는 독립적인 작업이라면 `방법1`이 더 적합할 수 있습니다.
+
+----------------------------
+
+두 가지 방법 중 어떤 것이 더 좋은지를 판단하는 데는 "성능" 면에서만 초점을 맞추는 것은 어려울 수 있습니다. 성능 평가는 많은 다른 요소와 조건에 의해 영향을 받을 수 있으며, 성능 측면에서 상대적으로 우세한 방법을 선택하기 전에 프로젝트의 전반적인 목표와 요구 사항을 고려해야 합니다.
+
+**방법1:**
+
+```java
+List<String> task1 = getTask1();
+if (task1.size() == 0)
+    throw new Exception("error");
+
+List<String> task2 = getTask2();
+```
+
+**장점:**
+
+- 간단하고 직관적인 구현으로 성능에 큰 오버헤드가 없습니다.
+- 작업들이 병렬로 실행되는 것이 아니므로 동시성 문제나 인터럽트 처리에 대한 별도의 고려가 필요하지 않습니다.
+
+**단점 및 고려 사항:**
+
+- 첫 번째 작업(task1)의 완료를 기다려야 하므로 두 번째 작업(task2)은 첫 번째 작업이 끝날 때까지 대기해야 합니다. 따라서 두 작업 간의 의존성이 있거나, 작업 시간이 긴 경우 성능에 영향을 줄 수 있습니다.
+
+**방법2:**
+
+```java
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> {
+    // 첫 번째 작업 수행
+    // 어떤 조건에 따라 두 번째 작업을 인터럽트해야 할 경우
+    boolean condition = true; // 인터럽트할 조건을 정의하세요
+
+    if (condition) {
+        CompletableFuture<String> future2 = new CompletableFuture<>();
+        future2.completeExceptionally(new InterruptedException("Second task interrupted"));
+        return future2.join(); // 첫 번째 작업이 인터럽트되고 예외가 발생
+    }
+
+    return "Result of first task"; // 첫 번째 작업이 정상적으로 완료
+});
+
+try {
+    String result = future1.join(); // 첫 번째 작업의 결과를 얻습니다.
+    System.out.println(result);
+} catch (Exception e) {
+    System.out.println("Exception: " + e.getMessage()); // 두 번째 작업에서 발생한 예외 출력
+}
+```
+
+**장점:**
+
+- 첫 번째 작업의 결과에 따라 두 번째 작업을 조건부로 실행하거나 인터럽트할 수 있습니다.
+- 작업 간의 명시적인 의존성을 설정할 수 있으므로 작업 간의 상호 작용이 필요한 경우에 유용할 수 있습니다.
+
+**단점 및 고려 사항:**
+
+- 두 작업이 동시에 실행되지 않고, 첫 번째 작업의 결과에 따라 두 번째 작업이 시작됩니다. 따라서 작업 시간이 긴 경우 성능에 영향을 미칠 수 있습니다.
+- 두 작업 간의 병렬 처리를 위해 별도의 로직이 필요한 경우, 이로 인해 코드가 복잡해질 수 있습니다.
+
+성능 면에서는 `방법1`이 성능에 더 유리한 측면이 있을 수 있습니다. 그러나 성능 이외의 다른 고려 사항(예외 처리, 의존성, 코드 복잡성 등)을 고려하여 어떤 방법이 더 적합한지를 결정해야 합니다. 성능 최적화는 프로젝트의 목표와 제약 사항에 따라 다를 수 있으므로, 종합적인 관점에서 선택하는 것이 중요합니다.
+
+---------------------------
 
 네, 리액티브 스트림인 `Mono`와 `Flux`도 `thenCompose`와 유사한 비동기 조합 및 처리를 제공합니다. 리액티브 스트림을 사용하면 비동기 작업의 연결과 조합을 더 효과적으로 수행할 수 있습니다. 
 
