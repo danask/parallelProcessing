@@ -179,6 +179,67 @@ try {
 성능 측면에서는 두 가지 방법이 비슷합니다. 성능 차이는 작업이 병렬로 실행되느냐, 순차적으로 실행되느냐에 따라 다를 수 있지만 큰 차이는 없을 것입니다. 이 두 방법 중 선택하는 것은 프로젝트의 요구 사항과 의도에 따라 다를 것입니다. 첫 번째 작업의 결과에 의존성이 있는 경우 `방법2`가 더 적합할 수 있습니다. 반면에 병렬로 실행해야 하는 독립적인 작업이라면 `방법1`이 더 적합할 수 있습니다.
 
 ----------------------------
+예, 첫 번째 작업에서 예외가 발생하면 `future2`를 취소하고 예외를 처리하는 방식도 유효합니다. 이렇게 하면 첫 번째 작업에서 예외가 발생할 때 `future2`가 인터럽트되고 `future2.cancel(true)`를 호출함으로써 취소됩니다.
+
+아래는 이 방식의 코드 예제입니다:
+
+```java
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> "Hello");
+CompletableFuture<String> future2 = CompletableFuture.supplyAsync(() -> "CompletableFuture");
+
+try {
+    if (future1.get() == null) {
+        throw new Exception("error");
+        // 첫 번째 작업에서 예외 발생 시 future2를 취소하고 예외를 처리합니다.
+        future2.cancel(true); // 두 번째 작업을 인터럽트
+    }
+} catch (Exception ex) {
+    // 첫 번째 작업 예외 처리
+}
+
+CompletableFuture<Void> combinedFuture = CompletableFuture.allOf(future1, future2);
+```
+
+이 코드는 첫 번째 작업에서 예외가 발생하면 `future2`가 인터럽트되고 취소되며, 이후 `future2`를 `join()`하거나 다른 작업을 수행해도 더 이상 실행되지 않습니다. 이 방식은 `future2`의 취소를 보장하며, 불필요한 작업을 피하고 예외를 처리할 수 있습니다.
+
+두번째도 인터럽트 만들고 싶으면
+
+`방법1`에서 첫 번째 작업이 예외를 발생시킨 경우 두 번째 작업을 인터럽트하고 싶다면 `future2`에 대한 예외 처리 로직을 추가해야 합니다. 이를 위해 `handle` 메서드를 사용할 수 있습니다. `handle` 메서드는 `CompletableFuture`의 결과나 예외를 처리할 수 있도록 해줍니다.
+
+다음은 `handle` 메서드를 사용하여 두 번째 작업 `future2`에 대한 예외 처리를 추가하는 예제입니다:
+
+```java
+CompletableFuture<String> future1 = CompletableFuture.supplyAsync(() -> "Hello");
+CompletableFuture<String> future2 = CompletableFuture.supplyAsync(() -> "CompletableFuture");
+
+try {
+    if (future1.get() == null) {
+        // 첫 번째 작업에서 예외 발생 시 future2를 취소하고 예외를 처리합니다.
+        future2.cancel(true); // 두 번째 작업을 인터럽트
+        throw new Exception("error");
+    }
+} catch (Exception ex) {
+    // 첫 번째 작업 예외 처리
+}
+
+CompletableFuture<Void> combinedFuture = CompletableFuture.allOf(future1, future2);
+
+// future2의 예외 처리
+future2.handle((result, exception) -> {
+    if (exception != null) {
+        System.out.println("Exception in future2: " + exception.getMessage());
+        // 예외 처리 로직 추가 가능
+    }
+    return result;
+});
+```
+
+위 코드에서 `handle` 메서드를 사용하여 `future2`의 예외를 처리하고, 예외 발생 시 예외 메시지를 출력하거나 추가적인 예외 처리 로직을 추가할 수 있습니다. 또한, `future2.cancel(true)`를 사용하여 두 번째 작업을 인터럽트하고 취소할 수 있습니다.
+
+이렇게 하면 첫 번째 작업이 예외를 발생시킬 경우 `future2`도 인터럽트되고 예외가 처리됩니다.
+
+
+----------------------------
 
 두 가지 방법 중 어떤 것이 더 좋은지를 판단하는 데는 "성능" 면에서만 초점을 맞추는 것은 어려울 수 있습니다. 성능 평가는 많은 다른 요소와 조건에 의해 영향을 받을 수 있으며, 성능 측면에서 상대적으로 우세한 방법을 선택하기 전에 프로젝트의 전반적인 목표와 요구 사항을 고려해야 합니다.
 
@@ -239,6 +300,7 @@ try {
 성능 면에서는 `방법1`이 성능에 더 유리한 측면이 있을 수 있습니다. 그러나 성능 이외의 다른 고려 사항(예외 처리, 의존성, 코드 복잡성 등)을 고려하여 어떤 방법이 더 적합한지를 결정해야 합니다. 성능 최적화는 프로젝트의 목표와 제약 사항에 따라 다를 수 있으므로, 종합적인 관점에서 선택하는 것이 중요합니다.
 
 ---------------------------
+=================================
 
 네, 리액티브 스트림인 `Mono`와 `Flux`도 `thenCompose`와 유사한 비동기 조합 및 처리를 제공합니다. 리액티브 스트림을 사용하면 비동기 작업의 연결과 조합을 더 효과적으로 수행할 수 있습니다. 
 
