@@ -47,3 +47,50 @@ public class YourControllerTest {
 또한, 테스트 시에 컨트롤러에서 예외를 던질 가능성이 있는 경우 해당 예외를 기대하고 처리하는 방법도 고려해야 합니다.
 
 이제 테스트가 실패하고 500 에러가 발생하는 경우, 로그와 스택 트레이스를 검토하여 문제를 식별하고 해결할 수 있어야 합니다. 로깅 레벨을 조정하여 더 자세한 디버그 정보를 얻을 수도 있습니다.
+
+--------------
+
+`org.mockito.exceptions.misusing.UnfinishedStubbingException`은 Mockito에서 모의 객체(Mock)를 사용할 때 발생할 수 있는 예외입니다. 이 예외는 모의 객체에 대한 스텁(기대 동작)이 아직 완료되지 않은 경우 발생합니다.
+
+이 예외를 해결하기 위해서는 다음과 같은 접근 방식을 고려해야 합니다:
+
+1. **스텁 완료**: `when(...).thenReturn(...)` 또는 `when(...).thenThrow(...)`과 같은 Mockito 스텁을 사용할 때, 해당 스텁을 모두 완료해야 합니다. 예를 들어, `when(yourService.someAsyncMethod()).thenReturn(future);`에서 `future`를 완료하는 부분이 빠져 있는지 확인합니다.
+
+   ```java
+   CompletableFuture<String> future = new CompletableFuture<>();
+   future.complete("Expected result");
+   when(yourService.someAsyncMethod()).thenReturn(future);
+   ```
+
+2. **기대 호출 지정**: 실제로 테스트 메서드 내에서 모의 객체를 호출하는 코드를 포함해야 합니다. 모의 객체에 대한 스텁만 정의하고 실제로 호출하지 않으면 `UnfinishedStubbingException`이 발생합니다.
+
+3. **실행 경로 검토**: 테스트 메서드의 실행 경로를 검토하여 스텁에 대한 호출과 실제 호출이 일치하는지 확인합니다. 예를 들어, 모의 객체에 대한 스텁을 정의한 후 실제 메서드를 호출하기 전에 스텁이 적용되도록 코드를 조정합니다.
+
+다음은 예외가 발생하지 않도록 수정된 예제입니다:
+
+```java
+import static org.mockito.Mockito.*;
+
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class YourServiceTest {
+
+    @Autowired
+    private YourService yourService;
+
+    @Test(expected = YourCustomException.class)
+    public void testYourService() throws YourCustomException {
+        // 모의 CompletableFuture를 만듭니다.
+        CompletableFuture<String> future = new CompletableFuture<>();
+        future.completeExceptionally(new YourCustomException("Something went wrong"));
+
+        // 서비스 함수를 모의하고 예외를 발생시키도록 설정합니다.
+        when(yourService.someAsyncMethod()).thenReturn(future);
+
+        // 서비스 함수 호출
+        yourService.someAsyncMethod(); // 예외 발생을 기대합니다.
+    }
+}
+```
+
+이제 `when(yourService.someAsyncMethod()).thenReturn(future);`에서 스텁이 완료되었고 실제 호출이 있으므로 `UnfinishedStubbingException`이 발생하지 않아야 합니다.
