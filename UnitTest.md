@@ -172,3 +172,28 @@ public class YourControllerTest {
 위의 코드에서 `request().asyncStarted()`를 사용하여 비동기 요청이 시작되었음을 표시하고, `result.getAsyncResult()`를 사용하여 `CompletableFuture`가 완료될 때까지 대기합니다. 그런 다음 응답 본문을 검증합니다.
 
 이렇게 하면 Controller에서 `CompletableFuture`를 반환하는 경우에도 테스트 코드를 작성할 수 있습니다.
+
+
+--------------------
+
+`request().asyncStarted()`가 Assertion Error와 함께 실패하는 경우, 이는 Spring MockMvc의 비동기 요청 처리가 시작되지 않았음을 나타냅니다. 이는 컨트롤러에서 반환한 `CompletableFuture`가 아직 완료되지 않았거나 비동기적으로 처리되지 않았을 수 있습니다.
+
+비동기 요청을 테스트하는 경우에는 몇 가지 주의사항이 있습니다. 아래에 주의할 점을 나열하겠습니다.
+
+1. **CompletableFuture 완료**: 컨트롤러 메서드가 `CompletableFuture`를 반환하는 경우, 해당 `CompletableFuture`가 반드시 완료되어야 합니다. 이를 위해 `CompletableFuture.join()` 또는 `CompletableFuture.get()`를 사용하여 기다릴 수 있습니다.
+
+2. **비동기 처리 활성화**: Spring MockMvc에서 비동기 요청을 활성화하려면 `@RunWith(SpringRunner.class)` 어노테이션과 함께 `@SpringBootTest` 어노테이션을 사용해야 합니다.
+
+3. **`DeferredResult` 또는 `CompletableFuture` 반환**: 컨트롤러에서 비동기 처리를 사용할 때는 `DeferredResult` 또는 `CompletableFuture`를 반환해야 합니다. 이렇게 하면 Spring이 비동기 요청을 제대로 처리할 수 있습니다.
+
+4. **Timeout 설정**: 경우에 따라서 `CompletableFuture`가 완료되지 않을 수 있으므로 테스트에서 timeout을 설정할 수 있습니다. 이는 `MockMvc` 테스트에서 `await()` 메서드를 사용하여 설정할 수 있습니다.
+
+예를 들어, 아래와 같이 `await()`를 사용하여 timeout을 설정할 수 있습니다:
+
+```java
+result.getAsyncResult().get(5, TimeUnit.SECONDS);
+```
+
+5. **Spring Boot 버전 확인**: Spring Boot 버전에 따라 비동기 요청 처리 방식이 다를 수 있으므로 Spring Boot 버전을 확인하고 적절한 방식으로 테스트 코드를 작성해야 합니다.
+
+위의 조언을 고려하여 테스트 코드를 수정하고 `request().asyncStarted()`가 제대로 작동하도록 해 보세요.
