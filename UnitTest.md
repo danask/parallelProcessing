@@ -94,3 +94,41 @@ public class YourServiceTest {
 ```
 
 이제 `when(yourService.someAsyncMethod()).thenReturn(future);`에서 스텁이 완료되었고 실제 호출이 있으므로 `UnfinishedStubbingException`이 발생하지 않아야 합니다.
+
+-----------------------
+
+Spring의 `MockMvc`를 사용하여 비동기 컨트롤러 엔드포인트를 테스트하려면 `CompletableFuture`가 아닌 동기적인 방식으로 테스트 코드를 작성해야 합니다. `MockMvc`는 동기적인 호출을 기대하므로 `CompletableFuture`를 직접 사용하는 것이 아니라 해당 결과를 기다리는 동기적인 코드로 테스트해야 합니다.
+
+아래는 `CompletableFuture`를 사용하는 컨트롤러 엔드포인트를 테스트하는 예제입니다:
+
+```java
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@RunWith(SpringRunner.class)
+@WebMvcTest(YourController.class)
+public class YourControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testYourController() throws Exception {
+        // 서비스 함수에서 CompletableFuture를 반환하도록 모의합니다.
+        when(yourService.someAsyncMethod()).thenReturn(CompletableFuture.completedFuture("Expected Result"));
+
+        // 컨트롤러의 엔드포인트를 호출하고 결과를 기다립니다.
+        MvcResult result = mockMvc.perform(get("/your-endpoint"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        // 응답 본문을 검증합니다.
+        String responseBody = result.getResponse().getContentAsString();
+        assertThat(responseBody).isEqualTo("Expected Result");
+    }
+}
+```
+
+이 테스트 코드에서는 `CompletableFuture.completedFuture("Expected Result")`를 사용하여 비동기 작업이 완료된 결과를 반환하도록 모의 설정하고, 컨트롤러를 호출한 후 `andReturn()`를 사용하여 결과를 기다립니다. 그런 다음 응답 본문을 검증하여 예상된 결과와 일치하는지 확인합니다.
+
+중요한 점은 `MockMvc`를 사용하여 컨트롤러를 테스트할 때는 비동기적인 코드 대신 동기적인 방식으로 테스트 코드를 작성해야 한다는 것입니다. 컨트롤러가 비동기 작업을 수행하더라도 `MockMvc`는 동기적인 호출을 기대합니다.
