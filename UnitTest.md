@@ -132,3 +132,43 @@ public class YourControllerTest {
 이 테스트 코드에서는 `CompletableFuture.completedFuture("Expected Result")`를 사용하여 비동기 작업이 완료된 결과를 반환하도록 모의 설정하고, 컨트롤러를 호출한 후 `andReturn()`를 사용하여 결과를 기다립니다. 그런 다음 응답 본문을 검증하여 예상된 결과와 일치하는지 확인합니다.
 
 중요한 점은 `MockMvc`를 사용하여 컨트롤러를 테스트할 때는 비동기적인 코드 대신 동기적인 방식으로 테스트 코드를 작성해야 한다는 것입니다. 컨트롤러가 비동기 작업을 수행하더라도 `MockMvc`는 동기적인 호출을 기대합니다.
+
+
+-----------------------
+
+Controller의 엔드포인트에서 `CompletableFuture`를 반환하는 경우, 테스트 코드를 작성할 때 해당 `CompletableFuture`를 기다릴 필요가 있습니다. 이를 위해 다음과 같은 방법을 사용할 수 있습니다.
+
+```java
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@RunWith(SpringRunner.class)
+@WebMvcTest(YourController.class)
+public class YourControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testYourController() throws Exception {
+        // 서비스 함수에서 CompletableFuture를 반환하도록 모의합니다.
+        when(yourService.someAsyncMethod()).thenReturn(CompletableFuture.completedFuture("Expected Result"));
+
+        // 컨트롤러의 엔드포인트를 호출하고 CompletableFuture를 완료할 때까지 기다립니다.
+        MvcResult result = mockMvc.perform(get("/your-endpoint"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        // CompletableFuture가 완료될 때까지 대기합니다.
+        result.getAsyncResult(); 
+
+        // 응답 본문을 검증합니다.
+        String responseBody = result.getResponse().getContentAsString();
+        assertThat(responseBody).isEqualTo("Expected Result");
+    }
+}
+```
+
+위의 코드에서 `request().asyncStarted()`를 사용하여 비동기 요청이 시작되었음을 표시하고, `result.getAsyncResult()`를 사용하여 `CompletableFuture`가 완료될 때까지 대기합니다. 그런 다음 응답 본문을 검증합니다.
+
+이렇게 하면 Controller에서 `CompletableFuture`를 반환하는 경우에도 테스트 코드를 작성할 수 있습니다.
