@@ -198,6 +198,11 @@ result.getAsyncResult().get(5, TimeUnit.SECONDS);
 
 ------------------
 
+`MyController` 클래스에서 `CompletableFuture`를 사용하여 비동기 처리를 수행하는 컨트롤러 메서드를 테스트하는 방법에 대한 예제를 제공하겠습니다. 이 테스트는 Spring Boot와 JUnit을 기반으로 합니다.
+
+먼저, 컨트롤러 테스트를 위한 의존성을 추가하고 테스트 클래스를 작성합니다. 그런 다음 비동기 처리 결과를 검증하는 테스트 케이스를 추가합니다.
+
+```java
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -241,10 +246,19 @@ public class MyControllerTest {
         assertThat(asyncResult).isEqualTo("Some data from async process");
     }
 }
+```
+
+이 테스트 코드에서는 `CompletableFuture`를 모의로 생성하고 컨트롤러 엔드포인트를 호출한 다음 `CompletableFuture`에 결과 값을 설정합니다. 테스트가 완료되기 전에 `CompletableFuture`가 완료되기를 기다리고 결과를 확인합니다.
+
+이를 통해 컨트롤러에서 비동기 처리를 수행하는 경우에도 테스트할 수 있습니다.
 
 
 -----------------
+주어진 컨트롤러 클래스 `MyController`에 대한 단위 테스트를 만들어보겠습니다. 이 테스트는 `MyService`의 `handlePostProcessing` 메서드가 호출되는지와 응답이 예상대로 생성되는지를 확인할 것입니다.
 
+먼저, 다음과 같이 `MyController`의 테스트 코드를 작성합니다.
+
+```java
 import static org.mockito.Mockito.*;
 
 @RunWith(SpringRunner.class)
@@ -285,6 +299,8 @@ public class MyControllerTest {
             .andExpect(content().string(expectedResult));
     }
 }
+```
 
+이 테스트는 `MyController`의 `getSomeData` 엔드포인트를 호출하고, `CompletableFuture`가 완료될 때까지 기다린 후, `myService.handlePostProcessing`가 예상대로 호출되는지 확인하고 응답 본문이 예상된 결과와 일치하는지 검증합니다.
 
-위의 조언을 고려하여 테스트 코드를 수정하고 `request().asyncStarted()`가 제대로 작동하도록 해 보세요.
+테스트가 정상적으로 작동하려면 `MyService` 클래스의 `handlePostProcessing` 메서드가 예상된 대로 동작해야 합니다. 필요한 경우 `myService`를 모의(Mock) 객체로 설정하여 테스트에서 원하는 동작을 구현하십시오.
