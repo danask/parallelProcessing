@@ -196,4 +196,95 @@ result.getAsyncResult().get(5, TimeUnit.SECONDS);
 
 5. **Spring Boot 버전 확인**: Spring Boot 버전에 따라 비동기 요청 처리 방식이 다를 수 있으므로 Spring Boot 버전을 확인하고 적절한 방식으로 테스트 코드를 작성해야 합니다.
 
+------------------
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
+
+@WebMvcTest(MyController.class)
+public class MyControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testGetSomeData() throws Exception {
+        // 모의 비동기 작업을 생성하고 CompletableFuture를 반환합니다.
+        CompletableFuture<String> future = new CompletableFuture<>();
+
+        // 컨트롤러에서 비동기 작업 실행 및 CompletableFuture 반환
+        MvcResult mvcResult = mockMvc.perform(get("/api/some-endpoint")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        // CompletableFuture에 결과 값을 설정합니다.
+        future.complete("Some data from async process");
+
+        // CompletableFuture가 완료될 때까지 기다립니다.
+        String responseContent = mvcResult.getResponse().getContentAsString();
+        assertThat(responseContent).isEqualTo("Response sent!");
+
+        // 비동기 작업 결과를 확인합니다.
+        String asyncResult = future.get(5, TimeUnit.SECONDS);
+        assertThat(asyncResult).isEqualTo("Some data from async process");
+    }
+}
+
+
+-----------------
+
+import static org.mockito.Mockito.*;
+
+@RunWith(SpringRunner.class)
+@WebMvcTest(MyController.class)
+public class MyControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockBean
+    private MyService myService;
+
+    @Test
+    public void testGetSomeData() throws Exception {
+        String expectedResult = "Some data from async process";
+
+        // 모의 CompletableFuture를 만듭니다.
+        CompletableFuture<String> future = new CompletableFuture<>();
+        future.complete(expectedResult);
+
+        // myService.handlePostProcessing()가 호출될 때 예상된 결과로 모의 설정합니다.
+        doNothing().when(myService).handlePostProcessing(expectedResult);
+
+        // 컨트롤러의 엔드포인트를 호출하고 CompletableFuture가 완료될 때까지 대기합니다.
+        MvcResult result = mockMvc.perform(get("/api/some-endpoint"))
+            .andExpect(request().asyncStarted())
+            .andReturn();
+
+        // CompletableFuture가 완료될 때까지 대기합니다.
+        result.getAsyncResult();
+
+        // myService.handlePostProcessing()가 호출되었는지 확인합니다.
+        verify(myService).handlePostProcessing(expectedResult);
+
+        // 응답 본문을 검증합니다.
+        mockMvc.perform(asyncDispatch(result))
+            .andExpect(status().isOk())
+            .andExpect(content().string(expectedResult));
+    }
+}
+
+
 위의 조언을 고려하여 테스트 코드를 수정하고 `request().asyncStarted()`가 제대로 작동하도록 해 보세요.
