@@ -91,3 +91,75 @@ public class ExampleService {
 ```
 
 위의 코드에서는 `/example/data/{id}` 엔드포인트를 통해 데이터를 비동기로 반환하는 예제를 제시하고 있습니다. 이때 `DeferredResult`를 사용하여 비동기 응답을 처리하며, `@Cacheable` 어노테이션을 사용하여 데이터를 캐시에서 검색합니다. 만약 캐시에 데이터가 없는 경우에는 서비스 메소드를 호출하여 데이터를 가져오고, 가져온 데이터를 캐시에 저장합니다.
+
+--------------------------
+
+`@Cacheable` 어노테이션 대신에 함수로만 캐시된 데이터를 가져오는 예제를 보여드리겠습니다. 이를 위해서는 Spring의 `CacheManager`를 직접 사용하여 캐시에 접근하고 데이터를 가져올 수 있습니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.stereotype.Service;
+
+@Service
+public class ExampleService {
+
+    private final CacheManager cacheManager;
+
+    @Autowired
+    public ExampleService(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    public String getCachedData(String cacheName, String key) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            Cache.ValueWrapper wrapper = cache.get(key);
+            if (wrapper != null) {
+                return (String) wrapper.get();
+            }
+        }
+        return null; // 캐시에 데이터가 없는 경우
+    }
+
+    public void storeDataInCache(String cacheName, String key, String data) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.put(key, data);
+        }
+    }
+
+    public void evictCachedData(String cacheName, String key) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.evict(key);
+        }
+    }
+    
+    public String fetchDataFromDatabase(String id) {
+        // 데이터베이스에서 데이터를 가져오는 로직
+    }
+
+    public String getData(String id) {
+        String cacheName = "dataCache";
+        String key = id;
+
+        // 캐시에서 데이터 검색
+        String cachedData = getCachedData(cacheName, key);
+        if (cachedData != null) {
+            return cachedData;
+        }
+
+        // 캐시에 데이터가 없는 경우 데이터베이스에서 데이터를 가져옴
+        String data = fetchDataFromDatabase(id);
+
+        // 가져온 데이터를 캐시에 저장
+        storeDataInCache(cacheName, key, data);
+
+        return data;
+    }
+}
+```
+
+위의 코드에서 `ExampleService` 클래스는 `CacheManager`를 사용하여 캐시에 직접 접근합니다. `getCachedData()` 함수는 캐시에서 데이터를 가져오고, `storeDataInCache()` 함수는 데이터를 캐시에 저장하며, `evictCachedData()` 함수는 캐시에서 데이터를 제거합니다. 이 함수들을 이용하여 캐시를 다룰 수 있으며, `getData()` 함수에서는 캐시에 데이터가 없는 경우 데이터베이스에서 데이터를 가져와 캐시에 저장합니다.
