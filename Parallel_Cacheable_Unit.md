@@ -163,3 +163,103 @@ public class ExampleService {
 ```
 
 위의 코드에서 `ExampleService` 클래스는 `CacheManager`를 사용하여 캐시에 직접 접근합니다. `getCachedData()` 함수는 캐시에서 데이터를 가져오고, `storeDataInCache()` 함수는 데이터를 캐시에 저장하며, `evictCachedData()` 함수는 캐시에서 데이터를 제거합니다. 이 함수들을 이용하여 캐시를 다룰 수 있으며, `getData()` 함수에서는 캐시에 데이터가 없는 경우 데이터베이스에서 데이터를 가져와 캐시에 저장합니다.
+
+
+---------------------------
+
+클래스 형태의 객체를 사용하여 캐시된 데이터를 가져오고, cacheName과 key를 지정하는 예제를 아래에 제시합니다. 이 예제에서는 Spring의 `CacheManager`를 직접 사용하여 캐시 작업을 수행합니다.
+
+1. 데이터 객체 클래스:
+
+```java
+public class CachedData {
+    private String id;
+    private String value;
+
+    // 생성자, getter, setter 메소드 생략
+}
+```
+
+2. 캐시 관리를 위한 서비스 클래스:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.stereotype.Service;
+
+@Service
+public class CacheService {
+
+    private final CacheManager cacheManager;
+
+    @Autowired
+    public CacheService(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    // 캐시에 데이터를 저장하는 메소드
+    public void putData(String cacheName, String key, CachedData data) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.put(key, data);
+        }
+    }
+
+    // 캐시에서 데이터를 가져오는 메소드
+    public CachedData getData(String cacheName, String key) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            Cache.ValueWrapper valueWrapper = cache.get(key);
+            if (valueWrapper != null) {
+                return (CachedData) valueWrapper.get();
+            }
+        }
+        return null; // 캐시에 데이터가 없는 경우
+    }
+}
+```
+
+3. 컨트롤러에서 캐시 사용 예제:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/example")
+public class ExampleController {
+
+    private final CacheService cacheService;
+
+    @Autowired
+    public ExampleController(CacheService cacheService) {
+        this.cacheService = cacheService;
+    }
+
+    @GetMapping("/data/{id}")
+    public CachedData getData(@PathVariable String id) {
+        String cacheName = "dataCache";
+        CachedData cachedData = cacheService.getData(cacheName, id);
+
+        if (cachedData == null) {
+            // 캐시에서 데이터를 찾지 못한 경우, 실제 데이터를 가져와서 캐시에 저장
+            cachedData = fetchDataFromDatabase(id);
+            cacheService.putData(cacheName, id, cachedData);
+        }
+
+        return cachedData;
+    }
+
+    // 실제 데이터를 가져오는 메소드 (예시)
+    private CachedData fetchDataFromDatabase(String id) {
+        // 데이터베이스에서 데이터를 가져오는 로직
+        // 적절한 CachedData 객체를 생성하여 반환
+    }
+}
+```
+
+이 예제에서 `CacheService` 클래스를 사용하여 캐시에 데이터를 저장하고 가져오는 메소드를 구현합니다. 컨트롤러에서는 캐시에 데이터를 검색하고, 데이터가 존재하지 않는 경우 데이터베이스에서 가져온 데이터를 캐시에 저장합니다.
