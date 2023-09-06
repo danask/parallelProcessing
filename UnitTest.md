@@ -389,3 +389,64 @@ public class MyControllerUnitTest {
 위의 코드에서 `MockMvcBuilders.standaloneSetup(myController)`를 사용하여 `MyController`를 독립적으로 설정한 MockMvc 인스턴스를 생성합니다. 그런 다음 이 인스턴스를 사용하여 컨트롤러의 엔드포인트를 호출하고 결과를 검증할 수 있습니다.
 
 이렇게하면 `@RunWith(SpringRunner.class)`를 사용하지 않고도 `DeferredResult`를 사용하는 Spring 컨트롤러를 테스트할 수 있습니다.
+
+
+-----------------------------------
+
+`@RunWith(SpringRunner.class)` 없이 `DeferredResult`를 테스트하는 경우 스프링 컨텍스트가 로드되지 않으므로 `@Autowired` 및 관련 스프링 구성 요소를 사용할 수 없습니다. 그럼에도 불구하고 `DeferredResult`를 테스트하기 위해 MockMvc와 JUnit을 사용하여 단위 테스트를 작성할 수 있습니다. 다음은 해당 예제입니다.
+
+```java
+import org.junit.Test;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
+
+import java.util.concurrent.CompletableFuture;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@RestController
+public class MyController {
+
+    @GetMapping("/async")
+    public DeferredResult<String> asyncEndpoint() {
+        DeferredResult<String> deferredResult = new DeferredResult<>();
+
+        // 비동기 작업 시작
+        CompletableFuture.supplyAsync(() -> {
+            // 비즈니스 로직 (예: 데이터 검색)
+            String result = fetchData();
+            deferredResult.setResult(result);
+            return result;
+        });
+
+        return deferredResult;
+    }
+
+    // 이 메서드는 실제 데이터를 검색하는 것으로 가정합니다.
+    private String fetchData() {
+        // 여기서는 단순히 예제를 위해 "Data not found"를 반환합니다.
+        return "Data not found";
+    }
+}
+
+public class MyControllerTest {
+
+    @Test
+    public void testAsyncEndpoint() throws Exception {
+        MyController myController = new MyController();
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(myController).build();
+
+        // 컨트롤러 엔드포인트 호출
+        mockMvc.perform(get("/async"))
+                .andExpect(request().asyncStarted())
+                .andExpect(request().asyncResult("Data not found")) // 예상 결과를 검증
+                .andExpect(status().isOk());
+    }
+}
+```
+
+이 테스트는 `@RunWith(SpringRunner.class)` 없이 `MockMvcBuilders.standaloneSetup()`을 사용하여 컨트롤러를 설정하고, 컨트롤러 엔드포인트를 호출한 후 `asyncResult`를 사용하여 DeferredResult의 예상 결과를 검증합니다. 이 경우 "Data not found"가 예상 결과이며, 상태 코드는 200 OK로 예상됩니다.
