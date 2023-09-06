@@ -304,3 +304,88 @@ public class MyControllerTest {
 이 테스트는 `MyController`의 `getSomeData` 엔드포인트를 호출하고, `CompletableFuture`가 완료될 때까지 기다린 후, `myService.handlePostProcessing`가 예상대로 호출되는지 확인하고 응답 본문이 예상된 결과와 일치하는지 검증합니다.
 
 테스트가 정상적으로 작동하려면 `MyService` 클래스의 `handlePostProcessing` 메서드가 예상된 대로 동작해야 합니다. 필요한 경우 `myService`를 모의(Mock) 객체로 설정하여 테스트에서 원하는 동작을 구현하십시오.
+
+
+------------------------------
+
+
+Spring Boot 2.2 버전부터는 `@RunWith(SpringRunner.class)`를 사용하지 않고도 테스트를 작성할 수 있도록 JUnit 5의 `@SpringBootTest`와 `@AutoConfigureMockMvc` 어노테이션을 사용할 수 있습니다. JUnit 5와 Spring Boot 2.2 이상을 사용하는 경우 다음과 같이 유닛 테스트를 작성할 수 있습니다.
+
+```java
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+public class MyControllerUnitTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testAsyncEndpoint() throws Exception {
+        mockMvc.perform(get("/async"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("DeferredResult Test"));
+    }
+}
+```
+
+JUnit 5의 `@SpringBootTest`는 Spring Boot 애플리케이션 컨텍스트를 자동으로 로드하며, `@AutoConfigureMockMvc`는 MockMvc를 자동으로 구성하여 컨트롤러를 테스트할 수 있도록 해줍니다. 이를 통해 `@RunWith(SpringRunner.class)`를 사용하지 않고도 Spring Boot 애플리케이션의 유닛 테스트를 작성할 수 있습니다.
+
+
+`@RunWith(SpringRunner.class)` 없이 Spring MVC 컨트롤러에서 `DeferredResult`를 테스트하려면 `MockMvcBuilders.standaloneSetup()`을 사용하여 독립된 MockMvc 인스턴스를 생성할 수 있습니다. 아래는 이를 수행하는 방법을 보여주는 예제입니다.
+
+먼저, 컨트롤러와 테스트 코드를 만들어 보겠습니다.
+
+```java
+@RestController
+public class MyController {
+
+    @GetMapping("/async")
+    public DeferredResult<String> asyncEndpoint() {
+        DeferredResult<String> deferredResult = new DeferredResult<>();
+
+        // 비동기 작업 시작
+        CompletableFuture.supplyAsync(() -> {
+            // 실제 비즈니스 로직 수행
+            String result = "DeferredResult Test";
+            deferredResult.setResult(result);
+            return result;
+        });
+
+        return deferredResult;
+    }
+}
+```
+
+이제 `DeferredResult`를 사용하는 컨트롤러의 유닛 테스트를 작성해 보겠습니다.
+
+```java
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+public class MyControllerUnitTest {
+
+    @Test
+    public void testAsyncEndpoint() throws Exception {
+        MyController myController = new MyController();
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(myController).build();
+
+        mockMvc.perform(MockMvcRequestBuilders.get("/async"))
+                .andExpect(MockMvcResultMatchers.status().isOk())
+                .andExpect(MockMvcResultMatchers.content().string("DeferredResult Test"));
+    }
+}
+```
+
+위의 코드에서 `MockMvcBuilders.standaloneSetup(myController)`를 사용하여 `MyController`를 독립적으로 설정한 MockMvc 인스턴스를 생성합니다. 그런 다음 이 인스턴스를 사용하여 컨트롤러의 엔드포인트를 호출하고 결과를 검증할 수 있습니다.
+
+이렇게하면 `@RunWith(SpringRunner.class)`를 사용하지 않고도 `DeferredResult`를 사용하는 Spring 컨트롤러를 테스트할 수 있습니다.
