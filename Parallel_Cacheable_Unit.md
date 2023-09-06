@@ -263,3 +263,60 @@ public class ExampleController {
 ```
 
 이 예제에서 `CacheService` 클래스를 사용하여 캐시에 데이터를 저장하고 가져오는 메소드를 구현합니다. 컨트롤러에서는 캐시에 데이터를 검색하고, 데이터가 존재하지 않는 경우 데이터베이스에서 가져온 데이터를 캐시에 저장합니다.
+
+
+---------------------------
+
+예, 캐시 키가 존재하는지 확인할 수 있습니다. Spring의 `Cache` 인터페이스를 사용하면 캐시에서 특정 키가 존재하는지 확인할 수 있습니다. 아래에 확인하는 방법을 보여주는 예제를 제시하겠습니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.stereotype.Service;
+
+@Service
+public class CacheService {
+
+    private final CacheManager cacheManager;
+
+    @Autowired
+    public CacheService(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    // 캐시에 데이터를 저장하는 메소드
+    public void putData(String cacheName, String key, CachedData data) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.put(key, data);
+        }
+    }
+
+    // 캐시에서 데이터를 가져오는 메소드
+    public CachedData getData(String cacheName, String key) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            Cache.ValueWrapper valueWrapper = cache.get(key);
+            if (valueWrapper != null) {
+                return (CachedData) valueWrapper.get();
+            }
+        }
+        return null; // 캐시에 데이터가 없는 경우
+    }
+
+    // 캐시에서 특정 키가 존재하는지 확인하는 메소드
+    public boolean isKeyPresent(String cacheName, String key) {
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            Cache.ValueWrapper valueWrapper = cache.get(key);
+            return valueWrapper != null;
+        }
+        return false; // 캐시 자체가 없는 경우
+    }
+}
+```
+
+위의 `isKeyPresent` 메소드를 사용하여 특정 캐시에서 키가 존재하는지 확인할 수 있습니다. 이 메소드는 `Cache.ValueWrapper`를 사용하여 해당 키가 캐시에 있는지 확인하고, 캐시가 존재하지 않는 경우 `false`를 반환합니다.
+
+캐시 키의 존재 여부를 확인할 때, `isKeyPresent` 메소드를 호출하여 캐시 키가 존재하는지 여부를 판단하고, 이에 따라 추가적인 로직을 수행할 수 있습니다.
