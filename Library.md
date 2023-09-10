@@ -1,3 +1,5 @@
+https://m.blog.naver.com/PostView.naver?blogId=writer0713&logNo=222249266550&proxyReferer=https:%2F%2Fl.facebook.com%2F
+
 IntelliJ IDEA에서 Spring Boot 프로젝트에서 사용되는 공통 패키지를 라이브러리로 만들려면 다음 단계를 따를 수 있습니다. 이것은 IntelliJ IDEA에서 진행하는 일반적인 방법입니다.
 
 1. IntelliJ IDEA에서 새 프로젝트를 엽니다.
