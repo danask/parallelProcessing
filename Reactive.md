@@ -82,3 +82,84 @@ Mono<Void> asyncTask = Mono.fromRunnable(() -> {
 
 어떤 스케줄러를 선택할지는 작업의 성격과 사용 사례에 따라 다릅니다. CPU 바운드 작업을 수행할 때는 `parallel` 스케줄러가 적합하며, I/O 바운드 작업을 수행할 때는 `boundedElastic` 스케줄러를 고려해보는 것이 좋습니다. 이러한 스케줄러를 적절하게 선택하면 리액티브 애플리케이션의 성능을 최적화할 수 있습니다.
 
+
+----------------------
+
+
+Reactive 프로그래밍 모델을 사용하는 API를 호출할 때 Front-end에서 값을 표시하는 문제가 발생하는 이유는 다양할 수 있습니다. 이러한 문제를 해결하기 위해서는 다음과 같은 요소들을 고려해야 합니다.
+
+1. **비동기 처리**: Reactive API는 비동기적으로 동작하는 경우가 많습니다. 즉, API 요청을 보내면 즉시 응답을 기다리지 않고 다른 작업을 수행하다가 응답을 받았을 때 처리합니다. 이로 인해 Front-end에서는 응답을 받기 전에 렌더링이 완료되어 화면에 데이터가 표시되지 않을 수 있습니다.
+
+2. **구독**: Reactive API를 사용할 때는 API 응답을 구독해야 합니다. Mono 또는 Flux와 같은 Reactive 타입의 데이터를 구독하지 않으면 해당 데이터를 수신할 수 없습니다. Front-end에서 Reactive API를 호출하고 구독하지 않으면 데이터를 받지 못하므로 값을 표시할 수 없습니다.
+
+3. **에러 처리**: Reactive API는 에러가 발생할 수 있으므로 에러 처리도 고려해야 합니다. API 호출 중에 예외가 발생하면 Front-end에서 적절히 처리해야 합니다.
+
+4. **동기화**: Front-end에서 Reactive API를 호출한 후 API 응답을 받을 때까지 화면이 동기화되지 않으면 데이터가 표시되지 않을 수 있습니다. 이를 위해 로딩 표시 또는 비동기 처리를 구현할 수 있습니다.
+
+5. **프론트엔드 라이브러리 및 프레임워크**: 사용 중인 프론트엔드 라이브러리 또는 프레임워크에 따라 Reactive API와의 통합 방법이 다를 수 있습니다. 프론트엔드에서 Reactive API와 상호작용하는 방법을 정확히 이해하고 해당 라이브러리 또는 프레임워크의 문서를 참고하는 것이 중요합니다.
+
+문제 해결을 위해 다음과 같은 단계를 따를 수 있습니다.
+
+1. Front-end에서 Reactive API를 호출할 때 적절한 방법으로 데이터를 구독하십시오.
+2. API 응답을 받았을 때 데이터를 화면에 표시하기 위한 적절한 로직을 구현하십시오.
+3. 에러 처리 및 예외 처리를 구현하여 문제를 해결하십시오.
+4. 화면 동기화 및 로딩 표시를 고려하여 사용자 경험을 개선하십시오.
+
+또한 Front-end와 Backend 간의 통신을 디버깅하여 문제를 해결하는 데 도움이 될 수 있는 도구 및 기술을 활용할 수 있습니다.
+
+React를 사용하여 Reactive API를 호출하고 값을 표시하는 간단한 예제를 제공하겠습니다. 이 예제에서는 React와 Axios를 사용하여 백엔드에서 데이터를 비동기적으로 가져와서 화면에 표시합니다.
+
+먼저, React 애플리케이션을 생성하고 Axios를 설치해야 합니다.
+
+```bash
+npx create-react-app reactive-api-example
+cd reactive-api-example
+npm install axios
+```
+
+그런 다음, React 컴포넌트를 작성하여 Reactive API를 호출하고 결과를 화면에 표시합니다.
+
+```jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function App() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // 비동기 API 호출
+    axios.get('/api/some-endpoint')
+      .then(response => {
+        // API 응답을 받았을 때 데이터 설정
+        setData(response.data);
+        setLoading(false);
+      })
+      .catch(error => {
+        // 에러 처리
+        console.error('API 호출 중 에러:', error);
+        setLoading(false);
+      });
+  }, []);
+
+  return (
+    <div className="App">
+      <h1>Reactive API 예제</h1>
+      {loading ? (
+        <p>데이터를 불러오는 중...</p>
+      ) : (
+        <div>
+          <h2>API 응답:</h2>
+          <p>{data}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
+```
+
+위의 코드에서는 `useEffect`를 사용하여 컴포넌트가 마운트될 때 한 번만 API를 호출하고, Axios를 사용하여 비동기적으로 API를 호출합니다. API 호출이 완료되면 데이터가 `data` 상태에 설정되고, 화면에 표시됩니다. 에러 처리도 구현되어 있습니다.
+
+물론 이 예제에서는 React와 Axios를 사용하여 비동기 API를 호출하고 화면에 데이터를 표시하는 기본적인 예제를 제공했습니다. 실제 프로젝트에서는 보다 복잡한 상황에 대비하여 상태 관리와 더 많은 에러 처리 로직을 추가해야 할 수 있습니다.
