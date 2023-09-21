@@ -241,3 +241,53 @@ public void putData(String cacheName, String key, Profile profile) {
 ```
 
 이렇게 하면 `Profile` 객체 대신 `dataMap`을 캐시에 저장하게 됩니다. 이 방법은 클래스 정보를 캐시 키로 사용하지 않고 원하는 데이터 구조로 변환하여 저장하는 방법입니다.
+
+
+---------------------
+
+이러한 `SerializationException`과 "Could not read JSON"과 같은 에러는 Jackson 라이브러리를 사용하여 JSON 직렬화 및 역직렬화할 때 발생합니다. 이 에러는 Jackson이 역직렬화할 때 클래스에 기본 생성자가 없는 경우 발생합니다. "java.util.ArrayList$SubList"와 같은 클래스에는 기본 생성자가 없기 때문에 Jackson이 역직렬화를 처리하지 못하게 됩니다.
+
+이 문제를 해결하기 위한 몇 가지 방법을 제시합니다:
+
+1. **직렬화 클래스 수정:** `java.util.ArrayList$SubList`와 같은 클래스를 사용하는 데이터 구조를 수정하여 Jackson이 역직렬화를 수행할 수 있도록 만들 수 있습니다. 이를 위해 클래스에 기본 생성자를 추가하거나 Jackson에서 역직렬화할 때 무시하도록 설정할 수 있습니다.
+
+    ```java
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public class MySubList extends ArrayList {
+        // 기본 생성자 추가
+        public MySubList() {
+            super();
+        }
+    }
+    ```
+
+    이렇게 클래스를 수정하면 Jackson이 해당 클래스를 역직렬화할 때 문제를 해결할 수 있습니다.
+
+2. **Mixin 클래스 사용:** Jackson에서 Mixin 클래스를 사용하여 역직렬화할 클래스를 수정하거나 무시하도록 설정할 수 있습니다. Mixin 클래스는 클래스의 역직렬화 방법을 변경하는 데 도움이 됩니다.
+
+    ```java
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public abstract class ArrayListMixin extends ArrayList<Object> {
+        // 믹스인 클래스
+    }
+    ```
+
+    그런 다음 ObjectMapper에 Mixin 클래스를 등록합니다.
+
+    ```java
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.addMixIn(ArrayList.class, ArrayListMixin.class);
+    ```
+
+    이렇게 하면 Jackson이 `java.util.ArrayList$SubList`를 처리할 때 믹스인 클래스의 설정을 따르게 됩니다.
+
+3. **Jackson 설정 수정:** Spring Boot에서 Jackson의 ObjectMapper 설정을 수정하여 역직렬화 중에 클래스 생성자를 호출하지 않도록 설정할 수 있습니다. 이렇게 하면 Jackson이 역직렬화를 시도할 때 클래스의 생성자를 호출하지 않습니다.
+
+    ```java
+    ObjectMapper objectMapper = new ObjectMapper();
+    objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    ```
+
+    이 설정을 사용하면 Jackson이 무시할 수 없는 속성이나 생성자가 없는 클래스와 관련된 에러를 발생시키지 않습니다.
+
+어떤 방법을 선택할지는 프로젝트의 요구사항과 상황에 따라 다를 수 있습니다. 클래스를 수정하거나 Mixin 클래스를 사용하는 방법은 클래스의 수정이 가능한 경우 유용합니다. 그러나 Jackson의 ObjectMapper 설정을 변경하는 방법은 전역적으로 영향을 미칠 수 있으므로 주의해야 합니다.
