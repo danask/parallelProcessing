@@ -189,3 +189,26 @@ public class CacheService {
 ```
 
 위의 코드에서 `putData` 메서드에서 클래스 이름을 직접 추출하여 캐시 키로 사용했습니다. 이 방식은 클래스 이름을 추출하고 나중에 캐시에서 데이터를 검색할 때 동일한 클래스 이름을 사용하여 데이터를 가져옵니다.
+
+
+`Profile` 클래스 내부의 `Name` 클래스가 클래스 이름 대신 패키지 경로를 포함하여 캐시에 저장되는 문제를 해결하려면 `Name` 클래스에 대한 `toString()` 메서드를 오버라이드하여 클래스 이름만 반환하도록 만들면 됩니다.
+
+여기서는 `Name` 클래스를 수정하고 `toString()` 메서드를 추가하는 방법을 제시합니다:
+
+```java
+public class Name {
+    private String firstName;
+    private String lastName;
+
+    // 생성자, getter, setter 등의 코드
+
+    @Override
+    public String toString() {
+        return getClass().getSimpleName(); // 클래스 이름만 반환
+    }
+}
+```
+
+위의 코드에서 `Name` 클래스의 `toString()` 메서드는 `getClass().getSimpleName()`를 사용하여 클래스의 단순 이름 (패키지 경로 없이)을 반환합니다. 이렇게 하면 `Name` 클래스의 객체를 캐시로 저장할 때 패키지 경로가 아닌 클래스 이름만 캐시 키로 사용됩니다.
+
+이렇게 수정한 후 `putData` 메서드를 호출하면 `Name` 클래스의 객체가 클래스 이름만을 포함하여 캐시에 저장될 것입니다.
