@@ -109,3 +109,83 @@ Spring에서 `@Cacheable` 어노테이션을 사용하면 캐시 설정이 실�
 4. **테스트 및 디버깅:** `CacheManager` 구성을 테스트하고, 실패한 이유를 식별하고 디버깅하는 데 시간을 투자하십시오. 로그를 자세히 확인하여 문제를 찾을 수 있습니다.
 
 `CacheManager`가 실패한 경우에는 캐싱 기능을 사용할 수 없게 되므로 어플리케이션의 성능에 영향을 미칠 수 있습니다. 따라서 `CacheManager` 설정에 대한 문제를 신속하게 해결하는 것이 좋습니다.
+
+
+----------------------
+
+Spring의 캐시 기능은 기본적으로 캐시 객체의 클래스 이름을 전체 패키지 경로와 함께 사용하여 캐시 키를 생성합니다. 이 동작은 캐시 키의 고유성을 보장하기 위한 것이지만 때로는 클래스 이름만을 사용하고자 할 수 있습니다.
+
+클래스 이름만 사용하려면 다음과 같은 방법을 고려할 수 있습니다:
+
+1. **Custom Cache Key Generator (커스텀 캐시 키 생성기):** Spring에서는 캐시 키를 생성하는데 사용되는 `KeyGenerator`를 커스터마이징할 수 있습니다. 이를 통해 클래스 이름만을 캐시 키로 사용할 수 있습니다.
+
+2. **toString() 오버라이드:** 캐시 객체 클래스에서 `toString()` 메서드를 오버라이드하여 클래스 이름만 반환하도록 수정할 수 있습니다.
+
+3. **클래스 이름 추출 후 사용:** 캐시 객체를 저장하기 전에 해당 객체의 클래스 이름을 추출하여 캐시 키로 사용할 수 있습니다.
+
+아래에 각 방법을 더 자세히 설명하겠습니다:
+
+**Custom Cache Key Generator (커스텀 캐시 키 생성기)를 사용한 방법:**
+
+```java
+import org.springframework.cache.interceptor.KeyGenerator;
+import org.springframework.stereotype.Component;
+import java.lang.reflect.Method;
+
+@Component
+public class CustomCacheKeyGenerator implements KeyGenerator {
+
+    @Override
+    public Object generate(Object target, Method method, Object... params) {
+        String className = target.getClass().getName(); // 클래스 이름 추출
+        // 다른 로직을 추가하여 캐시 키 생성
+        return className;
+    }
+}
+```
+
+위의 `CustomCacheKeyGenerator` 클래스는 클래스 이름만을 캐시 키로 사용하도록 설정합니다. 이 커스텀 캐시 키 생성기를 사용하려면 적절한 메서드에 `keyGenerator` 속성을 설정하면 됩니다.
+
+**toString() 메서드 오버라이드를 사용한 방법:**
+
+```java
+public class CachedData {
+    private String id;
+    private String value;
+
+    // 기타 필드, 생성자, getter 및 setter 생략
+
+    @Override
+    public String toString() {
+        return this.getClass().getName(); // 클래스 이름 반환
+    }
+}
+```
+
+위의 코드에서 `CachedData` 클래스의 `toString()` 메서드를 오버라이드하여 클래스 이름만 반환하도록 설정했습니다. 이렇게 하면 캐시 키로 클래스 이름만 사용됩니다.
+
+**클래스 이름 추출 후 사용하는 방법:**
+
+```java
+public class CacheService {
+
+    private final CacheManager cacheManager;
+
+    @Autowired
+    public CacheService(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    public void putData(String cacheName, String key, Object data) {
+        String className = data.getClass().getName(); // 클래스 이름 추출
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.put(className, data); // 클래스 이름을 캐시 키로 사용
+        }
+    }
+
+    // 기타 메서드
+}
+```
+
+위의 코드에서 `putData` 메서드에서 클래스 이름을 직접 추출하여 캐시 키로 사용했습니다. 이 방식은 클래스 이름을 추출하고 나중에 캐시에서 데이터를 검색할 때 동일한 클래스 이름을 사용하여 데이터를 가져옵니다.
