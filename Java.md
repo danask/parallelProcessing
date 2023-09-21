@@ -53,3 +53,47 @@ try {
 ```
 
 위 코드에서 "privateField"는 가져오려는 필드의 이름으로 대체해야 합니다. 필드 이름을 정확하게 지정하고 필드가 존재하면 해당 필드의 값을 가져올 수 있습니다.
+
+------------------
+
+Java에서 부모 클래스가 가지고 있는 필드를 가져오려면 리플렉션을 사용하여 해당 부모 클래스의 필드 정보를 가져와야 합니다. 다음과 같이 부모 클래스의 필드 정보를 가져오는 방법을 사용할 수 있습니다.
+
+```java
+import java.lang.reflect.Field;
+
+public class Main {
+    public static void main(String[] args) {
+        Child child = new Child();
+        Class<?> clazz = child.getClass();
+
+        // 부모 클래스의 필드 정보 가져오기
+        Class<?> parentClass = clazz.getSuperclass();
+        Field[] parentFields = parentClass.getDeclaredFields();
+
+        // 부모 클래스의 필드 값 가져오기
+        try {
+            for (Field field : parentFields) {
+                field.setAccessible(true); // private 필드에 접근 가능하게 설정
+                Object value = field.get(child); // 부모 클래스의 필드 값 가져옴
+                String fieldName = field.getName(); // 필드의 이름을 가져옴
+
+                System.out.println("Field Name: " + fieldName + ", Field Value: " + value);
+            }
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+class Parent {
+    private int parentPrivateField = 10;
+    public String parentPublicField = "Hello from parent";
+}
+
+class Child extends Parent {
+    private int childPrivateField = 20;
+    public String childPublicField = "Hello from child";
+}
+```
+
+위 코드에서 `Parent` 클래스의 필드 정보를 가져오기 위해 `clazz.getSuperclass()`를 사용하여 부모 클래스의 `Class` 객체를 얻고, 그 후에 해당 클래스의 필드 정보를 가져옵니다. 그리고 나서 `field.get(child)`를 통해 부모 클래스의 필드 값을 가져올 수 있습니다.
