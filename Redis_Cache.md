@@ -212,3 +212,32 @@ public class Name {
 위의 코드에서 `Name` 클래스의 `toString()` 메서드는 `getClass().getSimpleName()`를 사용하여 클래스의 단순 이름 (패키지 경로 없이)을 반환합니다. 이렇게 하면 `Name` 클래스의 객체를 캐시로 저장할 때 패키지 경로가 아닌 클래스 이름만 캐시 키로 사용됩니다.
 
 이렇게 수정한 후 `putData` 메서드를 호출하면 `Name` 클래스의 객체가 클래스 이름만을 포함하여 캐시에 저장될 것입니다.
+
+
+-------------------
+
+Java의 `Object` 클래스를 사용하면 클래스 이름과 패키지 정보가 함께 저장될 수 있습니다. `Object` 클래스는 모든 클래스의 부모 클래스이며, `toString()` 메서드를 호출하면 클래스의 정규화된 이름이 반환됩니다.
+
+만약 특정 클래스의 정보를 클래스 이름만으로 캐시하고 싶다면 해당 클래스에서 `toString()` 메서드를 오버라이드하고 클래스 이름만을 반환하도록 만들어야 합니다. 그러나 `Object` 클래스 자체를 수정할 수는 없으므로 다른 방법을 고려해야 합니다.
+
+다음과 같은 옵션을 고려할 수 있습니다:
+
+1. **특정 클래스의 `toString()` 오버라이드:** `Profile` 클래스 또는 해당 클래스의 내부 클래스(`Name`, `Property` 등)에서 `toString()` 메서드를 오버라이드하여 클래스 이름만 반환하도록 설정합니다. 그러나 이 방법은 클래스마다 수정이 필요하며, 모든 클래스에 대해 적용하기 어려울 수 있습니다.
+
+2. **캐싱 전에 데이터 변환:** 데이터를 캐시에 넣기 전에 데이터를 변환하는 작업을 수행하여 클래스 정보를 숨길 수 있습니다. 예를 들어, `Profile` 객체를 캐시에 넣기 전에 `Profile` 객체를 `Map` 또는 다른 데이터 구조로 변환하여 캐시에 저장하면 클래스 정보가 저장되지 않습니다.
+
+예를 들어, 다음과 같이 변환하는 방법이 있습니다:
+
+```java
+public void putData(String cacheName, String key, Profile profile) {
+    Map<String, Object> dataMap = new HashMap<>();
+    dataMap.put("name", profile.getName());
+    dataMap.put("property", profile.getProperty());
+    Cache cache = cacheManager.getCache(cacheName);
+    if (cache != null) {
+        cache.put(key, dataMap);
+    }
+}
+```
+
+이렇게 하면 `Profile` 객체 대신 `dataMap`을 캐시에 저장하게 됩니다. 이 방법은 클래스 정보를 캐시 키로 사용하지 않고 원하는 데이터 구조로 변환하여 저장하는 방법입니다.
