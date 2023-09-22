@@ -336,6 +336,19 @@ public class YourApplication {
 
 ----------------------------
 
+Spring Boot의 스케줄러(Scheduler)를 사용하여 Redis의 `FLUSHALL` 명령을 실행하려면 다음과 같은 단계를 따를 수 있습니다:
+
+1. **스케줄러 구성:** 먼저 Spring Boot 애플리케이션에서 스케줄러를 구성해야 합니다. 이를 위해 `@EnableScheduling` 어노테이션을 사용하여 스케줄링을 활성화하고, `@Scheduled` 어노테이션을 사용하여 주기적으로 실행할 메서드를 정의합니다.
+
+2. **Redis 연결 설정:** Redis를 사용하려면 `RedisConnectionFactory`와 `RedisTemplate`을 구성해야 합니다.
+
+3. **Flush 명령 실행 메서드 구현:** Redis의 `FLUSHALL` 명령을 실행할 메서드를 구현합니다.
+
+4. **스케줄링 설정:** 스케줄러를 사용하여 Redis `FLUSHALL` 명령을 주기적으로 실행하도록 설정합니다.
+
+아래는 이러한 단계를 구체적으로 설명하는 예제입니다:
+
+```java
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -379,3 +392,16 @@ public class YourApplication {
         return redisTemplate;
     }
 }
+```
+
+위 코드에서는 다음과 같은 주요 단계를 수행합니다:
+
+1. `@EnableScheduling` 어노테이션을 사용하여 스케줄링을 활성화합니다.
+
+2. `RedisFlushScheduler` 클래스에서 Redis의 `FLUSHALL` 명령을 실행할 메서드 `flushRedisCache`를 정의하고, `@Scheduled` 어노테이션을 사용하여 매 시간 실행되도록 설정합니다.
+
+3. Redis 연결을 설정하기 위해 `RedisTemplate`을 구성합니다.
+
+4. `flushRedisCache` 메서드에서는 `RedisConnectionFactory`를 사용하여 Redis의 `FLUSHALL` 명령을 실행하고, 실행 결과를 출력합니다.
+
+이제 Spring Boot 애플리케이션이 시작되면 스케줄러를 통해 주기적으로 Redis `FLUSHALL` 명령이 실행됩니다.
