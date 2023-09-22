@@ -332,3 +332,50 @@ public class YourApplication {
 ```
 
 위 코드에서는 `ApplicationReadyEvent` 이벤트가 발생하면 Redis 캐시를 플러시하는 이벤트 리스너를 등록합니다. `cacheFlushApplicationListener` 메서드에서 Redis 캐시를 플러시하는 코드를 정의합니다. 이 방법을 사용하면 Spring Boot 애플리케이션이 시작될 때 Redis 캐시를 플러시할 수 있습니다.
+
+
+----------------------------
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@SpringBootApplication
+@EnableScheduling
+public class YourApplication {
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
+
+    @Component
+    public class RedisFlushScheduler {
+
+        @Autowired
+        private RedisConnectionFactory redisConnectionFactory;
+
+        @Scheduled(cron = "0 0 * * * ?") // 매 시간 실행
+        public void flushRedisCache() {
+            // Redis FLUSHALL 명령 실행
+            redisConnectionFactory.getConnection().flushAll();
+            System.out.println("Redis FLUSHALL 명령이 실행되었습니다.");
+        }
+    }
+
+    // Redis 연결 설정
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+        redisTemplate.setConnectionFactory(redisConnectionFactory);
+        return redisTemplate;
+    }
+}
