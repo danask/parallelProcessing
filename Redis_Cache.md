@@ -291,3 +291,44 @@ public void putData(String cacheName, String key, Profile profile) {
     이 설정을 사용하면 Jackson이 무시할 수 없는 속성이나 생성자가 없는 클래스와 관련된 에러를 발생시키지 않습니다.
 
 어떤 방법을 선택할지는 프로젝트의 요구사항과 상황에 따라 다를 수 있습니다. 클래스를 수정하거나 Mixin 클래스를 사용하는 방법은 클래스의 수정이 가능한 경우 유용합니다. 그러나 Jackson의 ObjectMapper 설정을 변경하는 방법은 전역적으로 영향을 미칠 수 있으므로 주의해야 합니다.
+
+
+---------------------------
+
+Spring Boot의 `SpringApplication`을 사용하여 애플리케이션 시작 시 Redis 캐시를 플러시하는 것은 조금 더 복잡하지만 가능합니다. `SpringApplication`의 이벤트 리스너를 활용하여 이 작업을 수행할 수 있습니다.
+
+Redis 캐시를 플러시하려면 다음과 같은 단계를 따를 수 있습니다:
+
+1. `SpringApplication`에 이벤트 리스너를 등록하여 애플리케이션이 시작될 때 Redis 캐시를 플러시하도록 합니다.
+
+2. `ApplicationRunner` 또는 `CommandLineRunner`를 사용하여 Redis 캐시를 플러시하는 로직을 정의합니다.
+
+아래는 Spring Boot의 `SpringApplication`을 사용하여 Redis 캐시를 플러시하는 예제입니다:
+
+```java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.annotation.Bean;
+import org.springframework.data.redis.cache.RedisCacheManager;
+
+@SpringBootApplication
+public class YourApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
+
+    @Bean
+    public ApplicationListener<ApplicationReadyEvent> cacheFlushApplicationListener(RedisCacheManager cacheManager) {
+        return event -> {
+            // Redis 캐시를 플러시
+            cacheManager.getCacheNames().forEach(cacheName -> cacheManager.getCache(cacheName).clear());
+            System.out.println("Redis 캐시가 플러시되었습니다.");
+        };
+    }
+}
+```
+
+위 코드에서는 `ApplicationReadyEvent` 이벤트가 발생하면 Redis 캐시를 플러시하는 이벤트 리스너를 등록합니다. `cacheFlushApplicationListener` 메서드에서 Redis 캐시를 플러시하는 코드를 정의합니다. 이 방법을 사용하면 Spring Boot 애플리케이션이 시작될 때 Redis 캐시를 플러시할 수 있습니다.
