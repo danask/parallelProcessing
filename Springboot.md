@@ -39,3 +39,67 @@ public class YourConfig {
 6. Maven/Gradle 종속성 확인: 프로젝트의 Maven 또는 Gradle 종속성 파일에 필요한 스프링 라이브러리가 제대로 추가되어 있는지 확인하십시오.
 
 이러한 단계를 따라가면서 해당 에러를 해결할 수 있어야 합니다. 문제가 여전히 해결되지 않는 경우, 더 자세한 정보를 제공하거나 프로젝트의 구체적인 코드와 설정을 검토하여 추가 도움을 드릴 수 있습니다.
+
+
+--------------------------
+
+Spring에서 `@Autowired` 어노테이션을 사용하여 의존성 주입을 시도하였지만, 해당 의존성이 `null`로 남아있는 경우에는 몇 가지 일반적인 이유가 있을 수 있습니다. 아래의 몇 가지 가능한 원인과 해결 방법을 확인해보세요:
+
+1. **Component Scan이 정상적으로 이루어지지 않은 경우:**
+   - `@Autowired`로 주입하려는 클래스와 `@Service`, `@Component`, 또는 `@Repository` 어노테이션이 있는 클래스는 동일한 또는 하위 패키지에 위치해야 합니다. 스프링은 컴포넌트 스캔을 통해 해당 클래스들을 빈으로 등록합니다. 따라서, 먼저 패키지 구조와 어노테이션 설정이 올바르게 되어 있는지 확인하세요.
+
+   ```java
+   package com.example.service;
+   
+   import org.springframework.stereotype.Service;
+   
+   @Service
+   public class YourService {
+       // ...
+   }
+   ```
+
+2. **의존성 주입 대상 클래스가 Spring Bean으로 등록되지 않은 경우:**
+   - `@Autowired`로 주입하려는 클래스가 스프링 빈으로 등록되어 있어야 합니다. 위의 예제처럼 `@Service` 어노테이션을 사용하여 스프링에 해당 클래스를 빈으로 등록하십시오.
+
+3. **해당 클래스의 생성자나 메서드에 매개변수가 제대로 설정되지 않은 경우:**
+   - `@Autowired` 어노테이션을 사용하려면 해당 클래스의 생성자, 메서드, 또는 필드에 어노테이션을 추가해야 합니다. 매개변수의 타입과 의존성 주입 대상 빈의 타입이 일치해야 합니다.
+
+   ```java
+   @Service
+   public class YourService {
+       private final AnotherService anotherService;
+   
+       @Autowired
+       public YourService(AnotherService anotherService) {
+           this.anotherService = anotherService;
+       }
+   }
+   ```
+
+4. **Spring 설정 클래스에 `@ComponentScan`이 설정되어 있지 않은 경우:**
+   - 스프링 부트에서는 주로 메인 애플리케이션 클래스에 `@SpringBootApplication` 어노테이션이 설정되어 있는데, 이 어노테이션에는 `@ComponentScan`이 포함되어 있습니다. 그러나 커스텀 설정을 사용하는 경우에는 `@ComponentScan` 어노테이션을 사용하여 스캔할 범위를 설정해야 합니다.
+
+   ```java
+   @Configuration
+   @ComponentScan(basePackages = "com.example")
+   public class AppConfig {
+       // ...
+   }
+   ```
+
+5. **빈 주입 시점 문제:**
+   - 종종 빈이 생성된 시점보다 빈을 주입하려는 시점이 더 빠를 때 발생하는 문제입니다. 이 경우에는 `@Autowired`를 사용하는 대신, 생성자나 메서드를 호출할 때 해당 빈을 인수로 전달하는 방법으로 해결할 수 있습니다. 
+
+   ```java
+   @Service
+   public class YourService {
+       private final AnotherService anotherService;
+   
+       public YourService(AnotherService anotherService) {
+           this.anotherService = anotherService;
+       }
+   }
+   ```
+
+이러한 단계들을 따라가면서 여전히 문제가 해결되지 않으면, 더 많은 코드 또는 설정 정보를 제공하시면 더 자세한 도움을 드릴 수 있습니다.
