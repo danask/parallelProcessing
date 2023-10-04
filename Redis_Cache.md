@@ -541,3 +541,58 @@ public class YourRedisTest {
 위의 코드에서 `@ActiveProfiles("test")` 어노테이션은 Embedded Redis 설정을 사용할 것임을 나타냅니다. 테스트 클래스에서 `CacheManager`와 `RedisTemplate`을 주입받아 Embedded Redis를 사용한 Redis 연산을 수행할 수 있습니다.
 
 이러한 설정을 사용하면 Embedded Redis를 사용하여 테스트 중에도 `CacheManager`와 `RedisTemplate`을 정상적으로 사용할 수 있습니다. 이 방법은 Embedded Redis를 사용하면서도 실제 Redis와 동일한 방식으로 캐시 및 Redis 데이터 저장 작업을 수행할 수 있게 해줍니다.
+
+
+------------------------
+
+`redisServer.start()`가 동작하지 않는다면 대체로 다음 두 가지 이유가 있을 수 있습니다:
+
+1. **의존성 문제:** Embedded Redis를 사용하기 위해 올바른 의존성을 프로젝트에 추가했는지 확인하십시오. 대부분의 경우 `spring-boot-starter-data-redis` 또는 `redis.embedded`와 같은 의존성을 추가해야 합니다.
+
+    ```xml
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    ```
+
+2. **포트 충돌:** 이미 시스템에서 사용 중인 Redis 또는 다른 프로그램이 선택한 포트 번호를 사용하고 있을 수 있습니다. Embedded Redis를 시작할 때 사용할 포트 번호를 지정하여 충돌을 방지할 수 있습니다.
+
+다른 방법으로 Embedded Redis를 시작하는 대체 방법이 있습니다. 예를 들어, 다음과 같이 `GenericContainer`를 사용하여 Docker를 통해 Embedded Redis를 시작할 수 있습니다. 이 방법은 더 많은 유연성을 제공하고 대부분의 환경에서 동작합니다.
+
+1. **Docker를 사용한 Embedded Redis 시작:**
+
+   ```java
+   import org.testcontainers.containers.GenericContainer;
+
+   public class EmbeddedRedisContainer extends GenericContainer<EmbeddedRedisContainer> {
+
+       public EmbeddedRedisContainer() {
+           super("redis:latest");
+           addExposedPort(6379); // Redis 포트 번호
+       }
+   }
+   ```
+
+   이제 테스트 클래스에서 이 컨테이너를 사용할 수 있습니다.
+
+   ```java
+   import org.junit.jupiter.api.Test;
+   import org.springframework.boot.test.context.SpringBootTest;
+   import org.springframework.test.context.ActiveProfiles;
+   import org.testcontainers.junit.jupiter.Container;
+   import org.testcontainers.junit.jupiter.Testcontainers;
+
+   @SpringBootTest
+   @ActiveProfiles("test")
+   @Testcontainers
+   public class YourRedisTest {
+
+       @Container
+       private static final EmbeddedRedisContainer embeddedRedis = new EmbeddedRedisContainer();
+
+       // 테스트 메소드
+   }
+   ```
+
+이 예제에서는 Testcontainers 라이브러리를 사용하여 Docker 컨테이너를 생성하고 테스트에서 사용합니다. `@Testcontainers` 어노테이션을 사용하면 테스트를 실행할 때 Docker 컨테이너가 자동으로 시작됩니다. 이 방법을 사용하면 다른 환경에서도 테스트를 실행할 때 일관된 Embedded Redis 환경을 얻을 수 있습니다. Testcontainers 라이브러리에 대해 더 알아보려면 [Testcontainers 공식 문서](https://www.testcontainers.org/)를 참고하십시오.
