@@ -475,3 +475,69 @@ Redis의 실시간 모니터링을 위해 여러 도구와 명령어가 있습�
    [Grafana](https://grafana.com/)는 다양한 데이터 소스로부터 데이터를 시각적으로 표시하는 대시보드를 제공하는 오픈 소스 툴입니다. Redis와 Grafana를 연동하여 Redis의 메트릭을 시각적으로 모니터링할 수 있는 대시보드를 구성할 수 있습니다.
 
 이러한 방법들을 사용하여 Redis 서버의 상태를 실시간으로 모니터링할 수 있습니다. 선택한 방법은 환경과 요구사항에 따라 달라질 수 있습니다.
+
+
+-----------------------------
+
+
+물론, 당신이 진행하고 있는 테스트를 통해 Redis를 Embedded 모드로 사용하면서 CacheManager와 RedisTemplate을 사용하는 방법에 대해 자세히 설명하겠습니다.
+
+Embedded Redis를 사용하여 테스트를 수행할 때, 일반적으로 Embedded Redis를 설정한 후 테스트용 RedisConnectionFactory를 생성하고 이를 기반으로 CacheManager와 RedisTemplate을 생성합니다. 이를 위해 여러 클래스와 어노테이션을 사용할 것입니다.
+
+1. **Embedded Redis 설정 클래스 생성:**
+
+```java
+@Configuration
+@Profile("test")
+public class EmbeddedRedisConfig {
+
+    @Value("${spring.redis.port}") // application-test.properties에서 실제 포트 번호를 가져옴
+    private int redisPort;
+
+    @Bean
+    public RedisServer redisServer() throws IOException {
+        RedisServer redisServer = new RedisServer(redisPort);
+        redisServer.start();
+        return redisServer;
+    }
+}
+```
+
+위 설정은 `@Profile("test")` 어노테이션을 통해 `application-test.properties`에서 정의한 Embedded Redis의 포트 번호를 가져와 Embedded Redis를 시작합니다.
+
+2. **테스트 클래스에서 CacheManager와 RedisTemplate 사용:**
+
+```java
+@SpringBootTest
+@ActiveProfiles("test")
+public class YourRedisTest {
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Test
+    public void testRedisOperations() {
+        // Embedded Redis를 사용하여 Redis 연산 수행
+        String key = "testKey";
+        String value = "testValue";
+
+        // RedisTemplate을 사용하여 데이터 저장
+        redisTemplate.opsForValue().set(key, value);
+
+        // CacheManager를 사용하여 캐시에 데이터 저장
+        Cache cache = cacheManager.getCache("yourCacheName");
+        cache.put(key, value);
+
+        // 테스트 로직 검증
+        assertEquals(value, redisTemplate.opsForValue().get(key));
+        assertEquals(value, cache.get(key).get());
+    }
+}
+```
+
+위의 코드에서 `@ActiveProfiles("test")` 어노테이션은 Embedded Redis 설정을 사용할 것임을 나타냅니다. 테스트 클래스에서 `CacheManager`와 `RedisTemplate`을 주입받아 Embedded Redis를 사용한 Redis 연산을 수행할 수 있습니다.
+
+이러한 설정을 사용하면 Embedded Redis를 사용하여 테스트 중에도 `CacheManager`와 `RedisTemplate`을 정상적으로 사용할 수 있습니다. 이 방법은 Embedded Redis를 사용하면서도 실제 Redis와 동일한 방식으로 캐시 및 Redis 데이터 저장 작업을 수행할 수 있게 해줍니다.
