@@ -85,3 +85,35 @@ public class YourServiceClass {
 ```
 
 이 코드에서 `ne(null).ne("")` 부분은 `id` 필드가 `null`이 아니고 빈 문자열이 아닌 문서를 찾습니다. 이렇게 하면 `id` 필드가 존재하고 비어있지 않은 문서를 필터링할 수 있습니다. 이 방법은 빈 배열 뿐만 아니라 `null` 값 또는 빈 문자열을 포함한 경우에도 작동합니다.
+
+--> 안됨
+
+MongoDB에서 배열의 크기가 1보다 큰 문서를 찾기 위해 `$gt` (greater than) 연산자를 사용할 수 있습니다. Spring Data MongoDB에서 이를 사용하는 방법은 다음과 같습니다:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import java.util.List;
+
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<YourEntity> findDocumentsWithNonEmptyIdField() {
+        Query query = new Query();
+        // Criteria를 사용하여 id 필드의 배열 크기가 1보다 큰 문서를 찾습니다.
+        query.addCriteria(Criteria.where("id").exists(true).size().gt(1));
+        
+        // MongoTemplate을 사용하여 쿼리를 실행합니다.
+        List<YourEntity> result = mongoTemplate.find(query, YourEntity.class);
+        return result;
+    }
+}
+```
+
+위 코드에서 `size().gt(1)` 부분은 `id` 필드의 배열 크기가 1보다 큰 문서를 찾습니다. `size()`는 배열의 크기를 검사하고 `gt(1)`은 크기가 1보다 큰지 여부를 확인합니다.
+
+이렇게 하면 `id` 필드의 배열 크기가 1보다 큰 문서를 찾을 수 있습니다.
