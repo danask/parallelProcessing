@@ -58,7 +58,10 @@ public class YourServiceClass {
 
 이 코드에서 `size(1)`은 `id` 필드의 배열 크기가 1 (이상 아닌거 같음)인 문서를 찾습니다. 이 방법은 빈 배열인 문서를 필터링하고 크기가 1 이상인 배열을 갖는 문서만을 반환합니다. 이렇게 하면 빈 배열인 문서를 제외하고 결과를 가져올 수 있습니다.
 
+-> 안됨
+
 죄송합니다. 당신이 원하는 것은 배열의 크기가 0보다 큰 문서를 찾는 것이었습니다. MongoDB의 `$exists` 연산자와 `$ne` 연산자를 사용하여 이를 수행할 수 있습니다.
+
 
 ```java
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,3 +120,35 @@ public class YourServiceClass {
 위 코드에서 `size().gt(1)` 부분은 `id` 필드의 배열 크기가 1보다 큰 문서를 찾습니다. `size()`는 배열의 크기를 검사하고 `gt(1)`은 크기가 1보다 큰지 여부를 확인합니다.
 
 이렇게 하면 `id` 필드의 배열 크기가 1보다 큰 문서를 찾을 수 있습니다.
+
+--> 안됨
+
+알겠습니다. MongoDB에서 `id` 필드의 배열 크기가 0이 아닌 문서를 찾기 위해서는 `$ne` (not equal) 연산자와 `$exists` 연산자를 함께 사용할 수 있습니다. Spring Data MongoDB에서 이를 적용하는 방법은 다음과 같습니다:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import java.util.List;
+
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<YourEntity> findDocumentsWithNonEmptyIdField() {
+        Query query = new Query();
+        // Criteria를 사용하여 id 필드의 배열 크기가 0이 아닌 문서를 찾습니다.
+        query.addCriteria(Criteria.where("id").exists(true).ne(new String[]{}));
+        
+        // MongoTemplate을 사용하여 쿼리를 실행합니다.
+        List<YourEntity> result = mongoTemplate.find(query, YourEntity.class);
+        return result;
+    }
+}
+```
+
+위 코드에서 `ne(new String[]{})` 부분은 `id` 필드의 배열이 빈 배열이 아닌 문서를 찾습니다. 이 방법으로 `id` 필드의 배열 크기가 0이 아닌 문서를 찾을 수 있습니다.
+
+--> 됨
