@@ -103,3 +103,76 @@ Spring에서 `@Autowired` 어노테이션을 사용하여 의존성 주입을 �
    ```
 
 이러한 단계들을 따라가면서 여전히 문제가 해결되지 않으면, 더 많은 코드 또는 설정 정보를 제공하시면 더 자세한 도움을 드릴 수 있습니다.
+
+-------------------------------
+
+해당 경고는 CSRF (Cross-Site Request Forgery)와 관련된 문제로, Spring Security를 통해 이를 방어할 수 있습니다. CSRF는 악의적인 웹사이트에서 사용자의 인증 정보를 이용하여 특정 웹 애플리케이션에 대해 사용자가 의도하지 않은 요청을 보내는 공격입니다.
+
+Spring Boot에서는 Spring Security를 쉽게 통합할 수 있습니다. 아래는 CSRF 공격을 방어하기 위한 기본적인 설정입니다.
+
+1. **의존성 추가:**
+   `spring-boot-starter-security` 의존성을 추가하여 Spring Security를 프로젝트에 통합합니다. Maven을 사용하는 경우:
+
+   ```xml
+   <dependency>
+       <groupId>org.springframework.boot</groupId>
+       <artifactId>spring-boot-starter-security</artifactId>
+   </dependency>
+   ```
+
+   Gradle을 사용하는 경우:
+
+   ```groovy
+   implementation 'org.springframework.boot:spring-boot-starter-security'
+   ```
+
+2. **CSRF 토큰 활성화:**
+   `application.properties` 또는 `application.yml` 파일에 다음과 같이 설정을 추가하여 CSRF 토큰을 활성화합니다.
+
+   ```properties
+   spring.security.csrf.enabled=true
+   ```
+
+3. **스프링 부트 애플리케이션에 사용자 정의 설정 추가:**
+   `SecurityConfig`와 같은 사용자 정의 Spring Security 설정 클래스를 만들어서 CSRF 보호를 구성합니다.
+
+   ```java
+   import org.springframework.context.annotation.Bean;
+   import org.springframework.context.annotation.Configuration;
+   import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+   import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+   import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+   import org.springframework.security.crypto.password.PasswordEncoder;
+
+   @Configuration
+   @EnableWebSecurity
+   public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+       @Override
+       protected void configure(HttpSecurity http) throws Exception {
+           http
+               .csrf()
+                   .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                   .and()
+               .authorizeRequests()
+                   .antMatchers("/", "/public/**").permitAll()
+                   .anyRequest().authenticated()
+                   .and()
+               .formLogin()
+                   .loginPage("/login")
+                   .permitAll()
+                   .and()
+               .logout()
+                   .permitAll();
+       }
+
+       @Bean
+       public PasswordEncoder passwordEncoder() {
+           return new BCryptPasswordEncoder();
+       }
+   }
+   ```
+
+   위의 예제에서는 `/login` 페이지는 모든 사용자에게 허용하고, CSRF 토큰을 사용하도록 설정하였습니다. `CookieCsrfTokenRepository`는 CSRF 토큰을 쿠키에 저장하고 검증하는 데 사용됩니다.
+
+이러한 설정을 추가하면 Spring Security가 CSRF 공격에 대해 보호하고, 특정 요청에서는 CSRF 토큰을 필요로 하게 됩니다. 이는 웹 애플리케이션에 더 안전한 구성을 제공할 수 있습니다.
