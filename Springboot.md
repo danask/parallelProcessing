@@ -106,6 +106,8 @@ Spring에서 `@Autowired` 어노테이션을 사용하여 의존성 주입을 �
 
 -------------------------------
 
+Controllers that execute actions or tasks may be accessed to perform activities without the user's knowledge or authorization. These attacks are difficult to distinguish from legitimate requests. ; The web application controller modifies data or state and is unprotected from cross-site request forgery.
+
 해당 경고는 CSRF (Cross-Site Request Forgery)와 관련된 문제로, Spring Security를 통해 이를 방어할 수 있습니다. CSRF는 악의적인 웹사이트에서 사용자의 인증 정보를 이용하여 특정 웹 애플리케이션에 대해 사용자가 의도하지 않은 요청을 보내는 공격입니다.
 
 Spring Boot에서는 Spring Security를 쉽게 통합할 수 있습니다. 아래는 CSRF 공격을 방어하기 위한 기본적인 설정입니다.
