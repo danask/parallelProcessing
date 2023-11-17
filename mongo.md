@@ -181,3 +181,31 @@ public class YourServiceClass {
 ```
 
 위 코드에서 `mongoTemplate.findOne()` 메서드를 사용하여 단일 결과를 가져옵니다. 이 메서드는 결과가 없거나 여러 개여도 첫 번째 요소만 반환합니다. 이렇게 함으로써 단일 결과를 얻을 수 있습니다.
+
+네, MongoDB 쿼리 결과를 `boolean`으로 받게 하려면 해당 필드의 존재 여부만을 확인하는 경우에 해당합니다. 만약 특정 조건을 만족하는 문서가 존재하는지 여부만을 확인하려면 `boolean`을 반환하도록 할 수 있습니다. 아래는 예제 코드입니다:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public boolean hasDocumentsWithTrueValue() {
+        Query query = new Query();
+        // Criteria를 사용하여 yourField 필드 값이 true인 문서가 있는지 확인합니다.
+        query.addCriteria(Criteria.where("yourField").is(true));
+        
+        // MongoTemplate을 사용하여 쿼리를 실행하고 결과가 존재하는지 여부를 반환합니다.
+        return mongoTemplate.exists(query, YourEntity.class);
+    }
+}
+```
+
+이 코드에서 `mongoTemplate.exists(query, YourEntity.class)`는 쿼리 조건을 만족하는 문서가 하나 이상 있는지 여부를 확인하고, 이에 따라 `true` 또는 `false`를 반환합니다. 따라서 `boolean` 값을 받을 수 있습니다.
+
+-------------------------------------------------
