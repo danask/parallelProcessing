@@ -155,30 +155,29 @@ public class YourServiceClass {
 
 -----------------------------------
 
-알겠습니다. MongoDB에서 `id` 필드의 배열 크기가 0이 아닌 문서를 찾기 위해서는 `$ne` (not equal) 연산자와 `$exists` 연산자를 함께 사용할 수 있습니다. Spring Data MongoDB에서 이를 적용하는 방법은 다음과 같습니다:
+네, `mongoTemplate.find()` 메서드는 항상 `List` 형태의 결과를 반환합니다. 그러나 단일 결과만 필요한 경우에도 `List`로 받아서 첫 번째 요소를 가져오는 방법을 사용할 수 있습니다. 다음은 해당 방법을 적용한 코드입니다:
 
 ```java
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
-import java.util.List;
 
 public class YourServiceClass {
     
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    public List<YourEntity> findDocumentsWithNonEmptyIdField() {
+    public YourEntity findDocumentWithTrueValue() {
         Query query = new Query();
-        // Criteria를 사용하여 id 필드의 배열 크기가 0이 아닌 문서를 찾습니다.
-        query.addCriteria(Criteria.where("id").exists(true).ne(new String[]{}));
+        // Criteria를 사용하여 yourField 필드 값이 true인 문서를 찾습니다.
+        query.addCriteria(Criteria.where("yourField").is(true));
         
-        // MongoTemplate을 사용하여 쿼리를 실행합니다.
-        List<YourEntity> result = mongoTemplate.find(query, YourEntity.class);
+        // MongoTemplate을 사용하여 쿼리를 실행하고 결과 중 첫 번째 요소를 반환합니다.
+        YourEntity result = mongoTemplate.findOne(query, YourEntity.class);
         return result;
     }
 }
 ```
 
-위 코드에서 `ne(new String[]{})` 부분은 `id` 필드의 배열이 빈 배열이 아닌 문서를 찾습니다. 이 방법으로 `id` 필드의 배열 크기가 0이 아닌 문서를 찾을 수 있습니다.
+위 코드에서 `mongoTemplate.findOne()` 메서드를 사용하여 단일 결과를 가져옵니다. 이 메서드는 결과가 없거나 여러 개여도 첫 번째 요소만 반환합니다. 이렇게 함으로써 단일 결과를 얻을 수 있습니다.
