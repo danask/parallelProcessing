@@ -274,3 +274,47 @@ public class MyUtilityClass {
 주의사항:
 1. 생성자 주입은 필드 주입(Field Injection)보다 권장되는 방식입니다.
 2. Lombok의 `@UtilityClass`를 사용하는 경우, 생성자를 직접 추가할 수 없습니다. 따라서 `@UtilityClass`를 사용하면서 스프링 빈을 주입받아야 하는 경우에는 일반적인 클래스로 변환하고 생성자 주입을 사용하는 것이 좋습니다.
+
+----------------------------
+
+
+이러한 에러는 스프링이 빈을 요구하는 타입과 실제로 주입받은 타입이 일치하지 않을 때 발생합니다. 에러 메시지에 따르면 'appIssueRepositoryCustomImpl' 빈이 'com.samsung.knox.dai.appservice.repository.impl.AppIssueRepositoryCustomImpl' 타입이어야 하는데, 실제로는 'jdk.proxy2.$Proxy271' 타입인 것으로 보입니다.
+
+이러한 문제를 해결하기 위한 몇 가지 접근 방법이 있습니다:
+
+1. **인터페이스 사용 확인:**
+   - 만약 'AppIssueRepositoryCustomImpl' 클래스가 'AppIssueRepositoryCustom' 인터페이스를 구현했다면, 해당 인터페이스로 주입받는 것이 좋습니다.
+
+    ```java
+    @Autowired
+    private AppIssueRepositoryCustom appIssueRepositoryCustom;
+    ```
+
+2. **AOP (Aspect-Oriented Programming) Proxy 사용 확인:**
+   - 'jdk.proxy2.$Proxy271' 타입은 주로 AOP 프록시에서 발생하는 것입니다. Spring AOP를 사용하는 경우, 프록시가 생성되어 해당 타입으로 빈이 주입될 수 있습니다.
+   - 프록시를 해결하려면, 프록시가 적용된 메서드가 아닌 진짜 구현체에 의존하도록 설정해야 합니다.
+
+3. **Qualifier 사용 확인:**
+   - 같은 타입의 빈이 여러 개일 때, `@Qualifier` 어노테이션을 사용하여 어떤 빈을 주입받을지 명시할 수 있습니다.
+
+    ```java
+    @Autowired
+    @Qualifier("appIssueRepositoryCustomImpl")
+    private AppIssueRepositoryCustom appIssueRepositoryCustom;
+    ```
+
+4. **Primary 설정 확인:**
+   - 여러 빈 중에서 주로 사용할 빈을 지정하기 위해 `@Primary` 어노테이션을 사용할 수 있습니다.
+
+    ```java
+    @Primary
+    @Service
+    public class AppIssueRepositoryCustomImpl implements AppIssueRepositoryCustom {
+        //...
+    }
+    ```
+
+5. **Proxy 사용 확인:**
+   - 클래스의 프록시를 직접 사용하는 경우, 타입 변환 문제가 발생할 수 있습니다. 해당 프록시를 사용하는 곳에서 타입 변환에 주의해야 합니다.
+
+이러한 해결 방법 중에서 어떤 방법이 적절한지는 프로젝트의 구성과 상황에 따라 다를 수 있습니다. 문제가 해결되지 않는다면, 더 자세한 코드 또는 설정 정보를 제공하면 추가적인 도움을 드릴 수 있습니다.
