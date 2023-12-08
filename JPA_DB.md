@@ -134,3 +134,33 @@ public class YourJpaClass {
 위의 코드에서는 `Set`을 사용하여 중복을 제거합니다. 결과를 `Set`에 넣어 중복을 제거한 후, 다시 `ArrayList`로 변환하여 반환합니다.
 
 이러한 방식은 Criteria API 자체에서는 DISTINCT 키워드와 같은 직접적인 기능을 제공하지 않을 때 사용할 수 있는 방법 중 하나입니다.
+
+
+JPA Criteria API에서 `criteriaQuery.distinct(true)`를 사용하여 `DISTINCT`를 지정하면, 실제 데이터베이스에서의 실행 결과가 예상과 다를 수 있습니다. 이는 JPA Criteria API의 특성과 데이터베이스 드라이버의 동작에 따라 다르게 나타날 수 있습니다.
+
+일반적으로 `criteriaQuery.distinct(true)`는 JPA 레벨에서 결과를 중복 없이 가져올 것으로 예상되지만, 이것이 데이터베이스 엔진까지 동일하게 영향을 미치지 않을 수 있습니다. 몇 가지 이유로 인해 데이터베이스에서 결과를 가져오는 시점에서 중복이 발생할 수 있습니다.
+
+이런 경우에는 데이터베이스 벤더나 드라이버의 특성에 따라 다를 수 있습니다. 몇 가지 대안적인 방법을 고려해 볼 수 있습니다:
+
+1. **GROUP BY 사용**: 대부분의 경우 `GROUP BY` 절을 사용하여 중복된 결과를 방지할 수 있습니다. 다음은 `GROUP BY`를 사용하는 예제입니다.
+
+    ```java
+    criteriaQuery.groupBy(root.get("yourField"));
+    ```
+
+    `yourField`는 중복을 제거하고자 하는 필드명으로 대체되어야 합니다.
+
+2. **Subquery 사용**: 서브쿼리를 사용하여 중복을 방지하는 방법도 있습니다. 다음은 `Subquery`를 사용하는 예제입니다.
+
+    ```java
+    Subquery<EntityClass> subquery = criteriaQuery.subquery(EntityClass.class);
+    Root<EntityClass> subRoot = subquery.from(EntityClass.class);
+    subquery.select(subRoot);
+    subquery.distinct(true);
+
+    criteriaQuery.where(root.in(subquery));
+    ```
+
+    위의 코드에서 `root.in(subquery)`는 메인 쿼리에서 서브쿼리의 결과를 필터링하는 역할을 합니다.
+
+이러한 대안을 시도하고 여전히 문제가 있다면, 사용하는 JPA 구현체(예: Hibernate)와 데이터베이스의 버전, 설정 등을 고려하여 문제를 해결해야 합니다. 데이터베이스 벤더에 따라 `DISTINCT`를 적용하는 방식이 다를 수 있기 때문입니다.
