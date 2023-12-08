@@ -93,3 +93,44 @@ List<EntityClass> distinctResults = yourJpaClass.findDistinctResults();
 ```
 
 이 방법은 JPQL을 사용하지 않고도 Criteria API를 활용하여 `TypedQuery`에서 `distinct`한 결과를 얻을 수 있습니다.
+
+
+`CriteriaQuery`를 사용하여 Criteria API로 JPQL의 `DISTINCT`와 유사한 동작을 수행하는 방법은, 보통 결과를 가져온 후에 자바 코드 상에서 중복을 제거하는 방식을 활용하는 것입니다. 이를 위해 `Set`을 활용할 수 있습니다.
+
+다음은 이러한 방식으로 중복을 제거하는 예제 코드입니다:
+
+```java
+import javax.persistence.EntityManager;
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Root;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+public class YourJpaClass {
+
+    private final EntityManager entityManager;
+
+    // Constructor
+
+    public List<EntityClass> findDistinctResults() {
+        CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<EntityClass> criteriaQuery = criteriaBuilder.createQuery(EntityClass.class);
+        Root<EntityClass> root = criteriaQuery.from(EntityClass.class);
+
+        criteriaQuery.select(root);
+
+        List<EntityClass> resultList = entityManager.createQuery(criteriaQuery).getResultList();
+
+        // 중복 제거를 위해 Set을 사용
+        Set<EntityClass> distinctResults = new HashSet<>(resultList);
+
+        return new ArrayList<>(distinctResults);
+    }
+}
+```
+
+위의 코드에서는 `Set`을 사용하여 중복을 제거합니다. 결과를 `Set`에 넣어 중복을 제거한 후, 다시 `ArrayList`로 변환하여 반환합니다.
+
+이러한 방식은 Criteria API 자체에서는 DISTINCT 키워드와 같은 직접적인 기능을 제공하지 않을 때 사용할 수 있는 방법 중 하나입니다.
