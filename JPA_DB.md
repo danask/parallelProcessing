@@ -164,3 +164,36 @@ JPA Criteria API에서 `criteriaQuery.distinct(true)`를 사용하여 `DISTINCT`
     위의 코드에서 `root.in(subquery)`는 메인 쿼리에서 서브쿼리의 결과를 필터링하는 역할을 합니다.
 
 이러한 대안을 시도하고 여전히 문제가 있다면, 사용하는 JPA 구현체(예: Hibernate)와 데이터베이스의 버전, 설정 등을 고려하여 문제를 해결해야 합니다. 데이터베이스 벤더에 따라 `DISTINCT`를 적용하는 방식이 다를 수 있기 때문입니다.
+
+------------------------
+
+`CriteriaQuery.distinct(true)`를 사용하여 JPA Criteria API에서 DISTINCT한 결과를 얻는 방법은 일반적으로 문제가 없어야 합니다. 그러나 경우에 따라 데이터베이스 및 JPA 구현체에 따라 다를 수 있습니다. 만약 예상대로 작동하지 않는다면 몇 가지 확인해야 할 사항이 있습니다.
+
+1. **JPA 구현체 버전 확인**: 사용 중인 JPA 구현체 (예: Hibernate)의 버전을 확인하세요. 특정 버전에서는 DISTINCT 처리에 대한 동작이 다를 수 있습니다.
+
+2. **데이터베이스 지원 확인**: 데이터베이스가 DISTINCT를 올바르게 지원하는지 확인해야 합니다. 어떤 데이터베이스는 DISTINCT를 특정한 방식으로 처리할 수 있습니다.
+
+3. **쿼리 확인**: 생성된 JPQL 쿼리를 확인하여 DISTINCT가 정상적으로 반영되었는지 확인하세요. Hibernate의 경우 `org.hibernate.SQL` 로거를 통해 실제 실행되는 SQL 쿼리를 확인할 수 있습니다.
+
+   ```xml
+   <!-- logback.xml 또는 log4j2.xml에 추가 -->
+   <logger name="org.hibernate.SQL" level="DEBUG" />
+   ```
+
+4. **영속성 컨텍스트 확인**: 결과가 영속성 컨텍스트에 이미 로드되어 있는 경우, 중복 제거가 영속성 컨텍스트 내에서 이루어질 수 있습니다. 새로운 영속성 컨텍스트를 생성하여 테스트해보세요.
+
+5. **다른 방법 시도**: 다른 방법으로 DISTINCT를 수행하는 것도 고려할 수 있습니다. 예를 들어, `GROUP BY`를 사용하거나 서브쿼리를 활용할 수 있습니다.
+
+```java
+CriteriaQuery<EntityClass> criteriaQuery = criteriaBuilder.createQuery(EntityClass.class);
+Root<EntityClass> root = criteriaQuery.from(EntityClass.class);
+
+Subquery<EntityClass> subquery = criteriaQuery.subquery(EntityClass.class);
+Root<EntityClass> subRoot = subquery.from(EntityClass.class);
+subquery.select(subRoot);
+subquery.distinct(true);
+
+criteriaQuery.where(root.in(subquery));
+```
+
+만약 여전히 문제가 있다면, 사용 중인 JPA 구현체와 데이터베이스에 대한 자세한 정보를 확인하여 해당 문제를 해결하는 데 도움이 되는 것들을 찾을 수 있습니다.
