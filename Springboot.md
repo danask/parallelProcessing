@@ -318,3 +318,67 @@ public class MyUtilityClass {
    - 클래스의 프록시를 직접 사용하는 경우, 타입 변환 문제가 발생할 수 있습니다. 해당 프록시를 사용하는 곳에서 타입 변환에 주의해야 합니다.
 
 이러한 해결 방법 중에서 어떤 방법이 적절한지는 프로젝트의 구성과 상황에 따라 다를 수 있습니다. 문제가 해결되지 않는다면, 더 자세한 코드 또는 설정 정보를 제공하면 추가적인 도움을 드릴 수 있습니다.
+
+------------
+
+알겠습니다. 애노테이션을 사용하여 API 파라미터를 입력으로 받아서 해당 애노테이션이 적용된 메서드에서 다른 서비스의 메서드를 실행하려면 다음과 같이 구현할 수 있습니다.
+
+먼저, 애노테이션 인터페이스를 정의합니다.
+
+```java
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface MyAnnotation {
+    String value();
+}
+```
+
+그런 다음, 해당 애노테이션이 적용된 메서드를 가진 클래스를 작성합니다.
+
+```java
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    @MyAnnotation("exampleValue")
+    public void myMethod(String parameter) {
+        // 애노테이션이 적용된 메서드에서 파라미터 값을 사용하여 다른 서비스 메서드를 실행
+        // 예를 들어, 파라미터를 로그에 출력하는 등의 동작을 수행할 수 있습니다.
+        System.out.println("Parameter value: " + parameter);
+    }
+}
+```
+
+마지막으로, Aspect를 작성하여 애노테이션을 처리하고 서비스 메서드를 실행합니다.
+
+```java
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.springframework.stereotype.Component;
+
+@Aspect
+@Component
+public class MyAnnotationAspect {
+
+    @Before("@annotation(myAnnotation)") // MyAnnotation 애노테이션이 적용된 메서드 실행 전에 실행
+    public void executeMyMethod(JoinPoint joinPoint, MyAnnotation myAnnotation) {
+        // 파라미터 값을 가져와서 서비스 메서드를 실행
+        Object[] args = joinPoint.getArgs(); // 메서드의 파라미터 배열
+        String parameter = (String) args[0]; // 첫 번째 파라미터를 가져옴
+
+        MyService myService = (MyService) joinPoint.getTarget();
+        myService.myMethod(myAnnotation.value());
+    }
+}
+```
+
+위의 코드에서 `MyAnnotationAspect` 클래스는 `@Aspect` 어노테이션을 사용하여 Aspect로 정의되었습니다. `@Before` 어노테이션을 사용하여 `MyAnnotation` 애노테이션이 적용된 메서드가 실행되기 전에 실행되도록 설정했습니다. 그리고 `executeMyMethod()` 메서드 내에서는 애노테이션의 값과 함께 메서드의 파라미터 값을 가져와서 `MyService`의 `myMethod()`를 실행하고 있습니다.
+
+이제 `MyAnnotation` 애노테이션이 적용된 메서드를 호출하면, 해당 Aspect에서 정의한 동작이 실행되어 다른 서비스의 메서드를 실행할 수 있습니다.
