@@ -382,3 +382,123 @@ public class MyAnnotationAspect {
 위의 코드에서 `MyAnnotationAspect` 클래스는 `@Aspect` 어노테이션을 사용하여 Aspect로 정의되었습니다. `@Before` 어노테이션을 사용하여 `MyAnnotation` 애노테이션이 적용된 메서드가 실행되기 전에 실행되도록 설정했습니다. 그리고 `executeMyMethod()` 메서드 내에서는 애노테이션의 값과 함께 메서드의 파라미터 값을 가져와서 `MyService`의 `myMethod()`를 실행하고 있습니다.
 
 이제 `MyAnnotation` 애노테이션이 적용된 메서드를 호출하면, 해당 Aspect에서 정의한 동작이 실행되어 다른 서비스의 메서드를 실행할 수 있습니다.
+
+
+------------------------
+Spring Boot에서 unit test를 작성할 때 configuration 패키지에 만든 @Bean을 인식하지 못해서 No qualifying bean error가 발생하는 경우 다음과 같은 방법으로 해결할 수 있습니다.
+
+**1. @TestConfiguration 사용**
+
+@TestConfiguration 어노테이션을 사용하여 테스트 클래스에 테스트 환경 설정을 정의할 수 있습니다. 이 어노테이션을 사용하면 configuration 패키지에 있는 @Bean을 테스트 클래스에서도 인식할 수 있습니다.
+
+```java
+@TestConfiguration
+public class MyTestConfiguration {
+
+    @Bean
+    public MyService myService() {
+        return new MyServiceImpl();
+    }
+
+}
+
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class MyUnitTest {
+
+    @Autowired
+    private MyService myService;
+
+    @Test
+    public void testMyService() {
+        // ...
+    }
+
+}
+```
+
+**2. @ComponentScan 사용**
+
+@ComponentScan 어노테이션을 사용하여 테스트 클래스가 configuration 패키지를 스캔하도록 설정할 수 있습니다. 이렇게 하면 configuration 패키지에 있는 @Bean을 테스트 클래스에서도 인식할 수 있습니다.
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+@ComponentScan(basePackages = "com.example.config")
+public class MyUnitTest {
+
+    @Autowired
+    private MyService myService;
+
+    @Test
+    public void testMyService() {
+        // ...
+    }
+
+}
+```
+
+**3. @MockBean 사용**
+
+@MockBean 어노테이션을 사용하여 테스트 코드에서 직접 @Bean을 정의할 수 있습니다. 이렇게 하면 configuration 패키지에 있는 @Bean을 직접 사용하지 않고 테스트 코드에서 원하는 @Bean을 정의하여 테스트할 수 있습니다.
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class MyUnitTest {
+
+    @MockBean
+    private MyService myService;
+
+    @Test
+    public void testMyService() {
+        // ...
+    }
+
+}
+```
+
+**4. @AutoConfigureMockMvc 사용**
+
+@AutoConfigureMockMvc 어노테이션을 사용하면 테스트 코드에서 MockMvc 객체를 자동으로 생성할 수 있습니다. MockMvc 객체를 사용하면 웹 API를 테스트할 수 있습니다.
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+@AutoConfigureMockMvc
+public class MyUnitTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testMyService() throws Exception {
+        // ...
+    }
+
+}
+```
+
+**5. @ContextConfiguration 사용**
+
+@ContextConfiguration 어노테이션을 사용하여 테스트 코드에 사용할 환경 설정 파일을 지정할 수 있습니다. 이렇게 하면 configuration 패키지에 있는 @Bean을 테스트 클래스에서도 인식할 수 있습니다.
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+@ContextConfiguration(classes = {MyTestConfiguration.class})
+public class MyUnitTest {
+
+    @Autowired
+    private MyService myService;
+
+    @Test
+    public void testMyService() {
+        // ...
+    }
+
+}
+```
+
+위의 방법 중 상황에 맞는 방법을 선택하여 사용하면 Spring Boot에서 unit test를 작성할 때 configuration 패키지에 만든 @Bean을 인식하지 못해서 No qualifying bean error가 발생하는 문제를 해결할 수 있습니다.
+
