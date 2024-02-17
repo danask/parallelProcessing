@@ -503,3 +503,38 @@ public class MyUnitTest {
 
 위의 방법 중 상황에 맞는 방법을 선택하여 사용하면 Spring Boot에서 unit test를 작성할 때 configuration 패키지에 만든 @Bean을 인식하지 못해서 No qualifying bean error가 발생하는 문제를 해결할 수 있습니다.
 
+-------------------------------
+
+
+`NoSuchBeanDefinitionException`은 스프링이 해당 이름 또는 타입의 빈을 찾을 수 없을 때 발생합니다. 에러 메시지를 보면 'customKeyGenerator'라는 이름의 빈을 찾을 수 없다는 것을 나타내고 있습니다.
+
+이 문제를 해결하기 위해 다음과 같은 접근 방법을 고려할 수 있습니다:
+
+1. **빈 이름 확인:** 
+   먼저, 'customKeyGenerator'라는 이름의 빈이 스프링 컨테이너에 등록되어 있는지 확인합니다. `@Bean` 어노테이션을 사용하여 해당 빈을 명시적으로 등록했는지 확인하고, 빈의 이름이 올바르게 지정되었는지 확인합니다.
+
+2. **Qualifier 확인:**
+   에러 메시지에 나오는 'customKeyGenerator' 빈을 주입받을 때 `@Qualifier("customKeyGenerator")`를 사용하여 해당 빈을 명시적으로 지정했는지 확인합니다. `@Qualifier` 어노테이션을 사용하여 빈의 이름을 지정할 수 있습니다.
+
+   ```java
+   @Autowired
+   @Qualifier("customKeyGenerator")
+   private KeyGenerator keyGenerator;
+   ```
+
+3. **빈의 타입 확인:**
+   빈을 주입받을 때 타입이 일치하는지 확인합니다. `@Qualifier`를 사용하여 명시적으로 지정하지 않고 타입으로 빈을 찾을 수도 있습니다.
+
+   ```java
+   @Autowired
+   private KeyGenerator customKeyGenerator;
+   ```
+
+4. **빈의 생성 확인:**
+   'customKeyGenerator'라는 이름의 빈을 생성하는 설정이 있는지 확인합니다. 필요한 빈을 생성하고 등록하는 설정이 있는지 확인합니다.
+
+5. **스프링 컨텍스트 스캔 확인:**
+   컴포넌트 스캔 또는 XML 설정을 통해 'customKeyGenerator' 빈이 스프링 컨텍스트에 등록되도록 설정되어 있는지 확인합니다.
+
+위의 단계를 따라서 문제를 해결할 수 있습니다. 만약에 더 많은 도움이 필요하시다면, 해당 빈의 설정 및 사용하는 코드를 제공해주시면 더 자세한 도움을 드릴 수 있습니다.
+
