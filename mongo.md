@@ -209,3 +209,42 @@ public class YourServiceClass {
 이 코드에서 `mongoTemplate.exists(query, YourEntity.class)`는 쿼리 조건을 만족하는 문서가 하나 이상 있는지 여부를 확인하고, 이에 따라 `true` 또는 `false`를 반환합니다. 따라서 `boolean` 값을 받을 수 있습니다.
 
 -------------------------------------------------
+
+
+MongoDB에서 `find`를 사용하여 한 단계(depth) 더 깊은 위치에 있는 특정 필드가 존재하는지 확인하는 쿼리를 작성하려면, dot notation을 사용하여 해당 필드의 경로를 지정해야 합니다. 이는 중첩된 문서의 필드에 접근하는 데 사용됩니다.
+
+예를 들어, 만약 중첩된 문서인 `nestedDocument` 안에 있는 `nestedField` 필드가 존재하는지 확인하려면 다음과 같이 dot notation을 사용할 수 있습니다:
+
+```json
+db.collection.find({"nestedDocument.nestedField": {$exists: true}})
+```
+
+이것은 `collection` 안에 있는 문서들 중에서 `nestedDocument` 안에 있는 `nestedField` 필드가 존재하는지를 확인합니다.
+
+이를 Java에서 Spring Data MongoDB의 `MongoTemplate`을 사용하여 구현하려면 다음과 같이 할 수 있습니다:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import java.util.List;
+
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<YourEntity> findDocumentsWithNestedFieldExists() {
+        Query query = new Query();
+        // 중첩된 문서의 필드에 접근하여 해당 필드가 존재하는지 확인하는 쿼리를 작성합니다.
+        query.addCriteria(Criteria.where("nestedDocument.nestedField").exists(true));
+        
+        // MongoTemplate을 사용하여 쿼리를 실행합니다.
+        List<YourEntity> result = mongoTemplate.find(query, YourEntity.class);
+        return result;
+    }
+}
+```
+
+위 코드에서 `Criteria.where("nestedDocument.nestedField").exists(true)` 부분은 `nestedDocument` 안에 있는 `nestedField` 필드가 존재하는지 확인하는 쿼리를 생성합니다. 이를 통해 `MongoTemplate`을 사용하여 특정 필드가 존재하는 문서를 찾을 수 있습니다.
