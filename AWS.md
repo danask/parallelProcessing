@@ -148,6 +148,86 @@ AWS LocalStack을 사용하여 스프링 부트 서비스에서 S3에 파일을 
 이러한 단계를 따라 LocalStack을 사용하여 스프링 부트 서비스에서 S3에 파일을 읽는 것을 테스트할 수 있습니다.
 
 
+
+로컬에 구성된 Docker LocalStack 컨테이너에 파일을 복사하는 것은 다음과 같은 절차를 따릅니다.
+
+1. **Docker LocalStack 컨테이너에 파일을 복사하는 방법**
+   
+   일반적으로 Docker 컨테이너에 파일을 복사하는 방법은 다음과 같습니다.
+
+   ```bash
+   docker cp /로컬/파일/경로 컨테이너이름:/컨테이너/내부/경로
+   ```
+
+   예를 들어, 로컬에 있는 `example.csv` 파일을 Docker LocalStack 컨테이너 내부의 `/tmp` 디렉터리로 복사하려면 다음 명령어를 사용할 수 있습니다.
+
+   ```bash
+   docker cp example.csv localstack:/tmp
+   ```
+
+   이제 `example.csv` 파일이 Docker LocalStack 컨테이너 내부의 `/tmp` 디렉터리에 복사되었습니다.
+
+2. **LocalStack에서 S3로 파일 업로드**
+
+   이제 복사된 파일을 LocalStack의 S3에 업로드할 수 있습니다. 이 작업은 Spring Boot 서비스에서 LocalStack의 S3 클라이언트를 사용하여 수행할 수 있습니다. 예를 들어, Java에서는 다음과 같이 업로드할 수 있습니다.
+
+   ```java
+   import com.amazonaws.services.s3.AmazonS3;
+   import com.amazonaws.services.s3.model.PutObjectRequest;
+   import org.springframework.beans.factory.annotation.Autowired;
+   import org.springframework.stereotype.Service;
+   import java.io.File;
+
+   @Service
+   public class S3Service {
+
+       @Autowired
+       private AmazonS3 amazonS3;
+
+       public void uploadFileToS3(String bucketName, String key, File file) {
+           amazonS3.putObject(new PutObjectRequest(bucketName, key, file));
+       }
+   }
+   ```
+
+   위의 코드에서 `uploadFileToS3` 메서드를 호출하여 로컬 파일을 LocalStack의 S3에 업로드할 수 있습니다.
+
+3. **Spring Boot에서 파일 업로드**
+
+   Spring Boot에서는 위에서 작성한 `S3Service`를 사용하여 파일을 업로드할 수 있습니다.
+
+   ```java
+   import org.springframework.beans.factory.annotation.Autowired;
+   import org.springframework.web.bind.annotation.PostMapping;
+   import org.springframework.web.bind.annotation.RequestParam;
+   import org.springframework.web.bind.annotation.RestController;
+   import org.springframework.web.multipart.MultipartFile;
+
+   @RestController
+   public class FileUploadController {
+
+       @Autowired
+       private S3Service s3Service;
+
+       @PostMapping("/upload")
+       public String uploadFile(@RequestParam("file") MultipartFile file) {
+           // 로컬 파일을 S3에 업로드
+           s3Service.uploadFileToS3("your-bucket-name", "your-key-name", convertMultiPartFileToFile(file));
+           return "File uploaded successfully!";
+       }
+
+       // MultipartFile을 File로 변환하는 메서드
+       private File convertMultiPartFileToFile(MultipartFile file) {
+           // 구현 필요
+       }
+   }
+   ```
+
+   위의 코드에서 `/upload` 엔드포인트를 호출하여 로컬 파일을 LocalStack의 S3에 업로드할 수 있습니다. `MultipartFile`을 `File`로 변환하는 방법은 구현해야 하며, 일반적으로 `multipartFile.transferTo(new File("원하는_파일_경로"))` 메서드를 사용하여 변환할 수 있습니다.
+
+이제 이러한 절차를 따라서 파일을 Docker LocalStack 컨테이너에 복사하고, LocalStack의 S3에 업로드할 수 있습니다.
+
+
 ------------------------------
 
 가상으로 Kafka 이벤트를 테스트하는 것은 흔한 시나리오입니다. 이를 위해 대부분의 경우 내장 Kafka 인스턴스 또는 모의(Mock) Kafka 클러스터를 사용합니다. 여기에는 몇 가지 단계가 포함됩니다.
