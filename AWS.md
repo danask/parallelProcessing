@@ -1,0 +1,279 @@
+AWS LocalStack은 로컬 환경에서 AWS 서비스를 에뮬레이트하는 도구로, 실제 AWS 서비스를 사용하는 것과 비슷한 환경을 제공합니다. 여기서는 Spring Boot 서비스에서 AWS LocalStack을 사용하여 S3에 업로드된 CSV 파일을 읽고 파싱하는 로직을 만드는 과정을 안내해 드리겠습니다.
+
+먼저, 프로젝트에 필요한 의존성을 추가해야 합니다. Maven을 사용하는 경우 `pom.xml` 파일에 다음 의존성을 추가할 수 있습니다.
+
+```xml
+<dependency>
+    <groupId>com.amazonaws</groupId>
+    <artifactId>aws-java-sdk-s3</artifactId>
+    <version>1.11.1013</version>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+```
+
+그런 다음, AWS S3 서비스에 연결하고 파일을 읽고 파싱하는 Spring Boot 서비스를 만들어야 합니다. 아래는 간단한 예제 코드입니다.
+
+```java
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.services.s3.model.S3ObjectInputStream;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.List;
+
+@RestController
+public class S3Controller {
+
+    @Autowired
+    private AmazonS3 amazonS3;
+
+    @GetMapping("/read-csv-from-s3")
+    public void readCSVFromS3(@RequestParam String bucketName, @RequestParam String fileName) {
+        try {
+            S3Object s3Object = amazonS3.getObject(new GetObjectRequest(bucketName, fileName));
+            S3ObjectInputStream inputStream = s3Object.getObjectContent();
+            
+            // CSV 파싱
+            InputStreamReader reader = new InputStreamReader(inputStream);
+            CSVParser csvParser = new CSVParser(reader, CSVFormat.DEFAULT);
+            List<CSVRecord> records = csvParser.getRecords();
+            
+            // CSV 데이터 처리
+            for (CSVRecord record : records) {
+                // 각 레코드 처리
+                String column1 = record.get(0);
+                String column2 = record.get(1);
+                // 필요한 로직 수행
+            }
+            
+            // 리소스 해제
+            csvParser.close();
+            reader.close();
+            inputStream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+            // 예외 처리
+        }
+    }
+}
+```
+
+위의 코드에서 `/read-csv-from-s3` 엔드포인트는 S3 버킷에서 CSV 파일을 읽고 파싱하는 엔드포인트를 나타냅니다. `bucketName`과 `fileName`은 요청 매개변수로 전달됩니다. 이 코드를 실행하기 위해서는 `AmazonS3` 클라이언트가 주입되어야 합니다. 이를 위해서는 AWS SDK를 설정하고, AWS LocalStack의 S3 엔드포인트와 연결해야 합니다.
+
+AWS SDK를 사용하여 AWS LocalStack의 S3 서비스에 연결하려면, AWS S3 클라이언트를 빈으로 등록하고 AWS LocalStack의 S3 엔드포인트를 사용하도록 구성해야 합니다. 이를 위해서는 `application.properties` 파일에 AWS S3 설정을 추가해야 합니다.
+
+```properties
+# AWS S3 설정
+cloud.aws.region.static=us-east-1
+cloud.aws.credentials.accessKey=test
+cloud.aws.credentials.secretKey=test
+cloud.aws.s3.endpoint=http://localhost:4566
+```
+
+위의 설정에서 `endpoint` 속성은 AWS LocalStack의 S3 엔드포인트 주소로 설정됩니다. 여기서는 기본 포트 4566을 사용합니다. 또한, AWS 액세스 키와 시크릿 키는 테스트용으로 임의의 값으로 설정되어 있습니다. 실제 환경에서는 액세스 키와 시크릿 키를 보안에 주의하여 설정해야 합니다.
+
+이제 Spring Boot 애플리케이션을 실행하고 `/read-csv-from-s3` 엔드포인트를 호출하여 S3에서 CSV 파일을 읽고 파싱할 수 있습니다. 이를 통해 AWS LocalStack을 사용하여 로컬에서 S3와 상호작용하는 Spring Boot 서비스를 구축할 수 있습니다.
+
+
+AWS LocalStack을 사용하여 스프링 부트 서비스에서 S3에 파일을 읽는 것을 테스트하려면 몇 가지 단계를 따라야 합니다. 여기에 대략적인 절차를 안내해 드리겠습니다.
+
+1. **LocalStack 설치**: 먼저 LocalStack을 설치하고 실행해야 합니다. 이를 위해 Docker를 사용하면 편리합니다. Docker를 설치한 후에는 LocalStack을 실행할 수 있습니다.
+
+2. **스프링 부트 프로젝트 설정**: 프로젝트에 AWS SDK를 추가하고, LocalStack의 S3 엔드포인트 및 자격 증명을 사용하도록 구성해야 합니다. `application.properties`나 `application.yml` 파일을 사용하여 AWS 자격 증명 및 S3 엔드포인트를 구성할 수 있습니다.
+
+    예를 들어, `application.yml` 파일에 다음과 같은 설정을 추가할 수 있습니다:
+    ```yaml
+    cloud:
+      aws:
+        credentials:
+          accessKey: test
+          secretKey: test
+        region:
+          static: us-east-1
+        s3:
+          endpoint: http://localhost:4566
+    ```
+
+3. **테스트 코드 작성**: 스프링 부트 서비스에서 S3에 파일을 읽는 코드에 대한 테스트를 작성해야 합니다. 이를 위해 JUnit 또는 TestNG와 같은 테스트 프레임워크를 사용할 수 있습니다. 테스트 코드에서는 LocalStack의 S3 서비스를 사용하여 파일을 읽어와야 합니다.
+
+    예를 들어, 다음은 S3 버킷에서 파일을 읽는 메서드를 포함한 테스트 클래스의 예입니다:
+    ```java
+    import org.junit.jupiter.api.Test;
+    import org.springframework.beans.factory.annotation.Autowired;
+    import org.springframework.boot.test.context.SpringBootTest;
+    import software.amazon.awssdk.core.ResponseInputStream;
+    import software.amazon.awssdk.services.s3.S3Client;
+    import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+    import software.amazon.awssdk.services.s3.model.S3Object;
+    
+    import static org.junit.jupiter.api.Assertions.assertNotNull;
+    
+    @SpringBootTest
+    public class S3ServiceTest {
+    
+        @Autowired
+        private S3Client s3Client;
+        
+        @Test
+        public void testReadFileFromS3() {
+            String bucketName = "your-bucket-name";
+            String key = "your-file-key";
+            
+            GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(key)
+                    .build();
+    
+            ResponseInputStream<S3Object> objectResponseInputStream = s3Client.getObject(getObjectRequest);
+            assertNotNull(objectResponseInputStream);
+            
+            // 여기서부터는 파일을 읽는 로직에 대한 테스트를 진행할 수 있습니다.
+        }
+    }
+    ```
+
+4. **테스트 실행**: 테스트를 실행하여 LocalStack을 통해 S3에 파일을 읽는 동작이 예상대로 수행되는지 확인합니다.
+
+이러한 단계를 따라 LocalStack을 사용하여 스프링 부트 서비스에서 S3에 파일을 읽는 것을 테스트할 수 있습니다.
+
+
+------------------------------
+
+가상으로 Kafka 이벤트를 테스트하는 것은 흔한 시나리오입니다. 이를 위해 대부분의 경우 내장 Kafka 인스턴스 또는 모의(Mock) Kafka 클러스터를 사용합니다. 여기에는 몇 가지 단계가 포함됩니다.
+
+1. **의존성 추가**: 먼저 프로젝트에 Kafka 클라이언트 라이브러리를 추가해야 합니다. 이는 Maven이나 Gradle과 같은 빌드 관리 도구를 사용하여 수행됩니다.
+
+2. **테스트 환경 설정**: 테스트 환경에서는 내장 Kafka 서버를 사용하거나, 모의(Mock) Kafka 클러스터를 실행해야 합니다. 내장 Kafka를 사용하는 경우 테스트 프로퍼티 파일에 Kafka 브로커의 위치와 관련된 설정을 추가해야 합니다.
+
+    예를 들어, `application.yml` 파일에 내장 Kafka를 사용하는 경우 다음과 같이 설정할 수 있습니다:
+    ```yaml
+    spring:
+      kafka:
+        bootstrap-servers: localhost:9092
+    ```
+
+3. **Kafka 이벤트 생성**: Kafka 이벤트를 생성하여 테스트하는 로직을 작성합니다. 이는 실제로 메시지를 보내는 프로듀서 코드를 포함할 수 있습니다.
+
+4. **테스트 코드 작성**: Kafka 이벤트를 테스트하는 코드를 작성합니다. 테스트 코드에서는 모의(Mock) Kafka 클러스터나 내장 Kafka를 사용하여 메시지를 송수신하는 작업을 수행해야 합니다.
+
+    예를 들어, 모의(Mock) Kafka 클러스터를 사용하는 테스트 코드는 다음과 같을 수 있습니다:
+    ```java
+    import org.apache.kafka.clients.consumer.ConsumerRecord;
+    import org.junit.jupiter.api.Test;
+    import org.springframework.beans.factory.annotation.Autowired;
+    import org.springframework.boot.test.context.SpringBootTest;
+    import org.springframework.kafka.core.KafkaTemplate;
+    import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
+    import org.springframework.kafka.listener.MessageListener;
+    import org.springframework.kafka.test.context.EmbeddedKafka;
+    
+    import java.util.concurrent.BlockingQueue;
+    import java.util.concurrent.LinkedBlockingQueue;
+    import java.util.concurrent.TimeUnit;
+    
+    import static org.junit.jupiter.api.Assertions.assertEquals;
+    
+    @SpringBootTest
+    @EmbeddedKafka(partitions = 1, topics = "test-topic")
+    public class KafkaEventTest {
+    
+        @Autowired
+        private KafkaTemplate<String, String> kafkaTemplate;
+    
+        private BlockingQueue<ConsumerRecord<String, String>> records = new LinkedBlockingQueue<>();
+    
+        @Autowired
+        private ConcurrentMessageListenerContainer<String, String> container;
+    
+        @Test
+        public void testSendReceiveKafkaMessage() throws Exception {
+            container.setupMessageListener((MessageListener<String, String>) records::add);
+    
+            kafkaTemplate.send("test-topic", "test-message");
+    
+            ConsumerRecord<String, String> received = records.poll(10, TimeUnit.SECONDS);
+            assertEquals("test-message", received.value());
+        }
+    }
+    ```
+
+5. **테스트 실행**: 테스트를 실행하여 Kafka 이벤트가 예상대로 처리되는지 확인합니다.
+
+이러한 단계를 따라 가상으로 Kafka 이벤트를 테스트할 수 있습니다.
+
+
+로컬 환경에서 Kafka 이벤트를 받아서 Spring Boot에서 처리하는 방법은 비슷합니다. 먼저 Kafka를 로컬에서 실행하고, Spring Boot 애플리케이션을 작성하여 Kafka 이벤트를 수신하고 처리하는 코드를 구현해야 합니다.
+
+아래는 이를 수행하기 위한 간단한 예제 코드입니다. 먼저, Kafka를 로컬에서 실행하고, Spring Boot 애플리케이션에서 Kafka 이벤트를 수신하는 리스너를 작성하겠습니다.
+
+1. Kafka 서버 실행:
+
+Kafka를 로컬에서 실행하고 토픽을 생성합니다. 이 예제에서는 Docker를 사용하여 Kafka를 실행하는 방법을 안내하겠습니다.
+
+```bash
+docker run -d --rm \
+    --name kafka \
+    -p 9092:9092 \
+    -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+    -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+    wurstmeister/kafka:2.12-2.8.0
+```
+
+2. Spring Boot 애플리케이션 작성:
+
+이제 Spring Boot 애플리케이션에서 Kafka 이벤트를 수신하고 처리하는 코드를 작성합니다.
+
+```java
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Service;
+
+@Service
+public class KafkaConsumer {
+
+    @KafkaListener(topics = "test-topic", groupId = "group-id")
+    public void listen(String message) {
+        // Kafka 이벤트 처리 로직 작성
+        System.out.println("Received Kafka message: " + message);
+    }
+}
+```
+
+위의 코드에서 `@KafkaListener` 어노테이션은 `test-topic` 토픽에서 메시지를 수신하고, `listen` 메서드가 이벤트를 처리합니다. 이 예제에서는 간단히 받은 메시지를 콘솔에 출력하는 것으로 처리하였습니다.
+
+3. Kafka Producer 구현 (옵션):
+
+이벤트를 Kafka 토픽으로 보내려면 Kafka Producer를 구현해야 합니다. 아래는 Kafka Producer를 간단히 구현하는 예제입니다.
+
+```java
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+
+@Component
+public class KafkaProducer {
+
+    private final KafkaTemplate<String, String> kafkaTemplate;
+
+    public KafkaProducer(KafkaTemplate<String, String> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void sendMessage(String message) {
+        kafkaTemplate.send("test-topic", message);
+    }
+}
+```
+
+위의 코드에서 `KafkaTemplate`을 사용하여 `test-topic` 토픽으로 메시지를 보내는 `sendMessage` 메서드를 구현하였습니다.
+
+이제 Spring Boot 애플리케이션을 실행하고 Kafka로부터 메시지를 수신하려면 Kafka Producer를 통해 메시지를 보내고, Spring Boot 애플리케이션은 해당 메시지를 수신하여 처리합니다. 이를 통해 로컬 환경에서 Kafka 이벤트를 처리하는 Spring Boot 애플리케이션을 구축할 수 있습니다.
