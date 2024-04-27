@@ -97,3 +97,28 @@ class Child extends Parent {
 ```
 
 위 코드에서 `Parent` 클래스의 필드 정보를 가져오기 위해 `clazz.getSuperclass()`를 사용하여 부모 클래스의 `Class` 객체를 얻고, 그 후에 해당 클래스의 필드 정보를 가져옵니다. 그리고 나서 `field.get(child)`를 통해 부모 클래스의 필드 값을 가져올 수 있습니다.
+
+----------------------------
+
+"2024-04-10 14:38:07.302781+00:00"를 Instant로 변환하기 위해서는 문자열을 파싱하여 Instant 객체로 변환해야 합니다. Java 8부터는 java.time 패키지에서 Instant를 제공하므로, 이를 활용하여 변환할 수 있습니다.
+
+```java
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+
+public class Main {
+    public static void main(String[] args) {
+        String dateString = "2024-04-10 14:38:07.302781+00:00";
+
+        // DateTimeFormatter를 사용하여 문자열을 Instant로 변환
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSSXXX");
+        Instant instant = Instant.from(formatter.parse(dateString));
+
+        System.out.println("Instant: " + instant);
+    }
+}
+```
+
+위 코드에서는 DateTimeFormatter를 사용하여 문자열을 Instant로 변환합니다. "yyyy-MM-dd HH:mm:ss.SSSSSSXXX" 형식의 문자열에 맞추어 DateTimeFormatter를 생성한 후, parse() 메서드를 사용하여 문자열을 Instant 객체로 변환합니다.
+
+결과적으로 출력된 Instant 객체는 해당 날짜와 시간을 UTC(협정 세계시)로 표현한 것입니다. 이를 활용하여 필요한 작업을 수행할 수 있습니다.
