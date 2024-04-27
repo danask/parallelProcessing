@@ -538,3 +538,56 @@ public class MyUnitTest {
 
 위의 단계를 따라서 문제를 해결할 수 있습니다. 만약에 더 많은 도움이 필요하시다면, 해당 빈의 설정 및 사용하는 코드를 제공해주시면 더 자세한 도움을 드릴 수 있습니다.
 
+
+-----------------------------------
+
+Spring Boot에서 파일을 로드하려면 일반적으로 클래스패스(classpath)나 상대/절대 경로를 사용할 수 있습니다. 클래스패스는 애플리케이션의 클래스와 리소스가 포함된 경로를 나타내며, 보통 프로젝트의 리소스 폴더(src/main/resources)에 위치합니다.
+
+예를 들어, 프로젝트의 리소스 폴더에 "data.txt"라는 파일이 있다고 가정해보겠습니다.
+
+1. 클래스패스를 사용하여 파일 로드:
+
+```java
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.util.FileCopyUtils;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
+...
+
+ClassPathResource resource = new ClassPathResource("data.txt");
+InputStream inputStream = resource.getInputStream();
+String fileContent = new String(FileCopyUtils.copyToByteArray(inputStream), StandardCharsets.UTF_8);
+```
+
+2. 상대 경로를 사용하여 파일 로드:
+
+```java
+import org.springframework.util.ResourceUtils;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+...
+
+File file = ResourceUtils.getFile("classpath:data.txt");
+String fileContent = new String(Files.readAllBytes(Paths.get(file.getAbsolutePath())), StandardCharsets.UTF_8);
+```
+
+3. 절대 경로를 사용하여 파일 로드:
+
+```java
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+...
+
+File file = new File("/path/to/your/file/data.txt");
+String fileContent = new String(Files.readAllBytes(Paths.get(file.getAbsolutePath())), StandardCharsets.UTF_8);
+```
+
+이 코드 예제에서 "data.txt" 대신에 실제 파일 이름을 사용하고, 클래스패스나 경로도 실제 프로젝트 구조에 맞게 수정하여 사용하시면 됩니다.
+
