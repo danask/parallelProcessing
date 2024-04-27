@@ -248,3 +248,43 @@ public class YourServiceClass {
 ```
 
 위 코드에서 `Criteria.where("nestedDocument.nestedField").exists(true)` 부분은 `nestedDocument` 안에 있는 `nestedField` 필드가 존재하는지 확인하는 쿼리를 생성합니다. 이를 통해 `MongoTemplate`을 사용하여 특정 필드가 존재하는 문서를 찾을 수 있습니다.
+
+
+------------------------------------------
+
+`bulkOps`를 사용하여 MongoDB에 대량의 데이터를 삽입하는 방법은 다음과 같습니다. 
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.BulkOperations;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.bulk.BulkMode;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public void insertListToCollection(List<AppEvent> appEvents) {
+        // BulkMode를 설정하여 벌크 모드를 설정합니다. ORDRED 또는 UNORDRED를 선택할 수 있습니다.
+        BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkMode.ORDERED, AppEvent.class);
+        
+        // 리스트의 각 요소를 반복하면서 BulkOperations에 삽입 작업을 추가합니다.
+        for (AppEvent event : appEvents) {
+            bulkOperations.insert(event);
+        }
+        
+        // 벌크 오퍼레이션을 실행하여 MongoDB에 대량의 데이터를 삽입합니다.
+        bulkOperations.execute();
+    }
+}
+```
+
+위 코드에서 `mongoTemplate.bulkOps(BulkMode.ORDERED, AppEvent.class)` 메서드를 사용하여 `BulkOperations` 객체를 생성합니다. `BulkMode`는 ORDRED 또는 UNORDRED를 선택할 수 있으며, 이는 벌크 작업의 실행 순서를 조절합니다.
+
+그런 다음 리스트의 각 요소를 반복하면서 `bulkOperations.insert(event)` 메서드를 사용하여 각 요소를 벌크 오퍼레이션에 추가합니다. 마지막으로 `bulkOperations.execute()`를 호출하여 벌크 오퍼레이션을 실행하여 MongoDB에 대량의 데이터를 삽입합니다.
+
+이 방법을 사용하면 대량의 데이터를 효율적으로 MongoDB에 삽입할 수 있습니다.
