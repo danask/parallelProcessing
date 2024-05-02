@@ -1,3 +1,42 @@
+동일한 날짜에 대해 가장 최근의 타임스탬프로 기록된 데이터를 뽑으려면 MongoDB의 집계(aggregation) 프레임워크를 사용하여 그룹화 및 정렬을 수행해야 합니다. Spring Data MongoDB에서 이를 구현할 수 있습니다. 아래는 이를 수행하는 예시 코드입니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
+import org.springframework.data.mongodb.core.aggregation.SortOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<YourEntity> findLatestDataForEachDate() {
+        // AggregationOperation을 사용하여 데이터를 날짜별로 그룹화합니다.
+        AggregationOperation groupByDate = Aggregation.group("dateField").max("timestampField").as("maxTimestamp");
+        
+        // 날짜별 최신 타임스탬프로 정렬합니다.
+        SortOperation sortByTimestamp = Aggregation.sort(Sort.Direction.DESC, "maxTimestamp");
+        
+        // Aggregation 객체를 생성하여 각각의 작업을 순서대로 적용합니다.
+        Aggregation aggregation = Aggregation.newAggregation(groupByDate, sortByTimestamp);
+        
+        // MongoTemplate을 사용하여 집계를 실행하고 결과를 가져옵니다.
+        List<YourEntity> result = mongoTemplate.aggregate(aggregation, "collectionName", YourEntity.class).getMappedResults();
+        
+        return result;
+    }
+}
+```
+
+위 코드에서는 `AggregationOperation`을 사용하여 데이터를 날짜별로 그룹화하고, 각 그룹별로 최대 타임스탬프를 계산합니다. 그리고 이를 기준으로 내림차순으로 정렬하여 가장 최근의 데이터를 가져옵니다. 이렇게 하면 각 날짜에 대해 최신 데이터 하나씩만 가져올 수 있습니다.
+
+--------------------------
 MongoDB의 Java 환경에서 `id` 필드가 존재하고 비어있지 않은 문서를 쿼리하기 위해서는 Spring Data MongoDB의 `MongoTemplate`을 사용하여 쿼리를 작성할 수 있습니다. 주어진 쿼리는 MongoDB의 `$exists`와 `$ne` 연산자를 사용하여 문서의 `id` 필드가 존재하고 빈 배열이 아닌 문서를 찾는 것을 의미합니다.
 
 Spring Data MongoDB의 `Query` 객체를 사용하여 이러한 쿼리를 작성할 수 있습니다. 아래는 해당 쿼리를 표현하는 예제입니다:
