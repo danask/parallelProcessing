@@ -661,3 +661,302 @@ String fileContent = new String(Files.readAllBytes(Paths.get(file.getAbsolutePat
     ```
 
 이제 프로퍼티 파일에 저장된 변수 값이 애플리케이션 설정 클래스에 주입되고, 애플리케이션 내에서 필요한 곳에서 해당 값을 사용할 수 있습니다. 프로퍼티 파일을 수정하면 다음 애플리케이션 실행 시 새로운 값을 사용할 수 있습니다.
+
+
+스프링 부트에서 실행 시 `serverapplication.java`에 설정된 변수값을 `application.yml`에 저장하고, 이 값을 컨트롤러에서 불러오는 방법은 다음과 같습니다.
+
+**1. `@Value` 어노테이션 사용**
+
+`@Value` 어노테이션을 사용하면 `application.yml`에 설정된 값을 직접 Java 변수에 주입할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication {
+
+    @Value("${my.app.variable}")
+    private String myVariable;
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+```
+
+**2. `@ConfigurationProperties` 어노테이션 사용**
+
+`@ConfigurationProperties` 어노테이션을 사용하면 `application.yml`에 정의된 키 이름과 동일한 이름을 가진 Java 클래스 필드에 자동으로 값을 매핑할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication {
+
+    @ConfigurationProperties(prefix = "my.app")
+    private AppProperties appProperties;
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+
+class AppProperties {
+
+    private String variable;
+
+    // getter/setter 생략
+}
+```
+
+**3. `Environment` 인터페이스 사용**
+
+`Environment` 인터페이스를 사용하면 `application.yml`에 설정된 값을 직접 코드에서 참조할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication implements CommandLineRunner {
+
+    private final Environment env;
+
+    public MyApplication(Environment env) {
+        this.env = env;
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        String myVariable = env.getProperty("my.app.variable");
+        System.out.println("myVariable: " + myVariable);
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+```
+
+**4. `@Bean` 메서드 사용**
+
+`@Bean` 메서드를 사용하여 `application.yml`에 설정된 값을 기반으로 객체를 생성하고 Spring IoC 컨테이너에 등록할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication {
+
+    @Bean
+    public MyService myService(Environment env) {
+        String myVariable = env.getProperty("my.app.variable");
+        return new MyServiceImpl(myVariable);
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+
+class MyService {
+
+    private final String myVariable;
+
+    public MyService(String myVariable) {
+        this.myVariable = myVariable;
+    }
+
+    // ...
+}
+```
+
+**5. `@Autowired` 어노테이션 사용**
+
+위의 방법들 중 하나를 사용하여 `application.yml`에 설정된 값을 기반으로 생성된 객체를 컨트롤러에 주입할 수 있습니다. 
+
+```java
+@Controller
+public class MyController {
+
+    @Autowired
+    private MyService myService;
+
+    @GetMapping("/test")
+    public String test() {
+        String myVariable = myService.getMyVariable();
+        return "myVariable: " + myVariable;
+    }
+}
+```
+
+**참고:**
+
+* `application.yml` 파일은 프로젝트 루트 폴더에 위치하거나 `resources/config` 폴더에 위치해야 합니다.
+* `@Value` 어노테이션을 사용하는 경우, `SpEL` 표현식을 사용하여 값을 변환하거나 조작할 수 있습니다.
+* `@ConfigurationProperties` 어노테이션을 사용하는 경우, `@RefreshScope` 어노테이션을 추가하여 `application.yml` 파일이 변경될 때마다 객체가 자동으로 새로 로드되도록 설정할 수 있습니다.
+* `Environment` 인터페이스를 사용하는 경우, 다양한 키 값을 참조하고 조작하는 데 유연성을 제공합니다.
+* `@Bean` 메서드를 사용하는 경우, 객체 생성 및 의존성 주입에 대한 더 많은 제어를 제공합니다.
+
+**주의:**
+
+* `serverapplication.java` 파일은 일반적으로 Spring Boot 애플리케이션의 시작점으로 사용
+
+* --------------------------------------
+
+  ## 스프링 부트에서 `serverapplication.java`에 설정된 변수값을 컨트롤러, 서비스 등 어디에서나 바로 불러오는 방법
+
+스프링 부트에서 `serverapplication.java`에 설정된 변수값을 컨트롤러, 서비스 등 어디에서나 바로 불러오는 방법은 여러 가지가 있습니다. 각 방법마다 장단점이 있으니, 상황에 맞는 방법을 선택하는 것이 중요합니다.
+
+**1. `@Value` 어노테이션 사용**
+
+`@Value` 어노테이션을 사용하면 `application.yml`에 설정된 값을 직접 Java 변수에 주입할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication {
+
+    @Value("${my.app.variable}")
+    private String myVariable;
+
+    @Bean
+    public MyService myService() {
+        return new MyServiceImpl(myVariable);
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+
+@Controller
+public class MyController {
+
+    @Autowired
+    private MyService myService;
+
+    @GetMapping("/test")
+    public String test() {
+        String myVariable = myService.getMyVariable();
+        return "myVariable: " + myVariable;
+    }
+}
+
+class MyService {
+
+    private final String myVariable;
+
+    public MyService(String myVariable) {
+        this.myVariable = myVariable;
+    }
+
+    public String getMyVariable() {
+        return myVariable;
+    }
+}
+```
+
+**장점:**
+
+* 간단하고 사용하기 쉬움
+* 코드 변경 필요 없음
+
+**단점:**
+
+* 변수값을 변경하기 위해서는 `application.yml` 파일을 직접 수정해야 함
+* 모든 환경에서 동일한 값을 사용해야 함
+
+**2. `@ConfigurationProperties` 어노테이션 사용**
+
+`@ConfigurationProperties` 어노테이션을 사용하면 `application.yml`에 정의된 키 이름과 동일한 이름을 가진 Java 클래스 필드에 자동으로 값을 매핑할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication {
+
+    @ConfigurationProperties(prefix = "my.app")
+    private AppProperties appProperties;
+
+    @Bean
+    public MyService myService() {
+        return new MyServiceImpl(appProperties.getVariable());
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+
+class AppProperties {
+
+    private String variable;
+
+    // getter/setter 생략
+}
+
+@Controller
+public class MyController {
+
+    @Autowired
+    private MyService myService;
+
+    @GetMapping("/test")
+    public String test() {
+        String myVariable = myService.getMyVariable();
+        return "myVariable: " + myVariable;
+    }
+}
+
+class MyService {
+
+    private final String myVariable;
+
+    public MyService(String myVariable) {
+        this.myVariable = myVariable;
+    }
+
+    public String getMyVariable() {
+        return myVariable;
+    }
+}
+```
+
+**장점:**
+
+* 코드 변경 없이 `application.yml` 파일에서 변수값을 변경할 수 있음
+* 여러 변수를 한 번에 관리할 수 있음
+
+**단점:**
+
+* `@ConfigurationProperties` 어노테이션을 사용하는 클래스를 별도로 정의해야 함
+
+**3. `Environment` 인터페이스 사용**
+
+`Environment` 인터페이스를 사용하면 `application.yml`에 설정된 값을 직접 코드에서 참조할 수 있습니다. 
+
+```java
+@SpringBootApplication
+public class MyApplication implements CommandLineRunner {
+
+    private final Environment env;
+
+    public MyApplication(Environment env) {
+        this.env = env;
+    }
+
+    @Bean
+    public MyService myService() {
+        String myVariable = env.getProperty("my.app.variable");
+        return new MyServiceImpl(myVariable);
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        // ...
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+
+@Controller
+public class MyController {
+
+    @Autowired
+    private MyService myService;
+
+    @GetMapping("/test")
+    public String test() {
