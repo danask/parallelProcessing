@@ -424,3 +424,40 @@ public class YourServiceClass {
 4. 요청된 페이지에 해당하는 결과만큼 스킵하고, 페이지 사이즈만큼 결과를 제한합니다.
 5. MongoDB의 집계 옵션을 설정하여 디스크 사용을 허용합니다.
 6. 최종적으로 MongoDB 집계를 실행하여 결과를 가져옵니다.
+
+-------------------------------
+
+만약 "ts" 필드가 MongoDB의 ISODate 형식이라면, 집계 파이프라인을 사용하여 가장 최신 날짜를 추출할 수 있습니다. 아래는 이를 수행하는 코드입니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.stereotype.Service;
+import java.time.LocalDateTime;
+
+@Service
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public LocalDateTime findLatestDate() {
+        // 집계 파이프라인을 구성합니다.
+        AggregationOperation groupByDate = Aggregation.group().max("ts").as("maxDate");
+        
+        // 집계를 실행합니다.
+        Aggregation aggregation = Aggregation.newAggregation(groupByDate);
+        AggregationResults<LocalDateTime> result = mongoTemplate.aggregate(aggregation, "collectionName", LocalDateTime.class);
+        
+        // 최신 날짜를 가져옵니다.
+        LocalDateTime latestDate = result.getUniqueMappedResult();
+        
+        return latestDate;
+    }
+}
+```
+
+위 코드에서는 "ts" 필드를 최대값으로 그룹화하여 가장 최신 날짜를 찾습니다. 이를 LocalDateTime 타입으로 반환합니다. 이 코드는 최신 날짜 하나만을 반환합니다.
