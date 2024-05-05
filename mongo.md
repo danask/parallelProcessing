@@ -327,3 +327,44 @@ public class YourServiceClass {
 그런 다음 리스트의 각 요소를 반복하면서 `bulkOperations.insert(event)` 메서드를 사용하여 각 요소를 벌크 오퍼레이션에 추가합니다. 마지막으로 `bulkOperations.execute()`를 호출하여 벌크 오퍼레이션을 실행하여 MongoDB에 대량의 데이터를 삽입합니다.
 
 이 방법을 사용하면 대량의 데이터를 효율적으로 MongoDB에 삽입할 수 있습니다.
+
+
+-------------------------------
+
+동일한 날짜에 대해 가장 최근의 타임스탬프로 기록된 데이터를 뽑으려면 MongoDB의 집계(aggregation) 프레임워크를 사용하여 그룹화 및 정렬을 수행해야 합니다. Spring Data MongoDB에서 이를 구현할 수 있습니다. 아래는 이를 수행하는 예시 코드입니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
+import org.springframework.data.mongodb.core.aggregation.SortOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<YourEntity> findLatestDataForEachDate() {
+        // AggregationOperation을 사용하여 데이터를 날짜별로 그룹화합니다.
+        AggregationOperation groupByDate = Aggregation.group("dateField").max("timestampField").as("maxTimestamp");
+        
+        // 날짜별 최신 타임스탬프로 정렬합니다.
+        SortOperation sortByTimestamp = Aggregation.sort(Sort.Direction.DESC, "maxTimestamp");
+        
+        // Aggregation 객체를 생성하여 각각의 작업을 순서대로 적용합니다.
+        Aggregation aggregation = Aggregation.newAggregation(groupByDate, sortByTimestamp);
+        
+        // MongoTemplate을 사용하여 집계를 실행하고 결과를 가져옵니다.
+        List<YourEntity> result = mongoTemplate.aggregate(aggregation, "collectionName", YourEntity.class).getMappedResults();
+        
+        return result;
+    }
+}
+```
+
+위 코드에서는 `AggregationOperation`을 사용하여 데이터를 날짜별로 그룹화하고, 각 그룹별로 최대 타임스탬프를 계산합니다. 그리고 이를 기준으로 내림차순으로 정렬하여 가장 최근의 데이터를 가져옵니다. 이렇게 하면 각 날짜에 대해 최신 데이터 하나씩만 가져올 수 있습니다.
