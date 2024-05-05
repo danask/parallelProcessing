@@ -122,3 +122,24 @@ public class Main {
 위 코드에서는 DateTimeFormatter를 사용하여 문자열을 Instant로 변환합니다. "yyyy-MM-dd HH:mm:ss.SSSSSSXXX" 형식의 문자열에 맞추어 DateTimeFormatter를 생성한 후, parse() 메서드를 사용하여 문자열을 Instant 객체로 변환합니다.
 
 결과적으로 출력된 Instant 객체는 해당 날짜와 시간을 UTC(협정 세계시)로 표현한 것입니다. 이를 활용하여 필요한 작업을 수행할 수 있습니다.
+
+-----------------------
+
+모든 분과 초를 0으로 만들기 위해서는 `withSecond(0)` 및 `withMinute(0)` 메서드를 사용하여 분과 초를 각각 0으로 설정할 수 있습니다. 다음은 해당 작업을 수행하는 예제 코드입니다.
+
+```java
+import java.time.Instant;
+
+public class Main {
+    public static void main(String[] args) {
+        Instant instant = Instant.parse("2024-04-10T14:38:07.302781Z");
+
+        // 분과 초를 모두 0으로 변경
+        Instant modifiedInstant = instant.withSecond(0).withMinute(0);
+
+        System.out.println("Modified Instant: " + modifiedInstant);
+    }
+}
+```
+
+위 코드에서는 `withSecond(0)`을 사용하여 초를 0으로, 그리고 `withMinute(0)`을 사용하여 분을 0으로 변경한 Instant 객체를 생성합니다. 이렇게 생성된 `modifiedInstant` 객체는 분과 초가 모두 0으로 설정된 Instant 객체입니다.
