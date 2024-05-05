@@ -368,3 +368,59 @@ public class YourServiceClass {
 ```
 
 위 코드에서는 `AggregationOperation`을 사용하여 데이터를 날짜별로 그룹화하고, 각 그룹별로 최대 타임스탬프를 계산합니다. 그리고 이를 기준으로 내림차순으로 정렬하여 가장 최근의 데이터를 가져옵니다. 이렇게 하면 각 날짜에 대해 최신 데이터 하나씩만 가져올 수 있습니다.
+
+---------------------------------------
+
+주어진 코드를 기반으로 최근 타임스탬프에 해당하는 리스트만 뽑는 aggregation을 만들어 보겠습니다. 
+
+```java
+import static org.springframework.data.mongodb.core.aggregation.Aggregation.*;
+import static org.springframework.data.mongodb.core.aggregation.AggregationOptions.*;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+public class YourServiceClass {
+    
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<AppEvents> findLatestTimestampEvents(EventListRequest request) {
+        Criteria criteria = buildCriteriaForEventList(request);
+
+        AnomalyDetectionListSortField sortField = Optional.ofNullable(request.getSortBy())
+                .orElse(AnomalyDetectionListSortField.ts);
+
+        SortOrder sortOrder = Optional.ofNullable(request.getSortOrder()).orElse(SortOrder.DESCENDING);
+        Sort.Order[] sortBy = getSortBy(sortField.getAttributeName(), sortOrder);
+        Pageable pageable = PageRequest.of(request.getPageNum(), request.getPageSize(), Sort.by(sortBy));
+
+        Aggregation aggregation = newAggregation(
+                match(criteria),
+                group("ts").max("ts").as("maxTimestamp"),
+                sort(Sort.by(Sort.Direction.DESC, "maxTimestamp")),
+                skip((long) pageable.getPageNumber() * pageable.getPageSize()),
+                limit(pageable.getPageSize())
+        ).withOptions(AggregationOptions.builder().allowDiskUse(true).build());
+
+        return mongoTemplate.aggregate(aggregation, "AppEvents", AppEvents.class).getMappedResults();
+    }
+}
+```
+
+위의 코드에서는 다음과 같은 작업을 수행합니다:
+1. 주어진 요청에 따라 필요한 criteria를 생성합니다.
+2. 그룹화를 수행하여 각 타임스탬프의 최대값을 찾습니다.
+3. 최대값에 따라 내림차순으로 정렬합니다.
+4. 요청된 페이지에 해당하는 결과만큼 스킵하고, 페이지 사이즈만큼 결과를 제한합니다.
+5. MongoDB의 집계 옵션을 설정하여 디스크 사용을 허용합니다.
+6. 최종적으로 MongoDB 집계를 실행하여 결과를 가져옵니다.
