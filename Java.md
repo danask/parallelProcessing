@@ -143,3 +143,30 @@ public class Main {
 ```
 
 위 코드에서는 `withSecond(0)`을 사용하여 초를 0으로, 그리고 `withMinute(0)`을 사용하여 분을 0으로 변경한 Instant 객체를 생성합니다. 이렇게 생성된 `modifiedInstant` 객체는 분과 초가 모두 0으로 설정된 Instant 객체입니다.
+
+
+------------------------
+
+`map()` 함수의 결과로 생성된 객체의 `setProperty()` 메서드를 호출하여 동시에 속성을 설정하려면 `map()` 함수 내에서 해당 작업을 수행하면 됩니다. 다음은 이를 수행하는 예제 코드입니다.
+
+```java
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class Main {
+    public static void main(String[] args) {
+        List<AppEvent> appEvents = ...; // AppEvent 객체가 담긴 리스트
+
+        // 리스트 스트림을 이용하여 각 AppEvent 객체를 TestClass로 변환하고 동시에 property 값을 설정
+        List<TestClass> modifiedList = appEvents.stream()
+                .map(TestClass::from)
+                .peek(testClass -> testClass.setProperty("value")) // property 값을 설정
+                .collect(Collectors.toList());
+
+        // 결과 출력
+        modifiedList.forEach(testClass -> System.out.println(testClass.getProperty()));
+    }
+}
+```
+
+위 코드에서는 `map()` 함수로 `TestClass::from` 메서드를 호출하여 `AppEvent` 객체를 `TestClass` 객체로 변환합니다. 그 후 `peek()` 함수를 사용하여 각 `TestClass` 객체의 `setProperty()` 메서드를 호출하여 속성을 설정합니다. `peek()` 함수는 스트림의 각 요소에 대해 주어진 동작을 수행하며, 동작은 각 요소를 수정하지 않습니다. 마지막으로 `collect()` 함수를 사용하여 스트림을 리스트로 변환합니다. 결과적으로 `modifiedList`에는 `AppEvent` 객체를 `TestClass` 객체로 변환하고, 동시에 속성이 설정된 객체들이 포함되어 있습니다.
