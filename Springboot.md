@@ -591,3 +591,73 @@ String fileContent = new String(Files.readAllBytes(Paths.get(file.getAbsolutePat
 
 이 코드 예제에서 "data.txt" 대신에 실제 파일 이름을 사용하고, 클래스패스나 경로도 실제 프로젝트 구조에 맞게 수정하여 사용하시면 됩니다.
 
+
+---------------------------
+
+프로퍼티 파일을 사용하여 변수 값을 저장하고 애플리케이션이 부팅할 때 해당 값을 읽어오는 방법은 다음과 같습니다.
+
+1. **프로퍼티 파일 생성:** 프로퍼티 파일을 생성하고, 변수 이름과 해당 값으로 구성된 키-값 쌍을 작성합니다. 이 파일은 일반적으로 `.properties` 확장자를 가집니다.
+
+    예를 들어, `config.properties`라는 이름의 프로퍼티 파일을 다음과 같이 작성할 수 있습니다:
+    ```
+    server.port=8080
+    server.host=localhost
+    ```
+
+2. **애플리케이션 설정 클래스 생성:** 프로퍼티 파일을 읽어와 변수에 설정하기 위해 애플리케이션 설정 클래스를 생성합니다. 이 클래스는 스프링의 `@Configuration` 어노테이션을 사용하여 설정되어야 합니다.
+
+    ```java
+    import org.springframework.beans.factory.annotation.Value;
+    import org.springframework.context.annotation.Configuration;
+    import org.springframework.context.annotation.PropertySource;
+
+    @Configuration
+    @PropertySource("classpath:config.properties") // 프로퍼티 파일 위치 지정
+    public class AppConfig {
+
+        @Value("${server.port}") // 프로퍼티 값 주입
+        private int serverPort;
+
+        @Value("${server.host}")
+        private String serverHost;
+
+        // Getter 메서드
+        public int getServerPort() {
+            return serverPort;
+        }
+
+        public String getServerHost() {
+            return serverHost;
+        }
+    }
+    ```
+
+3. **애플리케이션에서 설정 사용:** 애플리케이션에서는 이 설정을 주입받아 사용할 수 있습니다. 필요한 곳에서 해당 설정을 주입받아 사용하면 됩니다.
+
+    ```java
+    import org.springframework.beans.factory.annotation.Autowired;
+    import org.springframework.boot.SpringApplication;
+    import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+    @SpringBootApplication
+    public class MyApplication {
+
+        @Autowired
+        private AppConfig appConfig;
+
+        public static void main(String[] args) {
+            SpringApplication.run(MyApplication.class, args);
+        }
+
+        public void someMethod() {
+            int port = appConfig.getServerPort();
+            String host = appConfig.getServerHost();
+
+            // 변수 값 사용
+            System.out.println("Server port: " + port);
+            System.out.println("Server host: " + host);
+        }
+    }
+    ```
+
+이제 프로퍼티 파일에 저장된 변수 값이 애플리케이션 설정 클래스에 주입되고, 애플리케이션 내에서 필요한 곳에서 해당 값을 사용할 수 있습니다. 프로퍼티 파일을 수정하면 다음 애플리케이션 실행 시 새로운 값을 사용할 수 있습니다.
