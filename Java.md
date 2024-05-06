@@ -170,3 +170,43 @@ public class Main {
 ```
 
 위 코드에서는 `map()` 함수로 `TestClass::from` 메서드를 호출하여 `AppEvent` 객체를 `TestClass` 객체로 변환합니다. 그 후 `peek()` 함수를 사용하여 각 `TestClass` 객체의 `setProperty()` 메서드를 호출하여 속성을 설정합니다. `peek()` 함수는 스트림의 각 요소에 대해 주어진 동작을 수행하며, 동작은 각 요소를 수정하지 않습니다. 마지막으로 `collect()` 함수를 사용하여 스트림을 리스트로 변환합니다. 결과적으로 `modifiedList`에는 `AppEvent` 객체를 `TestClass` 객체로 변환하고, 동시에 속성이 설정된 객체들이 포함되어 있습니다.
+
+
+--------------------------
+
+네, JSON 문자열로 변환하는 방법은 ObjectMapper의 writeValueAsString 메서드 외에도 다양한 방법이 있습니다. 다음은 몇 가지 대안적인 방법입니다.
+
+1. **JSON 라이브러리 사용**: ObjectMapper는 Jackson 라이브러리의 일부입니다. 그러나 다른 JSON 라이브러리를 사용할 수도 있습니다. 예를 들어, Gson이나 org.json 라이브러리도 JSON 형식으로 변환할 수 있는 기능을 제공합니다.
+
+    - Gson 사용 예시:
+    ```java
+    import com.google.gson.Gson;
+    
+    public class Main {
+        public static void main(String[] args) {
+            EmailCenterRequest emailCenterRequest = new EmailCenterRequest();
+            Gson gson = new Gson();
+            String json = gson.toJson(emailCenterRequest);
+            System.out.println(json);
+        }
+    }
+    ```
+
+2. **Jackson의 ObjectWriter 사용**: ObjectMapper를 사용하여 ObjectWriter를 생성하고, 해당 ObjectWriter의 writeValueAsString 메서드를 사용하여 JSON 문자열로 변환할 수 있습니다.
+
+    ```java
+    import com.fasterxml.jackson.databind.ObjectMapper;
+    import com.fasterxml.jackson.databind.ObjectWriter;
+    
+    public class Main {
+        public static void main(String[] args) throws Exception {
+            ObjectMapper objectMapper = new ObjectMapper();
+            EmailCenterRequest emailCenterRequest = new EmailCenterRequest();
+            ObjectWriter objectWriter = objectMapper.writer();
+            String json = objectWriter.writeValueAsString(emailCenterRequest);
+            System.out.println(json);
+        }
+    }
+    ```
+
+이러한 방법들은 각각의 장단점을 가지고 있으며, 프로젝트의 요구 사항에 따라 적절한 방법을 선택할 수 있습니다. Jackson은 성능이 뛰어나며 많은 기능을 제공하지만, Gson이나 org.json은 간단하고 사용하기 쉬운 특징을 가지고 있습니다.
