@@ -246,6 +246,40 @@ public class Main {
 위 코드에서 `toStartOfDayInstant()` 메서드는 문자열 형태로 표현된 Instant 값을 받아 시분초를 모두 00:00:00으로 만든 후 Instant 객체로 반환합니다. 이를 위해 먼저 문자열을 LocalDate로 파싱하여 시간 부분을 제거한 다음, 해당 날짜에 해당하는 Instant 객체를 생성하여 반환합니다.
 
 ----------------------------------
+
+문자열로 표현된 Instant 값을 받아 시분초를 모두 00:00:00으로 만들고 Instant 객체로 반환하는 메서드를 작성할 수 있습니다. 이를 위해 먼저 문자열로 표현된 Instant 값을 파싱하여 LocalDate로 변환한 다음, 해당 날짜에 해당하는 Instant 객체를 생성하면 됩니다.
+
+다음은 이를 수행하는 메서드의 예제 코드입니다.
+
+```java
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
+public class Main {
+    public static void main(String[] args) {
+        String dateString = "2024-04-10T14:38:07.302781Z";
+
+        Instant modifiedInstant = toStartOfDayInstant(dateString);
+
+        System.out.println("Modified Instant: " + modifiedInstant);
+    }
+
+    public static Instant toStartOfDayInstant(String dateString) {
+        // 문자열을 LocalDate로 파싱하여 시간 부분을 제거
+        LocalDate localDate = LocalDate.parse(dateString.substring(0, 10));
+
+        // 해당 날짜에 해당하는 Instant 객체 생성
+        Instant instant = localDate.atStartOfDay(ZoneId.of("UTC")).toInstant();
+
+        return instant;
+    }
+}
+```
+
+위 코드에서 `toStartOfDayInstant()` 메서드는 문자열 형태로 표현된 Instant 값을 받아 시분초를 모두 00:00:00으로 만든 후 Instant 객체로 반환합니다. 이를 위해 먼저 문자열을 LocalDate로 파싱하여 시간 부분을 제거한 다음, 해당 날짜에 해당하는 Instant 객체를 생성하여 반환합니다.
+
+------------------------------------
 주어진 Instant 값을 "5th Feb 2024"와 같은 형식의 문자열로 변환하기 위해서는 먼저 Instant를 LocalDate로 변환한 다음, DateTimeFormatter를 사용하여 원하는 형식으로 포맷팅할 수 있습니다.
 
 다음은 Instant 값을 "5th Feb 2024"와 같은 형태의 문자열로 변환하는 예제 코드입니다.
