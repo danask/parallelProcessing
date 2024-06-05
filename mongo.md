@@ -1,3 +1,85 @@
+
+"appName"이 "none"인 경우를 제외하고, 전체 `deviceCount`를 합산하며 최종 결과를 "none"을 제외한 `appName`으로 표시하려면 다음과 같은 방법을 사용할 수 있습니다. 
+
+여기서는 모든 `deviceCount`를 합산한 후, "none"이 아닌 `appName` 중 하나를 결과에 포함시키도록 합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.aggregation.MatchOperation;
+import org.springframework.data.mongodb.core.aggregation.ProjectionOperation;
+import org.springframework.stereotype.Service;
+
+@Service
+public class YourServiceClass {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public GroupedDeviceCount getGroupedDeviceCount() {
+        // 모든 레코드의 deviceCount를 합산하는 그룹 연산
+        GroupOperation groupOperation = Aggregation.group().sum("deviceCount").as("totalDeviceCount");
+
+        // "none"이 아닌 appName 중 하나를 가져오는 프로젝트 연산
+        ProjectionOperation projectOperation = Aggregation.project("totalDeviceCount")
+                .and(Aggregation.cond(Criteria.where("appName").ne("none"), "$appName", null)).as("appName");
+
+        // 다시 "none"이 아닌 appName만 포함하는 match 연산
+        MatchOperation matchNonNoneAppName = Aggregation.match(Criteria.where("appName").ne(null));
+
+        // Aggregation 파이프라인 구성
+        Aggregation aggregation = Aggregation.newAggregation(
+                groupOperation,
+                projectOperation,
+                matchNonNoneAppName
+        );
+
+        // AggregationResults를 통해 집계 결과를 매핑
+        AggregationResults<GroupedDeviceCount> results = mongoTemplate.aggregate(aggregation, "collectionName", GroupedDeviceCount.class);
+
+        // 결과 반환
+        return results.getUniqueMappedResult();
+    }
+
+    public static class GroupedDeviceCount {
+        private String appName;
+        private int totalDeviceCount;
+
+        // getters and setters
+
+        public String getAppName() {
+            return appName;
+        }
+
+        public void setAppName(String appName) {
+            this.appName = appName;
+        }
+
+        public int getTotalDeviceCount() {
+            return totalDeviceCount;
+        }
+
+        public void setTotalDeviceCount(int totalDeviceCount) {
+            this.totalDeviceCount = totalDeviceCount;
+        }
+    }
+}
+```
+
+이 예제에서는 다음과 같은 작업을 수행합니다:
+
+1. **GroupOperation**: 모든 문서의 `deviceCount`를 합산하여 `totalDeviceCount`를 계산합니다.
+2. **ProjectionOperation**: `appName`이 "none"이 아닌 경우 해당 값을 선택하고, 그렇지 않으면 null을 설정합니다.
+3. **MatchOperation**: `appName`이 null이 아닌 경우를 필터링하여 "none"을 제외합니다.
+4. **Aggregation**: 위의 연산들을 순서대로 결합하여 집계 파이프라인을 생성합니다.
+
+이 파이프라인은 `totalDeviceCount`와 "none"이 아닌 `appName`을 포함하는 단일 결과를 반환합니다. 이 결과는 `GroupedDeviceCount` 클래스 객체로 매핑됩니다.
+
+------------------------------
+
 동일한 날짜에 대해 가장 최근의 타임스탬프로 기록된 데이터를 뽑으려면 MongoDB의 집계(aggregation) 프레임워크를 사용하여 그룹화 및 정렬을 수행해야 합니다. Spring Data MongoDB에서 이를 구현할 수 있습니다. 아래는 이를 수행하는 예시 코드입니다.
 
 ```java
