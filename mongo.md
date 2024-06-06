@@ -1,4 +1,98 @@
 
+MongoDB에서 주어진 `id`, `appName`, `ts` 필드를 사용하여, 가장 최신 날짜(`ts`)에서 각 `id`에 대해 `appName`을 추출하여 해시맵으로 반환하려면, 아래와 같은 방법을 사용할 수 있습니다.
+
+먼저, Spring Data MongoDB를 사용하여 이를 구현하는 예제 코드를 제공하겠습니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.Fields;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.aggregation.ProjectionOperation;
+import org.springframework.data.mongodb.core.aggregation.SortOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class YourServiceClass {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public Map<String, String> getLatestAppNameById() {
+        // Step 1: Sort by 'ts' descending
+        SortOperation sortByTimestampDesc = Aggregation.sort(Sort.Direction.DESC, "ts");
+
+        // Step 2: Group by 'id' and get the first 'appName' and 'id'
+        GroupOperation groupById = Aggregation.group("id")
+                .first("appName").as("appName")
+                .first("id").as("id");
+
+        // Step 3: Project the results
+        ProjectionOperation projectToMatchModel = Aggregation.project("id", "appName");
+
+        // Create the aggregation pipeline
+        Aggregation aggregation = Aggregation.newAggregation(
+                sortByTimestampDesc,
+                groupById,
+                projectToMatchModel
+        );
+
+        // Execute the aggregation
+        AggregationResults<IdAppNamePair> results = mongoTemplate.aggregate(aggregation, "collectionName", IdAppNamePair.class);
+
+        // Convert results to HashMap
+        Map<String, String> resultMap = new HashMap<>();
+        for (IdAppNamePair pair : results.getMappedResults()) {
+            resultMap.put(pair.getId(), pair.getAppName());
+        }
+
+        return resultMap;
+    }
+
+    public static class IdAppNamePair {
+        private String id;
+        private String appName;
+
+        // getters and setters
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+
+        public String getAppName() {
+            return appName;
+        }
+
+        public void setAppName(String appName) {
+            this.appName = appName;
+        }
+    }
+}
+```
+
+여기서 주요 작업을 요약하자면:
+
+1. **SortOperation**: `ts` 필드에 대해 내림차순으로 정렬하여 최신 날짜가 먼저 오도록 합니다.
+2. **GroupOperation**: 각 `id`에 대해 첫 번째 `appName`과 `id`를 가져옵니다. 이 첫 번째 값은 가장 최신 `ts`에 해당합니다.
+3. **ProjectionOperation**: 필요한 필드(`id`, `appName`)만을 선택하여 결과를 프로젝트합니다.
+4. **Aggregation**: 위의 작업을 순서대로 결합하여 집계 파이프라인을 생성합니다.
+5. **AggregationResults**: 집계 결과를 `IdAppNamePair` 클래스로 매핑합니다.
+6. **HashMap**: 결과를 `HashMap`으로 변환하여 반환합니다.
+
+이 코드는 MongoDB에서 `id`별로 가장 최신의 `appName`을 추출하여 `id`와 `appName`을 키-값 쌍으로 갖는 해시맵을 생성하는 예제입니다.
+--------------
+
 "appName"이 "none"인 경우를 제외하고, 전체 `deviceCount`를 합산하며 최종 결과를 "none"을 제외한 `appName`으로 표시하려면 다음과 같은 방법을 사용할 수 있습니다. 
 
 여기서는 모든 `deviceCount`를 합산한 후, "none"이 아닌 `appName` 중 하나를 결과에 포함시키도록 합니다.
