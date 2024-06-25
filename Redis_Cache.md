@@ -1,3 +1,157 @@
+
+Spring Boot에서 JDK 17과 JDK 21을 사용하는 설정은 기본적으로 동일합니다. JDK 버전 간의 차이점은 주로 JVM 자체의 변경 사항에 있습니다. Spring Boot의 설정이나 Redis 설정에는 큰 차이가 없습니다. 
+
+아래에 설명된 설정은 JDK 17과 JDK 21 모두에서 작동합니다. 이 설정에서는 Redis Cache Manager와 RedisTemplate을 사용하여 Redis 캐싱을 설정합니다.
+
+### 1. Maven 또는 Gradle 의존성 추가
+
+먼저, `pom.xml` 또는 `build.gradle` 파일에 필요한 의존성을 추가합니다.
+
+#### Maven
+```xml
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>io.lettuce.core</groupId>
+        <artifactId>lettuce-core</artifactId>
+    </dependency>
+</dependencies>
+```
+
+#### Gradle
+```groovy
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'io.lettuce.core:lettuce-core'
+}
+```
+
+### 2. application.properties 또는 application.yml 설정
+
+Redis 연결 설정을 `application.properties` 또는 `application.yml` 파일에 추가합니다.
+
+#### application.properties
+```properties
+spring.redis.host=localhost
+spring.redis.port=6379
+spring.redis.password=your_password   # 필요한 경우
+spring.redis.database=0
+```
+
+#### application.yml
+```yaml
+spring:
+  redis:
+    host: localhost
+    port: 6379
+    password: your_password   # 필요한 경우
+    database: 0
+```
+
+### 3. Redis Configuration 클래스 작성
+
+RedisCacheManager와 RedisTemplate을 설정하는 `@Configuration` 클래스를 작성합니다.
+
+```java
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.KeyGenerator;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.repository.configuration.EnableRedisRepositories;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
+@Configuration
+@EnableCaching
+@EnableRedisRepositories
+public class RedisConfig {
+
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        return new LettuceConnectionFactory();
+    }
+
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @Bean
+    public KeyGenerator customKeyGenerator() {
+        return (target, method, params) -> {
+            // 커스텀 키 생성 로직
+            return method.getName() + "_" + Arrays.stream(params).map(String::valueOf).collect(Collectors.joining("_"));
+        };
+    }
+}
+```
+
+### 4. 캐시 사용 및 RedisTemplate 사용
+
+캐시를 적용하고자 하는 메소드에 `@Cacheable`, `@CachePut`, `@CacheEvict` 어노테이션을 사용하고, RedisTemplate을 이용한 예제도 함께 작성합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Cacheable(value = "myCache", keyGenerator = "customKeyGenerator")
+    public String getData(String param) {
+        // 실제 데이터 로드 로직
+        return "Data for " + param;
+    }
+
+    public void saveDataToRedis(String key, Object value) {
+        redisTemplate.opsForValue().set(key, value);
+    }
+
+    public Object getDataFromRedis(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+}
+```
+
+이렇게 하면 Spring Boot에서 Lettuce를 이용한 Redis Cache Manager 설정과 RedisTemplate을 이용한 Redis 상호작용이 완료됩니다. 이 설정은 JDK 17과 JDK 21 모두에서 작동합니다.
+
+--------------------------------
 맥북에 로컬 환경에서 docker 에 redis 7.2.5 가 있는데 intellij 앱에서 인식을 못하는 거 같아. 접근이 안되거나
 
 로컬에 설치된 Docker 컨테이너에서 실행 중인 Redis 7.2.5에 접근하는 데 문제가 있는 경우, 몇 가지 기본적인 문제 해결 단계를 통해 원인을 파악하고 해결할 수 있습니다. 아래에 문제 해결을 위한 몇 가지 방법을 안내해 드리겠습니다.
