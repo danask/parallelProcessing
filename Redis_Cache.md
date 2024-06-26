@@ -1,3 +1,105 @@
+스프링부트 애플리케이션 시작 시 특정 캐시된 내용을 삭제하려면, 애플리케이션이 시작될 때 실행되는 메서드를 작성하여 원하는 캐시를 삭제할 수 있습니다. 이를 위해 `@PostConstruct` 어노테이션을 사용하거나, `ApplicationRunner` 또는 `CommandLineRunner` 인터페이스를 구현할 수 있습니다.
+
+### 방법 1: `@PostConstruct` 사용
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+
+@Component
+public class CacheInitializer {
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @PostConstruct
+    public void clearCacheOnStartup() {
+        // 특정 캐시 이름으로 캐시 삭제
+        cacheManager.getCache("myCacheName").clear();
+    }
+}
+```
+
+### 방법 2: `ApplicationRunner` 사용
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class CacheConfig {
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Bean
+    public ApplicationRunner clearCacheOnStartup() {
+        return args -> {
+            // 특정 캐시 이름으로 캐시 삭제
+            cacheManager.getCache("myCacheName").clear();
+        };
+    }
+}
+```
+
+### 방법 3: `CommandLineRunner` 사용
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class CacheConfig {
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Bean
+    public CommandLineRunner clearCacheOnStartup() {
+        return args -> {
+            // 특정 캐시 이름으로 캐시 삭제
+            cacheManager.getCache("myCacheName").clear();
+        };
+    }
+}
+```
+
+### 특정 키만 삭제하는 방법
+만약 특정 캐시의 모든 항목이 아니라 특정 키만 삭제하고 싶다면, 아래와 같이 `evict` 메서드를 사용할 수 있습니다:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class CacheConfig {
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Bean
+    public ApplicationRunner clearSpecificCacheEntriesOnStartup() {
+        return args -> {
+            // 특정 캐시에서 특정 키만 삭제
+            cacheManager.getCache("myCacheName").evict("myKey");
+        };
+    }
+}
+```
+
+위와 같이 설정을 통해 스프링부트 애플리케이션이 시작될 때 원하는 캐시 항목을 삭제할 수 있습니다. `CacheManager`를 통해 캐시를 관리하고, `clear`, `evict` 등의 메서드를 사용하여 특정 캐시 또는 특정 키의 캐시를 삭제할 수 있습니다.
+
+
+--------------------------
 Spring Boot 애플리케이션이 Redis 연결 문제로 인해 시작되지 않는 경우, Redis 연결 실패 시에도 애플리케이션이 계속 시작되도록 설정할 수 있습니다. 이를 위해 다음과 같은 방법을 사용할 수 있습니다:
 
 1. **Redis CacheManager가 선택적으로 빈 등록되도록 설정**:
