@@ -1,4 +1,110 @@
+
+캐시 초기화를 위해 `CacheManager`를 직접 참조하는 경우 무한 루프 문제가 발생할 수 있습니다. 이를 피하기 위해, `CacheManager` 빈을 정의할 때 함께 초기화를 수행할 수 있습니다. 
+
+Spring Boot에서 `CacheManager`를 정의할 때 초기화 작업을 함께 수행하도록 설정할 수 있습니다. 다음은 `RedisCacheManager`를 정의할 때 특정 캐시 항목을 삭제하는 방법의 예입니다:
+
+### 방법: CacheManager 빈 정의 시 초기화 로직 추가
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.cache.CacheProperties;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.cache.interceptor.KeyGenerator;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.repository.configuration.EnableRedisRepositories;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
+@Configuration
+@EnableCaching
+@EnableRedisRepositories
+public class CacheConfig {
+
+    @Value("${spring.redis.host:localhost}")
+    private String redisHost;
+
+    @Value("${spring.redis.port:6379}")
+    private int redisPort;
+
+    @Value("${spring.redis.password:}")
+    private String redisPassword;
+
+    @Value("${spring.redis.database:0}")
+    private int redisDatabase;
+
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+        config.setHostName(redisHost);
+        config.setPort(redisPort);
+        if (!redisPassword.isEmpty()) {
+            config.setPassword(redisPassword);
+        }
+        config.setDatabase(redisDatabase);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        RedisCacheManager cacheManager = RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+
+        // 초기화 로직
+        cacheManager.getCache("myCacheName").clear(); // 특정 캐시 클리어
+        // cacheManager.getCache("myCacheName").evict("myKey"); // 특정 키 클리어
+
+        return cacheManager;
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @Bean
+    public KeyGenerator customKeyGenerator() {
+        return (target, method, params) -> {
+            // 커스텀 키 생성 로직
+            return method.getName() + "_" + Arrays.stream(params).map(String::valueOf).collect(Collectors.joining("_"));
+        };
+    }
+}
+```
+
+위와 같이 `cacheManager` 빈을 정의할 때 초기화 로직을 추가하여 특정 캐시 항목을 삭제할 수 있습니다. 이 방법을 사용하면 별도의 `CacheInitializer` 빈을 만들 필요 없이 `CacheManager` 빈 생성 시 필요한 초기화를 수행할 수 있습니다.
+
+이 설정을 통해 애플리케이션이 시작될 때 지정된 캐시 항목을 초기화하거나 삭제할 수 있습니다. `clear()` 메서드를 사용하여 특정 캐시 전체를 삭제할 수 있고, `evict()` 메서드를 사용하여 특정 키의 항목만 삭제할 수 있습니다.
+
+
+--------------------
 스프링부트 애플리케이션 시작 시 특정 캐시된 내용을 삭제하려면, 애플리케이션이 시작될 때 실행되는 메서드를 작성하여 원하는 캐시를 삭제할 수 있습니다. 이를 위해 `@PostConstruct` 어노테이션을 사용하거나, `ApplicationRunner` 또는 `CommandLineRunner` 인터페이스를 구현할 수 있습니다.
+
+이방법 안됨 -> 무한 루프
 
 ### 방법 1: `@PostConstruct` 사용
 ```java
