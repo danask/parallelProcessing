@@ -1,3 +1,234 @@
+Spring Boot 애플리케이션이 Redis 연결 문제로 인해 시작되지 않는 경우, Redis 연결 실패 시에도 애플리케이션이 계속 시작되도록 설정할 수 있습니다. 이를 위해 다음과 같은 방법을 사용할 수 있습니다:
+
+1. **Redis CacheManager가 선택적으로 빈 등록되도록 설정**:
+   - Redis가 사용 가능하지 않을 때 기본 CacheManager를 등록하여 Redis 연결 실패 시에도 애플리케이션이 계속 실행되도록 합니다.
+
+2. **ConditionalOnMissingBean**과 **ConditionalOnProperty** 어노테이션 사용**:
+   - 이를 통해 Redis 설정이 존재하지 않거나 Redis 연결 실패 시 기본 CacheManager를 사용하도록 할 수 있습니다.
+
+다음은 Redis 연결 실패 시 기본 CacheManager를 사용하도록 설정하는 예제입니다:
+
+### `RedisConfig.java`
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.cache.interceptor.KeyGenerator;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.context.annotation.ConditionalOnMissingBean;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.repository.configuration.EnableRedisRepositories;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
+@Configuration
+@EnableCaching
+@EnableRedisRepositories
+public class RedisConfig {
+
+    @Value("${spring.redis.host:localhost}")
+    private String redisHost;
+
+    @Value("${spring.redis.port:6379}")
+    private int redisPort;
+
+    @Value("${spring.redis.password:}")
+    private String redisPassword;
+
+    @Value("${spring.redis.database:0}")
+    private int redisDatabase;
+
+    @Bean
+    @ConditionalOnMissingBean(RedisConnectionFactory.class)
+    public RedisConnectionFactory redisConnectionFactory() {
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+        config.setHostName(redisHost);
+        config.setPort(redisPort);
+        if (!redisPassword.isEmpty()) {
+            config.setPassword(redisPassword);
+        }
+        config.setDatabase(redisDatabase);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean
+    @Primary
+    @ConditionalOnMissingBean(CacheManager.class)
+    public CacheManager defaultCacheManager() {
+        return new ConcurrentMapCacheManager(); // 기본 CacheManager
+    }
+
+    @Bean
+    @Profile("redis")
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "redis", matchIfMissing = true)
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RedisTemplate.class)
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @Bean
+    public KeyGenerator customKeyGenerator() {
+        return (target, method, params) -> {
+            // 커스텀 키 생성 로직
+            return method.getName() + "_" + Arrays.stream(params).map(String::valueOf).collect(Collectors.joining("_"));
+        };
+    }
+}
+```
+
+### `application.properties` 설정
+
+```properties
+spring.cache.type=redis
+spring.redis.host=localhost
+spring.redis.port=6379
+spring.redis.password=your_password
+spring.redis.database=0
+```
+
+### 주의 사항
+
+위의 설정에서는 `ConditionalOnMissingBean`과 `ConditionalOnProperty` 어노테이션을 사용하여 Redis CacheManager가 없거나 Redis 연결에 실패할 경우 기본 CacheManager(ConcurrentMapCacheManager)를 사용하도록 설정합니다. 이를 통해 Redis 연결 문제로 인해 애플리케이션이 시작되지 않는 문제를 회피할 수 있습니다.
+
+이와 같이 설정을 변경한 후 애플리케이션을 다시 빌드하고 실행하여 문제가 해결되는지 확인해보세요.
+
+--------------------------
+
+에러 메시지를 보면 `java.lang.NoSuchMethodError: 'org.springframework.http.HttpStatus org.springframework.http.ResponseEntity.getStatusCode()'`와 관련된 문제가 발생하고 있습니다. 이는 사용 중인 Spring 라이브러리 버전이 호환되지 않는 경우에 발생할 수 있는 문제입니다.
+
+이 문제를 해결하려면 다음 사항들을 점검하고 수정해보세요:
+
+1. **Spring 라이브러리 버전 호환성 확인**: `ResponseEntity.getStatusCode()` 메서드는 Spring 5.3.x 버전에서는 `HttpStatus`를 반환하지만, 이후 버전에서는 `HttpStatusCode`를 반환하는 등 변경이 있을 수 있습니다. 사용 중인 Spring Boot 버전과 다른 Spring 라이브러리 버전 간의 호환성을 확인하십시오.
+
+2. **Spring Boot와 의존성 정리**: `pom.xml` 또는 `build.gradle` 파일에서 사용 중인 Spring Boot 버전과 관련된 모든 의존성이 호환되는지 확인하십시오.
+
+### Spring Boot 프로젝트 의존성 정리 예제 (Maven)
+
+#### `pom.xml`
+
+```xml
+<parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.7.0</version> <!-- 사용 중인 Spring Boot 버전에 맞게 변경 -->
+    <relativePath/> <!-- lookup parent from repository -->
+</parent>
+
+<dependencies>
+    <!-- Spring Boot Starter Web -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Spring Boot Starter Data Redis -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
+    <!-- Lettuce Core -->
+    <dependency>
+        <groupId>io.lettuce.core</groupId>
+        <artifactId>lettuce-core</artifactId>
+    </dependency>
+
+    <!-- Other dependencies -->
+
+    <!-- Test dependencies -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>2.7.0</version> <!-- 사용 중인 Spring Boot 버전에 맞게 변경 -->
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+### Spring Boot 프로젝트 의존성 정리 예제 (Gradle)
+
+#### `build.gradle`
+
+```groovy
+plugins {
+    id 'org.springframework.boot' version '2.7.0' // 사용 중인 Spring Boot 버전에 맞게 변경
+    id 'io.spring.dependency-management' version '1.0.11.RELEASE'
+    id 'java'
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '17'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'io.lettuce.core:lettuce-core'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.boot:spring-boot-dependencies:2.7.0" // 사용 중인 Spring Boot 버전에 맞게 변경
+    }
+}
+```
+
+3. **Spring Boot 및 Spring Framework 버전 일치**: `spring-boot-starter-parent` 또는 `spring-boot-dependencies`를 사용하는 경우 버전을 일치시켜 호환성을 유지하는 것이 좋습니다. 
+
+위와 같이 설정을 점검한 후 프로젝트를 다시 빌드하고 실행하여 문제가 해결되는지 확인하십시오. 
+
+필요한 경우, 특정 버전 호환성을 확인하는데 도움이 되는 [Spring Initializr](https://start.spring.io/)를 활용하여 기본 설정을 참고할 수도 있습니다.
+
+----------------------------
 현재 설정된 Redis 서버의 정보를 `application.properties` 또는 `application.yml` 파일에 추가하고, 이를 `LettuceConnectionFactory`에 반영하도록 설정 클래스를 변경하면 됩니다. 이 방법은 Spring Boot에서 제공하는 `RedisStandaloneConfiguration` 클래스를 사용하여 레디스 서버의 호스트, 포트, 비밀번호 등의 설정을 지정할 수 있습니다.
 
 ### 1. application.properties 또는 application.yml 설정
