@@ -1,3 +1,113 @@
+현재 설정된 Redis 서버의 정보를 `application.properties` 또는 `application.yml` 파일에 추가하고, 이를 `LettuceConnectionFactory`에 반영하도록 설정 클래스를 변경하면 됩니다. 이 방법은 Spring Boot에서 제공하는 `RedisStandaloneConfiguration` 클래스를 사용하여 레디스 서버의 호스트, 포트, 비밀번호 등의 설정을 지정할 수 있습니다.
+
+### 1. application.properties 또는 application.yml 설정
+
+#### application.properties
+```properties
+spring.redis.host=localhost
+spring.redis.port=6379
+spring.redis.password=your_password   # 필요한 경우
+spring.redis.database=0
+```
+
+#### application.yml
+```yaml
+spring:
+  redis:
+    host: localhost
+    port: 6379
+    password: your_password   # 필요한 경우
+    database: 0
+```
+
+### 2. Redis Configuration 클래스 변경
+
+이제 설정 클래스를 변경하여 `RedisStandaloneConfiguration`을 사용하도록 합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.KeyGenerator;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.repository.configuration.EnableRedisRepositories;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
+@Configuration
+@EnableCaching
+@EnableRedisRepositories
+public class RedisConfig {
+
+    @Value("${spring.redis.host}")
+    private String redisHost;
+
+    @Value("${spring.redis.port}")
+    private int redisPort;
+
+    @Value("${spring.redis.password}")
+    private String redisPassword;
+
+    @Value("${spring.redis.database}")
+    private int redisDatabase;
+
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+        config.setHostName(redisHost);
+        config.setPort(redisPort);
+        config.setPassword(redisPassword);
+        config.setDatabase(redisDatabase);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @Bean
+    public KeyGenerator customKeyGenerator() {
+        return (target, method, params) -> {
+            // 커스텀 키 생성 로직
+            return method.getName() + "_" + Arrays.stream(params).map(String::valueOf).collect(Collectors.joining("_"));
+        };
+    }
+}
+```
+
+이 설정은 Spring Boot의 `@Value` 어노테이션을 사용하여 `application.properties` 또는 `application.yml`에 설정된 값을 읽어와서 `RedisStandaloneConfiguration`에 적용합니다. 이를 통해 Redis 서버의 호스트, 포트, 비밀번호 등의 정보를 지정할 수 있습니다.
+
+----------------------------
 
 Spring Boot에서 JDK 17과 JDK 21을 사용하는 설정은 기본적으로 동일합니다. JDK 버전 간의 차이점은 주로 JVM 자체의 변경 사항에 있습니다. Spring Boot의 설정이나 Redis 설정에는 큰 차이가 없습니다. 
 
