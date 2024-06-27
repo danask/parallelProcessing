@@ -86,6 +86,9 @@ public class CacheConfig {
     @Value("${spring.redis.database:0}")
     private int redisDatabase;
 
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
     @Bean
     public RedisConnectionFactory redisConnectionFactory() {
         RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
