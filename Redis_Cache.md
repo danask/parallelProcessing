@@ -146,7 +146,85 @@ public class CacheConfig {
 위와 같이 `cacheManager` 빈을 정의할 때 초기화 로직을 추가하여 특정 캐시 항목을 삭제할 수 있습니다. 이 방법을 사용하면 별도의 `CacheInitializer` 빈을 만들 필요 없이 `CacheManager` 빈 생성 시 필요한 초기화를 수행할 수 있습니다.
 
 이 설정을 통해 애플리케이션이 시작될 때 지정된 캐시 항목을 초기화하거나 삭제할 수 있습니다. `clear()` 메서드를 사용하여 특정 캐시 전체를 삭제할 수 있고, `evict()` 메서드를 사용하여 특정 키의 항목만 삭제할 수 있습니다.
+-> 안됨
 
+`RedisTemplate`와 `CacheManager`가 서로를 참조하여 순환 의존성(circular dependency) 문제가 발생하는 경우가 있습니다. 이를 해결하려면, 빈 정의를 나누거나, `ApplicationContext`를 사용하여 빈을 초기화하는 방식을 사용할 수 있습니다.
+
+다음은 순환 의존성 문제를 피하면서 `CacheManager`와 `RedisTemplate`을 사용하여 초기화 작업을 수행하는 예제입니다:
+
+1. `CacheManager`를 정의하는 빈과 `RedisTemplate`을 정의하는 빈을 각각 설정합니다.
+2. `ApplicationContext`를 사용하여 초기화 작업을 분리합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+
+@Configuration
+public class CacheConfig {
+
+    @Autowired
+    private ApplicationContext applicationContext;
+
+    @Bean
+    @Primary
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        RedisCacheManager cacheManager = RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+
+        return cacheManager;
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @Bean
+    public InitializingBean cacheInitializer() {
+        return () -> {
+            CacheManager cacheManager = applicationContext.getBean(CacheManager.class);
+            if (cacheManager.getCache("myCacheName") != null) {
+                cacheManager.getCache("myCacheName").clear(); // 특정 캐시 클리어
+            }
+
+            RedisTemplate<String, Object> redisTemplate = applicationContext.getBean(RedisTemplate.class);
+            redisTemplate.delete("myKey");
+        };
+    }
+}
+```
+
+### 설명
+
+1. `redisCacheManager` 빈과 `redisTemplate` 빈을 각각 정의합니다.
+2. `InitializingBean` 인터페이스를 사용하여 초기화 작업을 수행하는 별도의 빈을 정의합니다.
+3. `cacheInitializer` 빈이 생성될 때 `ApplicationContext`를 통해 `CacheManager`와 `RedisTemplate`을 가져와 초기화 작업을 수행합니다.
+
+이렇게 하면 순환 의존성 문제를 피하면서, `CacheManager`와 `RedisTemplate`를 초기화 작업에 사용할 수 있습니다.
 
 --------------------
 스프링부트 애플리케이션 시작 시 특정 캐시된 내용을 삭제하려면, 애플리케이션이 시작될 때 실행되는 메서드를 작성하여 원하는 캐시를 삭제할 수 있습니다. 이를 위해 `@PostConstruct` 어노테이션을 사용하거나, `ApplicationRunner` 또는 `CommandLineRunner` 인터페이스를 구현할 수 있습니다.
