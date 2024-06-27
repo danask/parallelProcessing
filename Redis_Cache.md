@@ -1,3 +1,76 @@
+`@Primary`로 설정된 `CacheManager` 빈이 잘못 참조되는 문제로 보입니다. 이 문제를 해결하려면 순환 의존성을 피하면서도 초기화 작업을 수행할 수 있도록 초기화 로직을 변경해야 합니다. `ApplicationListener` 인터페이스를 구현하여 애플리케이션 컨텍스트 초기화 이벤트를 처리하는 방법을 사용할 수 있습니다.
+
+다음은 `ApplicationListener`를 사용하여 초기화 작업을 수행하는 예제입니다:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+
+@Configuration
+public class CacheConfig {
+
+    @Bean
+    @Primary
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @EventListener(ContextRefreshedEvent.class)
+    public void onApplicationEvent(ContextRefreshedEvent event) {
+        ApplicationContext applicationContext = event.getApplicationContext();
+
+        CacheManager cacheManager = applicationContext.getBean(CacheManager.class);
+        if (cacheManager.getCache("myCacheName") != null) {
+            cacheManager.getCache("myCacheName").clear(); // 특정 캐시 클리어
+        }
+
+        RedisTemplate<String, Object> redisTemplate = applicationContext.getBean(RedisTemplate.class);
+        redisTemplate.delete("myKey");
+    }
+}
+```
+
+### 설명
+
+1. `redisCacheManager` 빈과 `redisTemplate` 빈을 각각 정의합니다.
+2. `ContextRefreshedEvent` 이벤트를 리스닝하는 메소드를 정의합니다.
+3. 애플리케이션 컨텍스트 초기화가 완료되면 `onApplicationEvent` 메소드가 호출되어 `CacheManager`와 `RedisTemplate`을 사용하여 초기화 작업을 수행합니다.
+
+이 접근 방식은 애플리케이션이 완전히 초기화된 후에 캐시 초기화 작업을 수행하므로, 순환 의존성 문제를 피할 수 있습니다. `ApplicationListener` 인터페이스를 직접 구현하는 대신, `@EventListener` 어노테이션을 사용하는 방법으로 코드를 간결하게 유지했습니다.
+----------
+
 로그를 통해 `redisCacheManager`와 `defaultCacheManager`가 생성되는 순서를 확인한 경우, 이것이 꼭 문제를 의미하는 것은 아닙니다. Spring Boot는 컨텍스트 초기화 과정에서 모든 빈을 생성하지만, 어떤 빈을 실제로 사용할지는 빈의 우선순위와 의존성에 따라 결정됩니다.
 
 `@Primary` 어노테이션을 통해 우선순위를 설정했기 때문에, `CacheManager`가 필요할 때 `redisCacheManager`가 사용됩니다. 생성 순서가 아니라, 실제로 어떤 빈이 사용되는지가 중요한 것입니다. 
