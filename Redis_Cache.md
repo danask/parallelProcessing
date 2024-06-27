@@ -111,8 +111,12 @@ public class CacheConfig {
                 .build();
 
         // 초기화 로직
-        cacheManager.getCache("myCacheName").clear(); // 특정 캐시 클리어
-        // cacheManager.getCache("myCacheName").evict("myKey"); // 특정 키 클리어
+        if (cacheManager.getCache("myCacheName") != null) {
+            cacheManager.getCache("myCacheName").clear(); // 특정 캐시 클리어
+        }
+
+        // RedisTemplate을 사용하여 특정 키 삭제
+        redisTemplate.delete("myKey");
 
         return cacheManager;
     }
