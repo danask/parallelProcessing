@@ -1,4 +1,44 @@
+로그를 통해 `redisCacheManager`와 `defaultCacheManager`가 생성되는 순서를 확인한 경우, 이것이 꼭 문제를 의미하는 것은 아닙니다. Spring Boot는 컨텍스트 초기화 과정에서 모든 빈을 생성하지만, 어떤 빈을 실제로 사용할지는 빈의 우선순위와 의존성에 따라 결정됩니다.
 
+`@Primary` 어노테이션을 통해 우선순위를 설정했기 때문에, `CacheManager`가 필요할 때 `redisCacheManager`가 사용됩니다. 생성 순서가 아니라, 실제로 어떤 빈이 사용되는지가 중요한 것입니다. 
+
+### 확인 방법
+
+1. **빈 생성 확인**: 로그를 통해 두 빈이 모두 생성되고 있다는 것을 확인합니다.
+2. **의존성 주입 확인**: 실제로 `CacheManager` 빈이 필요한 클래스에 `@Autowired` 또는 생성자 주입을 통해 어떤 빈이 주입되는지 확인합니다.
+3. **애플리케이션 동작 확인**: 애플리케이션이 정상적으로 동작하는지, 특히 캐시와 관련된 기능이 기대한 대로 동작하는지 확인합니다.
+
+아래는 간단한 예제입니다. `CacheManager`를 주입받는 서비스 클래스와, 해당 클래스에서 실제로 어떤 빈이 주입되는지 확인하는 방법입니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    private final CacheManager cacheManager;
+
+    @Autowired
+    public MyService(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    public void performCacheOperation() {
+        System.out.println("Using CacheManager: " + cacheManager.getClass().getName());
+        // 캐시 관련 작업 수행
+    }
+}
+```
+
+애플리케이션을 실행한 후, `MyService.performCacheOperation()` 메소드를 호출하면 실제로 어떤 `CacheManager`가 사용되고 있는지 확인할 수 있습니다.
+
+### 결론
+
+로그에서 빈 생성 순서가 `redisCacheManager`가 먼저, `defaultCacheManager`가 나중에 찍히는 것은 문제가 아닙니다. 중요한 것은 실제로 `CacheManager`를 필요로 하는 곳에서 `redisCacheManager`가 사용되는지 확인하는 것입니다. `@Primary` 어노테이션을 통해 우선순위가 설정되어 있기 때문에, `CacheManager`를 주입받는 곳에서는 `redisCacheManager`가 기본적으로 사용됩니다.
+
+------------------------
 캐시 초기화를 위해 `CacheManager`를 직접 참조하는 경우 무한 루프 문제가 발생할 수 있습니다. 이를 피하기 위해, `CacheManager` 빈을 정의할 때 함께 초기화를 수행할 수 있습니다. 
 
 Spring Boot에서 `CacheManager`를 정의할 때 초기화 작업을 함께 수행하도록 설정할 수 있습니다. 다음은 `RedisCacheManager`를 정의할 때 특정 캐시 항목을 삭제하는 방법의 예입니다:
