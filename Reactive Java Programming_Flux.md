@@ -1,3 +1,134 @@
+
+
+Reactive Java Programming은 비동기 데이터 스트림과 변화의 전파를 처리하는 프로그래밍 패러다임입니다. 이는 특히 고성능, 비동기 애플리케이션 개발에 유용합니다. Reactive Programming을 구현하는 Java 라이브러리와 프레임워크는 주로 RxJava와 Project Reactor입니다.
+
+## 핵심 개념
+
+### 1. 비동기 스트림
+Reactive Programming의 핵심은 데이터 스트림의 비동기 처리입니다. 이는 이벤트 기반 프로그래밍 모델로, 데이터가 발생할 때마다 이벤트를 처리하는 방식입니다.
+
+### 2. 옵저버 패턴
+Reactive Programming은 옵저버 패턴을 기반으로 합니다. 데이터 스트림을 옵저버블(Observable)로 표현하고, 데이터가 변경되면 옵저버(Observer)에게 알립니다.
+
+### 3. 백프레셔(Backpressure)
+백프레셔는 생산자(producer)와 소비자(consumer) 간의 속도 차이를 조정하는 메커니즘입니다. 이는 시스템이 과부하되지 않도록 보장합니다.
+
+### 4. 함수형 프로그래밍
+Reactive Programming은 함수형 프로그래밍 패러다임을 채택하여 불변성을 유지하고, 순수 함수를 사용하여 부작용을 최소화합니다.
+
+## 주요 라이브러리
+
+### RxJava
+RxJava는 Reactive Extensions의 Java 구현체로, 비동기 데이터 스트림을 처리하는데 사용됩니다.
+
+#### 기본 예제
+```java
+import io.reactivex.Observable;
+
+public class HelloWorld {
+    public static void main(String[] args) {
+        Observable<String> observable = Observable.just("Hello", "World");
+        observable.subscribe(System.out::println);
+    }
+}
+```
+
+### Project Reactor
+Project Reactor는 Spring 5에서 공식적으로 사용되는 Reactive Streams 구현체로, 비동기 애플리케이션 개발에 사용됩니다.
+
+#### 기본 예제
+```java
+import reactor.core.publisher.Flux;
+
+public class HelloWorld {
+    public static void main(String[] args) {
+        Flux<String> flux = Flux.just("Hello", "World");
+        flux.subscribe(System.out::println);
+    }
+}
+```
+
+## Spring WebFlux
+Spring WebFlux는 Spring 5에서 도입된 Reactive Web Framework로, 비동기 논블로킹 웹 애플리케이션을 개발하는데 사용됩니다.
+
+### 기본 설정
+Spring WebFlux 프로젝트를 설정하려면 다음 의존성을 `pom.xml`에 추가합니다.
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-webflux</artifactId>
+</dependency>
+```
+
+### 기본 예제
+```java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.ServerResponse;
+import org.springframework.context.annotation.Bean;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+@SpringBootApplication
+public class WebFluxApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(WebFluxApplication.class, args);
+    }
+
+    @Bean
+    public RouterFunction<ServerResponse> helloRouter() {
+        return route(GET("/hello"), request -> ServerResponse.ok().bodyValue("Hello, World"));
+    }
+}
+```
+
+### 서비스 및 리포지토리 예제
+```java
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Repository
+public interface UserRepository extends ReactiveCrudRepository<User, String> {
+    Flux<User> findByLastName(String lastName);
+}
+
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public Mono<User> getUserById(String id) {
+        return userRepository.findById(id);
+    }
+
+    public Flux<User> getUsersByLastName(String lastName) {
+        return userRepository.findByLastName(lastName);
+    }
+
+    public Mono<User> createUser(User user) {
+        return userRepository.save(user);
+    }
+
+    public Mono<Void> deleteUserById(String id) {
+        return userRepository.deleteById(id);
+    }
+}
+```
+
+Reactive Programming은 비동기 및 논블로킹 애플리케이션을 효율적으로 개발할 수 있게 해주며, RxJava와 Project Reactor 같은 라이브러리는 이를 Java 애플리케이션에 쉽게 통합할 수 있도록 도와줍니다. Spring WebFlux는 이러한 Reactive Programming 모델을 웹 애플리케이션 개발에 적용할 수 있게 해주는 강력한 프레임워크입니다.
+--------------------------------
 `CompletableFuture`에서 `thenApply`, `thenCompose`, `thenCombine` 등과 같은 연산자를 사용하여 비동기 작업의 결과를 조합하고 연쇄적으로 처리하는 예제를 아래에 제시하겠습니다.
 
 1. **thenApply**:
