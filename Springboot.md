@@ -1,3 +1,116 @@
+
+다음 예제에서는 데이터베이스 타입에 따라 다른 엔티티 클래스를 선택하는 방법을 설명합니다. 이 예제에서는 데이터베이스 타입이 Redshift인 경우 `ClassNameRS`를, Postgres인 경우 `ClassNamePG`를 사용하도록 합니다.
+
+1. **프로퍼티 파일 설정 (application.yml):**
+
+```yaml
+database:
+  type: postgres
+```
+
+2. **AppConfig.java (외부 프로퍼티 주입):**
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AppConfig {
+
+    @Value("${database.type}")
+    private String databaseType;
+
+    public String getDatabaseType() {
+        return databaseType;
+    }
+}
+```
+
+3. **DatabaseEntitySelector.java (엔티티 선택 로직):**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DatabaseEntitySelector {
+
+    private final String databaseType;
+
+    @Autowired
+    public DatabaseEntitySelector(AppConfig appConfig) {
+        this.databaseType = appConfig.getDatabaseType();
+    }
+
+    public Class<?> getEntityClass() {
+        if ("redshift".equalsIgnoreCase(databaseType)) {
+            return ClassNameRS.class;
+        } else if ("postgres".equalsIgnoreCase(databaseType)) {
+            return ClassNamePG.class;
+        } else {
+            throw new IllegalArgumentException("Unsupported database type: " + databaseType);
+        }
+    }
+}
+```
+
+4. **엔티티 클래스 (예시):**
+
+**ClassNameRS.java**
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "redshift_table")
+public class ClassNameRS {
+    // 엔티티 필드 및 메서드...
+}
+```
+
+**ClassNamePG.java**
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "postgres_table")
+public class ClassNamePG {
+    // 엔티티 필드 및 메서드...
+}
+```
+
+5. **MyService.java (서비스 클래스에서 엔티티 클래스 사용):**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    private final DatabaseEntitySelector databaseEntitySelector;
+
+    @Autowired
+    public MyService(DatabaseEntitySelector databaseEntitySelector) {
+        this.databaseEntitySelector = databaseEntitySelector;
+    }
+
+    public void processEntity() {
+        Class<?> entityClass = databaseEntitySelector.getEntityClass();
+        // entityClass를 사용하여 엔티티 처리 로직 구현...
+    }
+}
+```
+
+이 예제에서는 `AppConfig` 클래스를 통해 외부 프로퍼티 값을 주입받고, `DatabaseEntitySelector` 클래스를 통해 동적으로 엔티티 클래스를 선택하는 로직을 구현했습니다. `MyService` 클래스에서는 `DatabaseEntitySelector`를 사용하여 필요한 엔티티 클래스를 선택하고, 이를 기반으로 엔티티를 처리합니다.
+
+이 접근 방식은 외부 프로퍼티 값에 따라 동적으로 엔티티 클래스를 선택하는 방법을 제공합니다. 데이터베이스 타입에 따라 다른 엔티티 클래스를 사용하도록 구현되었습니다.
+
+
+--------------------------
 "스프링 부트에서 'no qualifying bean of type '..Service' available: expected at least 1 bean which qualifies as autowire candidate" 에러는 스프링 컨테이너가 해당 타입의 빈을 찾지 못했을 때 발생합니다. 이러한 에러를 해결하는 방법은 다음과 같습니다:
 
 1. `@Service` 어노테이션 추가: 해당 서비스 클래스에 `@Service` 어노테이션을 추가하여 스프링에게 해당 클래스가 빈으로 등록되어야 함을 알려줍니다. 예를 들어:
