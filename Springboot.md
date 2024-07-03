@@ -1,4 +1,409 @@
 
+데이터베이스가 동일한 리포지토리 구조를 공유하고 있으며, 테이블 이름만 다르다면 런타임 시 테이블 이름을 동적으로 설정할 수 있는 방법이 더 간단할 수 있습니다. 스프링에서 이러한 동적 테이블 이름 설정을 지원하지 않기 때문에, 엔티티 매핑을 직접 설정하는 방법을 사용할 수 있습니다.
+
+여기서는 Hibernate 인터셉터를 사용하여 엔티티의 테이블 이름을 동적으로 변경하는 방법을 소개합니다.
+
+1. **프로퍼티 파일 설정 (application.yml):**
+
+```yaml
+database:
+  type: postgres
+```
+
+2. **AppConfig.java (외부 프로퍼티 주입 및 빈 설정):**
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AppConfig {
+
+    @Value("${database.type}")
+    private String databaseType;
+
+    public String getDatabaseType() {
+        return databaseType;
+    }
+
+    @Bean
+    public DynamicTableNameInterceptor dynamicTableNameInterceptor() {
+        return new DynamicTableNameInterceptor(databaseType);
+    }
+}
+```
+
+3. **DynamicTableNameInterceptor.java (인터셉터 구현):**
+
+```java
+import org.hibernate.EmptyInterceptor;
+import org.hibernate.type.Type;
+import java.io.Serializable;
+
+public class DynamicTableNameInterceptor extends EmptyInterceptor {
+
+    private final String databaseType;
+
+    public DynamicTableNameInterceptor(String databaseType) {
+        this.databaseType = databaseType;
+    }
+
+    @Override
+    public String onPrepareStatement(String sql) {
+        String tableName = "dummy_table";
+
+        if ("postgres".equalsIgnoreCase(databaseType)) {
+            tableName = "view_def";
+        } else if ("redshift".equalsIgnoreCase(databaseType)) {
+            tableName = "view_abc";
+        }
+
+        return sql.replace("DYNAMIC_TABLE_NAME", tableName);
+    }
+}
+```
+
+4. **Entity 클래스 (테이블 이름을 동적으로 설정):**
+
+**DynamicEntity.java**
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Id;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "DYNAMIC_TABLE_NAME")
+public class DynamicEntity {
+    
+    @Id
+    private Long id;
+
+    // 엔티티 필드 및 메서드...
+}
+```
+
+5. **리포지토리 인터페이스:**
+
+**DynamicEntityRepository.java**
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface DynamicEntityRepository extends JpaRepository<DynamicEntity, Long> {
+    // 추가 메서드 정의 가능...
+}
+```
+
+6. **MyService.java (서비스 클래스에서 리포지토리 사용):**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    private final DynamicEntityRepository dynamicEntityRepository;
+
+    @Autowired
+    public MyService(DynamicEntityRepository dynamicEntityRepository) {
+        this.dynamicEntityRepository = dynamicEntityRepository;
+    }
+
+    public void processEntity() {
+        // repository를 사용하여 엔티티 처리 로직 구현...
+    }
+}
+```
+
+**설명:**
+
+- `DynamicTableNameInterceptor` 클래스는 Hibernate 인터셉터를 사용하여 SQL 쿼리에서 테이블 이름을 동적으로 변경합니다. `onPrepareStatement` 메서드는 SQL 쿼리에서 `DYNAMIC_TABLE_NAME`을 실제 테이블 이름으로 대체합니다.
+- `DynamicEntity` 클래스는 엔티티 클래스이며, 테이블 이름은 `DYNAMIC_TABLE_NAME`으로 설정되어 있습니다. 이 이름은 인터셉터에 의해 런타임 시 동적으로 대체됩니다.
+- `AppConfig` 클래스에서 인터셉터를 빈으로 등록하여 Hibernate가 이를 사용하도록 합니다.
+
+이 접근 방식은 엔티티 클래스 및 리포지토리를 변경하지 않고, 테이블 이름을 동적으로 설정할 수 있는 방법입니다. 데이터베이스 타입에 따라 테이블 이름을 동적으로 설정하여 동일한 리포지토리와 엔티티 클래스를 사용할 수 있습니다.
+
+-------------
+
+애플리케이션 시작 시에 엔티티 클래스를 동적으로 결정하여 사용하는 방법을 구현하려면, 조건에 따라 다른 엔티티 클래스를 사용하는 리포지토리를 선택할 수 있습니다. 이 방법은 두 개의 엔티티 클래스를 각각 정의하고, 애플리케이션 구성에 따라 동적으로 사용할 리포지토리를 선택하는 방식을 사용합니다.
+
+1. **프로퍼티 파일 설정 (application.yml):**
+
+```yaml
+database:
+  type: postgres
+```
+
+2. **AppConfig.java (외부 프로퍼티 주입):**
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AppConfig {
+
+    @Value("${database.type}")
+    private String databaseType;
+
+    public String getDatabaseType() {
+        return databaseType;
+    }
+}
+```
+
+3. **엔티티 클래스 정의:**
+
+**ClassNameRS.java**
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "redshift_table")
+public class ClassNameRS {
+    // 엔티티 필드 및 메서드...
+}
+```
+
+**ClassNamePG.java**
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "postgres_table")
+public class ClassNamePG {
+    // 엔티티 필드 및 메서드...
+}
+```
+
+4. **리포지토리 인터페이스 정의:**
+
+**ClassNameRSRepository.java**
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ClassNameRSRepository extends JpaRepository<ClassNameRS, Long> {
+    // 추가 메서드 정의 가능...
+}
+```
+
+**ClassNamePGRepository.java**
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ClassNamePGRepository extends JpaRepository<ClassNamePG, Long> {
+    // 추가 메서드 정의 가능...
+}
+```
+
+5. **DatabaseRepositorySelector.java (리포지토리 선택 로직):**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DatabaseRepositorySelector {
+
+    private final String databaseType;
+    private final ClassNameRSRepository classNameRSRepository;
+    private final ClassNamePGRepository classNamePGRepository;
+
+    @Autowired
+    public DatabaseRepositorySelector(AppConfig appConfig,
+                                      ClassNameRSRepository classNameRSRepository,
+                                      ClassNamePGRepository classNamePGRepository) {
+        this.databaseType = appConfig.getDatabaseType();
+        this.classNameRSRepository = classNameRSRepository;
+        this.classNamePGRepository = classNamePGRepository;
+    }
+
+    public JpaRepository<?, Long> getRepository() {
+        if ("redshift".equalsIgnoreCase(databaseType)) {
+            return classNameRSRepository;
+        } else if ("postgres".equalsIgnoreCase(databaseType)) {
+            return classNamePGRepository;
+        } else {
+            throw new IllegalArgumentException("Unsupported database type: " + databaseType);
+        }
+    }
+}
+```
+
+6. **MyService.java (서비스 클래스에서 리포지토리 사용):**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    private final DatabaseRepositorySelector databaseRepositorySelector;
+
+    @Autowired
+    public MyService(DatabaseRepositorySelector databaseRepositorySelector) {
+        this.databaseRepositorySelector = databaseRepositorySelector;
+    }
+
+    public void processEntity() {
+        JpaRepository<?, Long> repository = databaseRepositorySelector.getRepository();
+        // repository를 사용하여 엔티티 처리 로직 구현...
+    }
+}
+```
+
+위 예제에서는 `AppConfig` 클래스를 통해 외부 프로퍼티 값을 주입받고, `DatabaseRepositorySelector` 클래스를 통해 동적으로 사용할 리포지토리를 선택하는 로직을 구현했습니다. `MyService` 클래스에서는 `DatabaseRepositorySelector`를 사용하여 필요한 리포지토리를 선택하고, 이를 기반으로 엔티티를 처리합니다.
+
+이 접근 방식은 스프링 애플리케이션이 시작될 때 설정된 데이터베이스 타입에 따라 적절한 엔티티 클래스와 리포지토리를 선택하도록 합니다. 이는 `@Table` 어노테이션 내에서 동적 값을 사용할 수 없는 제한을 우회하는 효과적인 방법입니다.
+
+--------------------------
+
+Spring에서는 `@Table` 어노테이션의 속성을 런타임에 동적으로 설정할 수 없습니다. 그러나 Spring Data JPA의 엔티티 매핑을 동적으로 변경하려는 요구사항을 해결하기 위해서는 다양한 접근 방식을 사용할 수 있습니다. 여기서는 Spring AOP를 사용하여 런타임에 동적으로 테이블 이름을 변경하는 방법을 시도할 수 있습니다.
+
+아래는 `@Table` 어노테이션을 동적으로 변경하는 방법에 대한 하나의 해결책입니다. 이 접근 방식은 Spring AOP와 리플렉션을 사용하여 엔티티 클래스의 테이블 이름을 동적으로 변경하는 방법입니다.
+
+1. **프로퍼티 파일 설정 (application.yml):**
+
+```yaml
+database:
+  type: postgres
+```
+
+2. **AppConfig.java (외부 프로퍼티 주입):**
+
+```java
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class AppConfig {
+
+    @Value("${database.type}")
+    private String databaseType;
+
+    public String getDatabaseType() {
+        return databaseType;
+    }
+}
+```
+
+3. **테이블 이름 클래스:**
+
+**RedshiftTableName.java**
+
+```java
+public class RedshiftTableName {
+    public static final String TEST_TABLE = "view_abc";
+}
+```
+
+**PostgressTableName.java**
+
+```java
+public class PostgressTableName {
+    public static final String TEST_TABLE = "view_def";
+}
+```
+
+4. **엔티티 클래스:**
+
+**DynamicEntity.java**
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Table;
+
+@Entity
+@Table(name = "dummy") // 초기값
+public class DynamicEntity {
+    // 엔티티 필드 및 메서드...
+}
+```
+
+5. **EntityTableNameSetter.java (테이블 이름 동적 변경 로직):**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+import javax.persistence.EntityManager;
+import javax.persistence.metamodel.EntityType;
+import java.lang.reflect.Field;
+
+@Component
+public class EntityTableNameSetter {
+
+    private final EntityManager entityManager;
+    private final AppConfig appConfig;
+
+    @Autowired
+    public EntityTableNameSetter(EntityManager entityManager, AppConfig appConfig) {
+        this.entityManager = entityManager;
+        this.appConfig = appConfig;
+    }
+
+    @PostConstruct
+    public void setTableName() throws NoSuchFieldException, IllegalAccessException {
+        String databaseType = appConfig.getDatabaseType();
+        String tableName = "dummy";
+
+        if ("postgres".equalsIgnoreCase(databaseType)) {
+            tableName = PostgressTableName.TEST_TABLE;
+        } else if ("redshift".equalsIgnoreCase(databaseType)) {
+            tableName = RedshiftTableName.TEST_TABLE;
+        }
+
+        EntityType<?> entityType = entityManager.getMetamodel().entity(DynamicEntity.class);
+        Field tableField = entityType.getJavaType().getDeclaredField("table");
+        tableField.setAccessible(true);
+        Table tableAnnotation = tableField.getAnnotation(Table.class);
+
+        Field nameField = tableAnnotation.getClass().getDeclaredField("name");
+        nameField.setAccessible(true);
+        nameField.set(tableAnnotation, tableName);
+    }
+}
+```
+
+6. **서비스 클래스:**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyService {
+
+    private final EntityManager entityManager;
+
+    @Autowired
+    public MyService(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
+
+    public void processEntity() {
+        // 엔티티를 처리하는 로직...
+    }
+}
+```
+
+이 예제는 Spring AOP와 리플렉션을 사용하여 `@Table` 어노테이션의 테이블 이름을 동적으로 변경하려는 시도를 보여줍니다. 그러나 이는 복잡하고 유지보수가 어려울 수 있으므로, 가능한 한 다른 구조적 접근 방식을 고려하는 것이 좋습니다.
+
+위와 같은 복잡한 방법을 피하기 위해 애플리케이션 시작 시에 엔티티 클래스를 동적으로 결정하여 사용하는 방법이 더 나을 수 있습니다. 두 개의 엔티티 클래스 각각을 사용하여 데이터베이스 타입에 따라 적절한 리포지토리와 엔티티 클래스를 선택하는 방법이 더 간단하고 유지보수가 용이할 것입니다.
+
+----------------------------
+
 다음 예제에서는 데이터베이스 타입에 따라 다른 엔티티 클래스를 선택하는 방법을 설명합니다. 이 예제에서는 데이터베이스 타입이 Redshift인 경우 `ClassNameRS`를, Postgres인 경우 `ClassNamePG`를 사용하도록 합니다.
 
 1. **프로퍼티 파일 설정 (application.yml):**
