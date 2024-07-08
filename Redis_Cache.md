@@ -1,3 +1,304 @@
+
+테스트에서 일부 요청이 500 에러로 응답하는 문제를 해결하려면 다음 사항들을 점검해야 합니다. 일부 테스트만 실패하는 이유는 특정 조건이나 설정에서 문제가 발생하고 있을 가능성이 큽니다.
+
+### 1. 에러 로그 확인
+에러 로그를 통해 500 에러의 정확한 원인을 파악합니다. 500 에러의 경우 대부분 애플리케이션 내부에서 발생한 예외입니다.
+
+### 2. Mocking 및 설정 확인
+Mocking이 제대로 되어 있는지, 테스트 환경 설정이 올바른지 확인합니다.
+
+### 3. 애너테이션 및 프로파일 확인
+테스트 클래스와 메서드에 필요한 애너테이션과 프로파일이 올바르게 설정되어 있는지 확인합니다.
+
+### 4. Embedded Redis 설정 확인
+Embedded Redis가 올바르게 설정되어 실행되고 있는지 확인합니다.
+
+### 체크리스트
+
+1. **에러 로그 확인**:
+   ```java
+   @Test
+   public void testMyController() throws Exception {
+       // ...
+   }
+   ```
+
+2. **Mocking 및 설정 확인**:
+   ```java
+   @MockBean
+   private CacheManager cacheManager;
+
+   @MockBean
+   private RedisTemplate<String, Object> redisTemplate;
+   ```
+
+3. **애너테이션 및 프로파일 확인**:
+   ```java
+   @ExtendWith(SpringExtension.class)
+   @SpringBootTest
+   @AutoConfigureMockMvc
+   @ActiveProfiles("test")
+   public class MyControllerTest {
+       // ...
+   }
+   ```
+
+4. **Embedded Redis 설정 확인**:
+   Embedded Redis가 테스트 환경에서 올바르게 설정되어 있는지 확인합니다.
+
+### Embedded Redis 예제
+
+```java
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import redis.embedded.RedisServer;
+
+@TestConfiguration
+public class EmbeddedRedisConfig {
+
+    private RedisServer redisServer;
+
+    @PostConstruct
+    public void startRedis() {
+        redisServer = new RedisServer(6379);
+        redisServer.start();
+    }
+
+    @PreDestroy
+    public void stopRedis() {
+        redisServer.stop();
+    }
+}
+```
+
+그리고 테스트 클래스에서 해당 설정을 사용합니다.
+
+```java
+@Import(EmbeddedRedisConfig.class)
+public class MyControllerTest {
+    // ...
+}
+```
+
+### 예제: 구체적인 문제 해결
+
+만약 특정 테스트에서만 문제가 발생한다면, 해당 테스트를 분리하여 개별적으로 실행해보고 문제가 발생하는 지점을 정확히 파악합니다.
+
+```java
+@Test
+public void testSpecificScenario() throws Exception {
+    // 특정 시나리오를 테스트
+}
+```
+
+### 500 에러 해결
+에러 로그를 통해 어떤 예외가 발생했는지 확인합니다. 발생한 예외와 관련된 코드 부분을 검토하여 문제를 해결합니다. 예를 들어, NullPointerException이 발생했다면 해당 객체가 제대로 초기화되었는지 확인합니다.
+
+```java
+public class MyControllerTest {
+
+    @Test
+    public void testMyController() throws Exception {
+        mockMvc.perform(get("/api/resource/nonexistent-id"))
+                .andExpect(status().isNotFound());
+    }
+}
+```
+
+### 종합
+모든 설정을 다시 한 번 점검하고, 특히 테스트 환경에서의 설정이 프로덕션 환경과 다르지 않은지 확인합니다. 500 에러는 내부적인 문제를 의미하므로, 에러 로그를 통해 정확한 원인을 파악하고 문제를 해결해야 합니다.
+
+만약 여전히 문제가 해결되지 않는다면, 테스트 코드와 애플리케이션 코드를 자세히 검토하여 문제가 발생하는 지점을 정확히 파악하는 것이 중요합니다. 문제가 지속된다면, 추가적인 로그 출력을 통해 더 많은 정보를 얻는 것도 도움이 될 수 있습니다.
+
+
+
+404 에러 대신 500 에러가 발생하는 원인을 찾아 해결하려면 다음 단계를 따라야 합니다:
+
+1. **에러 로그 확인**: 500 에러의 정확한 원인을 확인하기 위해 에러 로그를 철저히 분석합니다. 이를 통해 어떤 예외가 발생했는지, 어느 부분에서 문제가 생겼는지 알 수 있습니다.
+
+2. **핸들러 검토**: 404 에러가 발생해야 하는 상황에서 500 에러가 발생하는 원인을 검토합니다. 이는 잘못된 컨트롤러 매핑이나 예외 처리 설정이 원인일 수 있습니다.
+
+3. **테스트 코드 검토**: 유닛 테스트 코드에서 잘못된 설정이나 예외 처리가 원인일 수 있습니다.
+
+### 에러 로그 확인
+먼저, 테스트 실행 시 콘솔에 출력되는 에러 로그를 확인하고, 어떤 예외가 발생했는지 확인합니다. 예외의 상세 내용을 알아야 적절한 해결책을 찾을 수 있습니다.
+
+### 핸들러 검토
+컨트롤러나 예외 처리 핸들러에서 404 에러를 발생시키도록 설정되어 있는지 확인합니다.
+
+예를 들어, 컨트롤러에서 특정 조건을 만족하지 않는 경우 404 에러를 발생시키려면 `ResponseStatusException`을 사용할 수 있습니다.
+
+```java
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestController
+@RequestMapping("/api")
+public class MyController {
+
+    @GetMapping("/resource/{id}")
+    public MyObject getResource(@PathVariable String id) {
+        MyObject resource = myService.getResourceById(id);
+        if (resource == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found");
+        }
+        return resource;
+    }
+}
+```
+
+### 테스트 코드 검토
+테스트 코드에서 404 에러를 검증하는지 확인합니다. 예를 들어, `MockMvc`를 사용하여 테스트할 수 있습니다.
+
+```java
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.web.servlet.MockMvc;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+public class MyControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testGetResourceNotFound() throws Exception {
+        mockMvc.perform(get("/api/resource/nonexistent-id"))
+                .andExpect(status().isNotFound());
+    }
+}
+```
+
+위의 예제는 `MockMvc`를 사용하여 존재하지 않는 리소스를 요청하고, 404 상태 코드를 기대하는 테스트입니다.
+
+### 500 에러 해결
+500 에러가 발생하는 원인은 다양할 수 있습니다. 에러 로그를 확인하고, 해당 예외가 발생하는 위치와 원인을 파악한 후, 적절한 예외 처리 로직을 추가합니다.
+
+```java
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<String> handleAllExceptions(Exception ex) {
+        // 예외 처리 로직 추가
+        return new ResponseEntity<>("Internal Server Error", HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<String> handleResourceNotFoundException(ResourceNotFoundException ex) {
+        return new ResponseEntity<>("Resource Not Found", HttpStatus.NOT_FOUND);
+    }
+}
+```
+
+위의 예제는 모든 예외를 처리하는 글로벌 예외 처리 핸들러입니다. `ResourceNotFoundException`이 발생하면 404 상태 코드를 반환하도록 설정했습니다.
+
+위 단계를 통해 500 에러 대신 404 에러가 발생하도록 설정할 수 있습니다. 문제가 계속 발생할 경우, 에러 로그를 통해 구체적인 원인을 파악하고 해결책을 찾아야 합니다.
+
+
+테스트 중에 발생하는 500 에러는 다양한 원인으로 인해 발생할 수 있습니다. 테스트 코드와 설정을 면밀히 검토하여 문제를 해결할 필요가 있습니다. 기본적으로 다음과 같은 단계를 통해 문제를 해결할 수 있습니다.
+
+1. **에러 로그 확인**:
+   테스트 중에 발생하는 500 에러의 구체적인 원인을 확인하기 위해 에러 로그를 면밀히 살펴보세요. 에러 로그에서 발생한 예외와 해당 예외가 발생한 위치를 확인할 수 있습니다.
+
+2. **테스트 환경 설정 확인**:
+   테스트 환경이 프로덕션 환경과 다를 수 있습니다. 테스트 환경에서의 설정이 올바른지 확인해야 합니다. 특히, 테스트에서 Redis를 사용하고 있는지, 그리고 Redis 설정이 올바른지 확인하세요.
+
+3. **Mocking**:
+   유닛 테스트에서는 종속성을 Mocking하는 것이 좋습니다. Spring Boot에서는 `@MockBean` 어노테이션을 사용하여 특정 빈을 Mock할 수 있습니다.
+
+4. **테스트 프로파일**:
+   테스트 시 사용할 별도의 프로파일을 설정하여 테스트 환경에 맞는 설정을 할 수 있습니다.
+
+다음은 예제입니다:
+
+### 1. 에러 로그 확인
+먼저, 테스트 실행 시 콘솔에 출력되는 에러 로그를 확인하고, 어떤 예외가 발생했는지 확인합니다. 여기서 예외의 상세 내용을 알아야 적절한 해결책을 찾을 수 있습니다.
+
+### 2. 테스트 환경 설정 확인
+테스트 환경 설정이 올바르게 되어 있는지 확인합니다. 예를 들어, 테스트에서 Redis가 제대로 설정되어 있는지 확인합니다.
+
+### 3. Mocking
+테스트에서 Redis나 CacheManager를 Mocking합니다. 예제는 다음과 같습니다:
+
+```java
+import static org.mockito.BDDMockito.given;
+
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.cache.CacheManager;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+
+import java.util.Optional;
+
+@ExtendWith(MockitoExtension.class)
+@ExtendWith(SpringExtension.class)
+@SpringBootTest
+public class MyControllerTest {
+
+    @MockBean
+    private CacheManager cacheManager;
+
+    @MockBean
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private MyController myController;
+
+    @Test
+    public void testMyController() {
+        // Mocking behavior
+        Cache cache = mock(Cache.class);
+        given(cacheManager.getCache("myCacheName")).willReturn(cache);
+        given(redisTemplate.opsForValue().get("myKey")).willReturn(new MyObject());
+
+        // Call the controller method and assert the results
+        // ...
+    }
+}
+```
+
+### 4. 테스트 프로파일 설정
+테스트 환경에 맞는 프로파일을 설정하여 테스트 시 특정 설정이 적용되도록 합니다. 예를 들어, `application-test.properties` 파일을 만들어 설정을 추가할 수 있습니다.
+
+```properties
+# application-test.properties
+spring.profiles.active=test
+
+# Redis 설정
+spring.redis.host=localhost
+spring.redis.port=6379
+```
+
+이제 테스트 클래스에서 `@ActiveProfiles` 어노테이션을 사용하여 `test` 프로파일을 활성화할 수 있습니다.
+
+```java
+import org.springframework.test.context.ActiveProfiles;
+
+@ActiveProfiles("test")
+public class MyControllerTest {
+    // 테스트 코드
+}
+```
+
+위의 방법들을 통해 테스트 환경 설정을 올바르게 하고, 필요한 경우 Mocking을 사용하여 의존성을 해결하면 500 에러를 해결할 수 있을 것입니다. 정확한 해결책은 에러 로그를 확인하여 원인을 파악한 후 적용하는 것이 중요합니다.
+
+
+--------------------------
 `@Primary`로 설정된 `CacheManager` 빈이 잘못 참조되는 문제로 보입니다. 이 문제를 해결하려면 순환 의존성을 피하면서도 초기화 작업을 수행할 수 있도록 초기화 로직을 변경해야 합니다. `ApplicationListener` 인터페이스를 구현하여 애플리케이션 컨텍스트 초기화 이벤트를 처리하는 방법을 사용할 수 있습니다.
 
 다음은 `ApplicationListener`를 사용하여 초기화 작업을 수행하는 예제입니다:
