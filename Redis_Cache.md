@@ -1,3 +1,134 @@
+
+`NoUniqueBeanDefinitionException` 에러를 해결하려면 스프링이 어떤 `CacheManager`를 사용할지 명확히 지정해줘야 합니다. 이전에 시도한 방법들이 작동하지 않는다면, 모든 `CacheManager` 빈의 이름을 명확히 지정하고 테스트 환경에서 해당 빈을 사용하도록 강제하는 방법을 고려할 수 있습니다.
+
+### 해결 방법
+
+1. 모든 `CacheManager` 빈에 명확한 이름을 지정합니다.
+2. 테스트 환경에서 특정 `CacheManager`를 명확히 지정합니다.
+
+아래는 이를 적용한 코드 예제입니다:
+
+#### Cache Configuration Class
+
+```java
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+
+@Configuration
+public class CacheConfig {
+
+    @Bean(name = "defaultCacheManager")
+    @Primary
+    @ConditionalOnMissingBean(CacheManager.class)
+    public CacheManager defaultCacheManager() {
+        return new ConcurrentMapCacheManager();
+    }
+
+    @Bean(name = "redisCacheManager")
+    @Profile("redis")
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "redis", matchIfMissing = true)
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1))
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RedisTemplate.class)
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+}
+```
+
+#### 테스트 클래스에서 특정 빈 사용
+
+테스트 클래스에서 명확히 `redisCacheManager`를 사용하도록 설정합니다.
+
+```java
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+
+@ExtendWith(SpringExtension.class)
+@SpringBootTest
+@ActiveProfiles("redis")
+public class MyServiceTest {
+
+    @Autowired
+    @Qualifier("redisCacheManager")
+    private CacheManager cacheManager;
+
+    @Test
+    public void testServiceMethod() {
+        // 테스트 코드 작성
+    }
+}
+```
+
+이렇게 하면 `redisCacheManager` 빈이 명확히 지정되어 사용됩니다. `@Qualifier`를 사용하여 `CacheManager` 빈을 특정하면, 스프링이 어떤 빈을 사용할지 명확히 지정할 수 있습니다.
+
+### 추가 디버깅 팁
+
+- **빈 정의 확인**: 애플리케이션 컨텍스트가 시작될 때, 등록된 모든 빈의 이름과 타입을 로그로 확인할 수 있습니다.
+    ```java
+    @Bean
+    public CommandLineRunner commandLineRunner(ApplicationContext ctx) {
+        return args -> {
+            System.out.println("Let's inspect the beans provided by Spring Boot:");
+            String[] beanNames = ctx.getBeanDefinitionNames();
+            Arrays.sort(beanNames);
+            for (String beanName : beanNames) {
+                System.out.println(beanName);
+            }
+        };
+    }
+    ```
+
+- **테스트 클래스에 프로파일 명확히 지정**: `@ActiveProfiles`를 사용하여 테스트 클래스가 올바른 프로파일을 사용하도록 합니다.
+    ```java
+    @ActiveProfiles("redis")
+    @SpringBootTest
+    public class MyServiceTest {
+        // 테스트 코드 작성
+    }
+    ```
+
+이 방법들을 통해 동일 타입의 두 개 이상의 `CacheManager` 빈으로 인한 `NoUniqueBeanDefinitionException` 오류를 해결할 수 있을 것입니다.
+
+----------------------------
+
 테스트 실행 시 `CacheManager` 빈이 두 개 이상 등록되어 `NoUniqueBeanDefinitionException` 예외가 발생하는 문제를 해결하기 위해 몇 가지 방법을 시도할 수 있습니다.
 
 ### 1. `@Primary` 애너테이션 사용
