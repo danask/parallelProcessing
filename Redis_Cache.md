@@ -1,3 +1,111 @@
+테스트 실행 시 `CacheManager` 빈이 두 개 이상 등록되어 `NoUniqueBeanDefinitionException` 예외가 발생하는 문제를 해결하기 위해 몇 가지 방법을 시도할 수 있습니다.
+
+### 1. `@Primary` 애너테이션 사용
+
+만약 `redisCacheManager`를 기본으로 사용하려면 `@Primary` 애너테이션을 추가하여 기본 `CacheManager`로 지정할 수 있습니다.
+
+```java
+@Bean
+@Primary
+@Profile("redis")
+@ConditionalOnProperty(name = "spring.cache.type", havingValue = "redis", matchIfMissing = true)
+public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+    RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+            .entryTtl(Duration.ofHours(1))
+            .disableCachingNullValues()
+            .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+            .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+    return RedisCacheManager.builder(redisConnectionFactory)
+            .cacheDefaults(cacheConfiguration)
+            .build();
+}
+```
+
+이 경우 `redisCacheManager`가 `@Primary` 애너테이션을 갖기 때문에 기본 `CacheManager`로 사용됩니다.
+
+### 2. 테스트에서 특정 프로필 활성화
+
+테스트 실행 시 특정 프로필을 활성화하여, `redisCacheManager` 또는 `defaultCacheManager` 중 하나만 활성화되도록 할 수 있습니다.
+
+```java
+import org.springframework.test.context.ActiveProfiles;
+
+@ActiveProfiles("redis") // 'redis' 프로필을 활성화하여 redisCacheManager를 사용
+@SpringBootTest
+public class MyServiceTest {
+    // 테스트 코드
+}
+```
+
+### 3. 특정 빈 이름을 명시적으로 사용
+
+테스트에서 명시적으로 특정 `CacheManager` 빈을 사용하도록 설정할 수도 있습니다.
+
+```java
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.cache.CacheManager;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+
+@ExtendWith(SpringExtension.class)
+@SpringBootTest
+public class MyServiceTest {
+
+    @MockBean
+    @Qualifier("redisCacheManager")
+    private CacheManager cacheManager;
+
+    @Test
+    public void testServiceMethod() {
+        // 테스트 코드 작성
+    }
+}
+```
+
+이렇게 하면 테스트 시 `redisCacheManager` 빈만을 사용하도록 강제할 수 있습니다.
+
+### 4. 테스트 컨피그 클래스 정의
+
+테스트 전용 설정 클래스를 만들어 테스트 실행 시 원하는 `CacheManager` 빈만 로드하도록 할 수도 있습니다.
+
+```java
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+
+@TestConfiguration
+public class TestCacheConfig {
+
+    @Bean
+    @Primary
+    public CacheManager testCacheManager() {
+        return new ConcurrentMapCacheManager();
+    }
+}
+```
+
+그리고 테스트 클래스에서 이 설정 클래스를 사용하도록 합니다.
+
+```java
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
+
+@ContextConfiguration(classes = TestCacheConfig.class)
+@SpringBootTest
+public class MyServiceTest {
+    // 테스트 코드
+}
+```
+
+위 방법 중 하나를 선택하여 적용하면 `CacheManager` 빈 충돌 문제를 해결할 수 있습니다.
+
+-----------------------------
 
 테스트에서 일부 요청이 500 에러로 응답하는 문제를 해결하려면 다음 사항들을 점검해야 합니다. 일부 테스트만 실패하는 이유는 특정 조건이나 설정에서 문제가 발생하고 있을 가능성이 큽니다.
 
