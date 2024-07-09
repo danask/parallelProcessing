@@ -1,4 +1,115 @@
 
+
+에러 메시지를 보면 'managedApps'라는 이름의 캐시를 찾을 수 없다는 것을 나타내고 있습니다. 이는 `RedisCacheManager`가 초기화될 때 해당 캐시가 정의되지 않았기 때문일 수 있습니다. 
+
+이 문제를 해결하려면 `RedisCacheManager` 초기화 시점에 특정 캐시를 미리 정의해주어야 합니다.
+
+### 캐시 이름 사전 정의
+
+`RedisCacheManager`를 설정할 때, 특정 캐시 이름을 사전에 정의할 수 있습니다. 이를 통해 스프링 부트가 시작될 때 해당 캐시들이 존재하도록 보장할 수 있습니다.
+
+아래와 같이 `RedisCacheManager` 설정에 캐시 이름을 미리 정의할 수 있습니다:
+
+```java
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+
+@Configuration
+public class CacheConfig {
+
+    @Bean(name = "defaultCacheManager")
+    @Primary
+    @ConditionalOnMissingBean(CacheManager.class)
+    public CacheManager defaultCacheManager() {
+        return new ConcurrentMapCacheManager();
+    }
+
+    @Bean(name = "redisCacheManager")
+    @Profile("redis")
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "redis", matchIfMissing = true)
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1))
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
+        cacheConfigurations.put("managedApps", cacheConfiguration);
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .withInitialCacheConfigurations(cacheConfigurations)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RedisTemplate.class)
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+}
+```
+
+### 주의 사항
+- `redisCacheManager` 빈 설정에서 `withInitialCacheConfigurations` 메서드를 통해 `managedApps` 캐시를 사전에 정의합니다.
+- 이렇게 하면 스프링 부트가 시작될 때 `managedApps`라는 이름의 캐시가 존재하도록 보장됩니다.
+
+### 테스트 설정 확인
+
+테스트 설정에서도 `redis` 프로파일이 활성화되도록 하고, 올바른 `CacheManager`를 사용하도록 설정합니다:
+
+```java
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.cache.CacheManager;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
+
+@ExtendWith(SpringExtension.class)
+@SpringBootTest
+@ActiveProfiles("redis")
+public class MyServiceTest {
+
+    @Autowired
+    @Qualifier("redisCacheManager")
+    private CacheManager cacheManager;
+
+    @Test
+    public void testServiceMethod() {
+        // 테스트 코드 작성
+    }
+}
+```
+
+위의 설정을 통해 캐시 이름을 사전에 정의하고, 이를 통해 캐시를 찾지 못하는 문제를 해결할 수 있습니다.
+----------------------------------
+
 `NoUniqueBeanDefinitionException` 에러를 해결하려면 스프링이 어떤 `CacheManager`를 사용할지 명확히 지정해줘야 합니다. 이전에 시도한 방법들이 작동하지 않는다면, 모든 `CacheManager` 빈의 이름을 명확히 지정하고 테스트 환경에서 해당 빈을 사용하도록 강제하는 방법을 고려할 수 있습니다.
 
 ### 해결 방법
