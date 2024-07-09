@@ -1,4 +1,120 @@
 
+`NoUniqueBeanDefinitionException` 에러는 `CacheManager` 타입의 빈이 두 개 이상 정의되어 있을 때 발생합니다. 이를 해결하려면, `CacheManager` 빈 정의를 명확하게 설정하고, 하나의 `CacheManager`만을 사용하도록 해야 합니다.
+
+먼저, `CacheConfig` 클래스에서 각 `CacheManager` 빈을 명시적으로 정의합니다. 이렇게 하면 특정 프로파일이 활성화되었을 때에만 해당 `CacheManager`가 빈으로 등록되도록 설정할 수 있습니다.
+
+### CacheConfig 수정
+다음과 같이 `CacheConfig`를 수정하여 `redisCacheManager`를 기본 `CacheManager`로 사용하도록 합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.cache.interceptor.CacheResolver;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+
+@Configuration
+@EnableCaching
+public class CacheConfig {
+
+    @Bean(name = "defaultCacheManager")
+    @Profile("!redis")
+    @ConditionalOnMissingBean(CacheManager.class)
+    public CacheManager defaultCacheManager() {
+        return new ConcurrentMapCacheManager();
+    }
+
+    @Bean(name = "redisCacheManager")
+    @Profile("redis")
+    @Primary
+    @ConditionalOnProperty(name = "spring.cache.type", havingValue = "redis", matchIfMissing = true)
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofHours(1)) // 캐시 만료 시간 설정
+                .disableCachingNullValues()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+
+        Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
+        cacheConfigurations.put("managedApps", cacheConfiguration);
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .withInitialCacheConfigurations(cacheConfigurations)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RedisTemplate.class)
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        return template;
+    }
+
+    @Bean
+    public CacheResolver cacheResolver(@Qualifier("redisCacheManager") CacheManager cacheManager) {
+        return new CustomCacheResolver(cacheManager);
+    }
+}
+```
+
+이 설정에서는:
+
+- `defaultCacheManager` 빈은 `redis` 프로파일이 활성화되지 않은 경우에만 생성됩니다.
+- `redisCacheManager` 빈은 `redis` 프로파일이 활성화된 경우에 생성되며, `Primary` 어노테이션을 사용하여 기본 `CacheManager`로 설정됩니다.
+- `cacheResolver`는 `redisCacheManager` 빈을 사용하도록 명시적으로 지정됩니다.
+
+### Spring Profile 설정
+프로파일을 활성화하려면, `application.properties` 파일에서 프로파일을 설정합니다.
+
+```properties
+# application.properties (default 프로파일)
+spring.profiles.active=default
+
+# application-redis.properties (redis 프로파일)
+spring.cache.type=redis
+```
+
+또는, 테스트 코드나 애플리케이션 시작 시점에서 프로파일을 활성화할 수 있습니다.
+
+### Spring Boot 애플리케이션에서 프로파일 설정
+프로파일을 명시적으로 설정하는 방법:
+
+```java
+@SpringBootApplication
+public class MyApplication {
+
+    public static void main(String[] args) {
+        SpringApplication application = new SpringApplication(MyApplication.class);
+        application.setAdditionalProfiles("redis"); // 'redis' 프로파일을 활성화합니다.
+        application.run(args);
+    }
+}
+```
+
+이 설정으로 인해 `redis` 프로파일이 활성화되면 `redisCacheManager`가 기본 `CacheManager`로 사용되고, `defaultCacheManager`는 생성되지 않습니다. 따라서 `NoUniqueBeanDefinitionException` 에러를 방지할 수 있습니다.
+
+------------------------------
 
 에러 메시지를 보면 'managedApps'라는 이름의 캐시를 찾을 수 없다는 것을 나타내고 있습니다. 이는 `RedisCacheManager`가 초기화될 때 해당 캐시가 정의되지 않았기 때문일 수 있습니다. 
 
