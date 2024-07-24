@@ -1,3 +1,62 @@
+Spring JPA에서 실행되는 SQL 쿼리의 내용을 로그로 확인하려면, Hibernate의 로깅 설정을 활성화해야 합니다. Hibernate는 Spring Data JPA의 기본 ORM 툴이기 때문에, Hibernate 로깅을 설정하면 Spring JPA에서 실행되는 쿼리를 텍스트로 볼 수 있습니다.
+
+### 방법 1: `application.properties` 파일을 사용한 설정
+
+Spring Boot 애플리케이션의 `src/main/resources/application.properties` 파일에 다음과 같은 설정을 추가합니다:
+
+```properties
+# 기본 SQL 로그 활성화
+spring.jpa.show-sql=true
+
+# SQL 쿼리의 형식 지정
+spring.jpa.properties.hibernate.format_sql=true
+
+# Hibernate SQL 쿼리 로깅 활성화
+logging.level.org.hibernate.SQL=DEBUG
+
+# Hibernate 파라미터 로깅 활성화
+logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+```
+
+### 방법 2: `application.yml` 파일을 사용한 설정
+
+`application.yml` 파일을 사용하는 경우, 다음과 같이 설정할 수 있습니다:
+
+```yaml
+spring:
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+```
+
+### 예제 설명
+
+- `spring.jpa.show-sql=true`: SQL 쿼리를 콘솔에 출력합니다.
+- `spring.jpa.properties.hibernate.format_sql=true`: SQL 쿼리를 읽기 쉽게 포맷팅합니다.
+- `logging.level.org.hibernate.SQL=DEBUG`: Hibernate가 생성하는 SQL 쿼리를 로깅합니다.
+- `logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE`: SQL 쿼리의 파라미터를 로깅합니다.
+
+### 추가 설정
+
+Spring Boot 로그 출력을 조절하려면 `application.properties` 또는 `application.yml` 파일에서 로깅 설정을 추가로 변경할 수 있습니다. 예를 들어, 로그 파일에 쿼리를 출력하려면 다음과 같이 설정할 수 있습니다:
+
+```properties
+# 로그 파일 설정
+logging.file.name=logs/spring-boot-app.log
+logging.file.path=/path/to/logs
+```
+
+이 설정을 통해 Spring JPA 애플리케이션에서 실행되는 모든 SQL 쿼리를 텍스트 형식으로 확인할 수 있습니다. 이를 통해 개발 및 디버깅 과정에서 쿼리 내용을 쉽게 추적할 수 있습니다.
+
+------------------------------
+
 최적화된 인덱스를 만드는 것은 데이터베이스의 성능을 크게 향상시킬 수 있습니다. 이를 위해서는 쿼리 패턴을 분석하고, 자주 사용되는 조건을 기반으로 인덱스를 설계해야 합니다. 아래는 빅테이블 A와 빅테이블 B를 조인하는 뷰를 최적화하기 위한 인덱스 설계 방법입니다.
 
 ### 1. 쿼리 패턴 분석
