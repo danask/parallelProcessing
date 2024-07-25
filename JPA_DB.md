@@ -1,3 +1,61 @@
+
+네, 권한 문제로 인해 저장 프로시저 호출에서 `does not exist` 오류가 발생할 수 있습니다. 하지만 권한 문제로 인해 발생하는 일반적인 오류와는 약간의 차이가 있을 수 있습니다. 권한 문제로 인해 발생할 수 있는 오류는 보통 다음과 같습니다:
+
+1. **권한 부족 오류 (Permission Denied)**:
+   - **오류 메시지**: `permission denied for procedure <procedure_name>`
+   - **설명**: 이 오류는 현재 사용자에게 해당 저장 프로시저를 실행할 권한이 없을 때 발생합니다.
+
+2. **저장 프로시저 또는 함수 존재 여부 오류**:
+   - **오류 메시지**: `procedure <procedure_name> does not exist` 또는 `function <function_name> does not exist`
+   - **설명**: 저장 프로시저가 정의되어 있지 않거나, 호출할 수 있는 권한이 없는 경우 발생합니다. 이 경우에는 프로시저가 스키마 내에 존재하는지 확인해야 합니다.
+
+### 권한 문제를 확인하고 해결하는 방법
+
+1. **프로시저 권한 확인**:
+   - PostgreSQL에서 저장 프로시저의 권한을 확인하려면 다음 쿼리를 사용할 수 있습니다:
+     ```sql
+     SELECT * 
+     FROM pg_proc
+     JOIN pg_namespace ON pg_proc.pronamespace = pg_namespace.oid
+     WHERE pg_proc.proname = 'your_procedure_name';
+     ```
+   - 이 쿼리는 저장 프로시저의 정보를 반환합니다. 사용자가 해당 프로시저를 실행할 권한이 있는지 확인합니다.
+
+2. **프로시저 권한 부여**:
+   - 권한이 부족한 경우, 관리자 계정에서 다음 쿼리를 사용하여 권한을 부여할 수 있습니다:
+     ```sql
+     GRANT EXECUTE ON FUNCTION your_procedure_name TO your_user;
+     ```
+   - 이 쿼리는 특정 사용자에게 저장 프로시저를 실행할 권한을 부여합니다.
+
+3. **스키마 설정 확인**:
+   - 저장 프로시저가 정의된 스키마가 애플리케이션의 기본 스키마와 일치하는지 확인합니다. 기본 스키마를 설정하려면 `application.yml` 파일에 스키마를 명시합니다:
+     ```yaml
+     spring:
+       datasource:
+         url: jdbc:postgresql://localhost:5432/your_database
+         username: your_username
+         password: your_password
+         driver-class-name: org.postgresql.Driver
+         default-schema: kaiappinfo
+     ```
+   - **주의**: 스키마 이름이 `default-schema`로 올바르게 설정되었는지 확인합니다.
+
+4. **스프링의 데이터베이스 연결 테스트**:
+   - 스프링에서 직접 데이터베이스 연결이 가능한지 확인하려면, `JdbcTemplate`을 사용하여 간단한 쿼리를 실행해보는 것도 도움이 됩니다. 예를 들어, 다음과 같은 간단한 쿼리로 연결을 테스트할 수 있습니다:
+     ```java
+     @Autowired
+     private JdbcTemplate jdbcTemplate;
+
+     public void testConnection() {
+         jdbcTemplate.execute("SELECT 1");
+     }
+     ```
+
+이와 같은 접근 방법을 사용하여 저장 프로시저 호출과 관련된 권한 문제를 해결할 수 있습니다. 권한이 문제의 원인인 경우, 위의 단계를 통해 확인하고 수정할 수 있습니다.
+
+----------------------------
+
 저장 프로시저의 반환값을 보여주고 싶다면, 저장 프로시저에서 반환값을 `OUT` 파라미터로 설정하거나 `RESULT SET`을 반환해야 합니다. `JdbcTemplate`을 사용하여 이러한 반환값을 처리하는 방법을 아래에 설명합니다.
 
 ### 1. **저장 프로시저 정의**
