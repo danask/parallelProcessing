@@ -1,3 +1,120 @@
+
+Spring에서 저장 프로시저(Stored Procedure)를 호출하는 방법에는 여러 가지가 있습니다. `@Procedure` 애노테이션을 사용하거나, `JdbcTemplate` 및 `SimpleJdbcCall` 클래스를 활용할 수 있습니다. 여기서는 두 가지 방법을 설명하겠습니다.
+
+### 방법 1: `@Procedure` 애노테이션 사용
+
+Spring Data JPA에서 `@Procedure` 애노테이션을 사용하여 저장 프로시저를 호출하는 방법입니다.
+
+#### 1.1 저장 프로시저 생성
+
+먼저, 데이터베이스에 저장 프로시저를 생성합니다. 예를 들어, PostgreSQL에서 다음과 같은 프로시저를 생성합니다:
+
+```sql
+CREATE OR REPLACE FUNCTION add_numbers(a INTEGER, b INTEGER) RETURNS INTEGER AS $$
+BEGIN
+    RETURN a + b;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+#### 1.2 JPA 엔티티 리포지토리에서 저장 프로시저 호출
+
+Spring Data JPA 리포지토리 인터페이스에서 `@Procedure` 애노테이션을 사용하여 저장 프로시저를 호출합니다.
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.query.Procedure;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface MyRepository extends JpaRepository<MyEntity, Long> {
+
+    @Procedure("add_numbers")
+    Integer addNumbers(Integer a, Integer b);
+}
+```
+
+#### 1.3 저장 프로시저 호출
+
+서비스 클래스에서 리포지토리를 사용하여 저장 프로시저를 호출합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class MyService {
+
+    @Autowired
+    private MyRepository myRepository;
+
+    @Transactional
+    public Integer addNumbers(Integer a, Integer b) {
+        return myRepository.addNumbers(a, b);
+    }
+}
+```
+
+### 방법 2: `JdbcTemplate` 및 `SimpleJdbcCall` 사용
+
+`JdbcTemplate`과 `SimpleJdbcCall`을 사용하여 저장 프로시저를 호출하는 방법입니다.
+
+#### 2.1 저장 프로시저 생성
+
+데이터베이스에 동일한 저장 프로시저를 생성합니다.
+
+```sql
+CREATE OR REPLACE FUNCTION add_numbers(a INTEGER, b INTEGER) RETURNS INTEGER AS $$
+BEGIN
+    RETURN a + b;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+#### 2.2 `JdbcTemplate` 및 `SimpleJdbcCall` 설정
+
+`JdbcTemplate` 및 `SimpleJdbcCall`을 사용하여 저장 프로시저를 호출할 수 있도록 설정합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.simple.SimpleJdbcCall;
+import org.springframework.stereotype.Service;
+
+import javax.annotation.PostConstruct;
+import java.util.Map;
+
+@Service
+public class MyService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    private SimpleJdbcCall simpleJdbcCall;
+
+    @PostConstruct
+    public void init() {
+        simpleJdbcCall = new SimpleJdbcCall(jdbcTemplate)
+            .withFunctionName("add_numbers");
+    }
+
+    public Integer addNumbers(Integer a, Integer b) {
+        Map<String, Object> result = simpleJdbcCall.execute(a, b);
+        return (Integer) result.get("returnvalue");
+    }
+}
+```
+
+### 정리
+
+1. **@Procedure 애노테이션 사용**: Spring Data JPA 리포지토리에서 `@Procedure` 애노테이션을 사용하여 저장 프로시저를 호출합니다.
+2. **JdbcTemplate 및 SimpleJdbcCall 사용**: `JdbcTemplate` 및 `SimpleJdbcCall`을 사용하여 저장 프로시저를 호출합니다.
+
+이 두 가지 방법 모두 저장 프로시저를 호출할 수 있지만, 첫 번째 방법은 Spring Data JPA를 사용하여 더 간결한 코드로 저장 프로시저를 호출할 수 있습니다. 두 번째 방법은 더 많은 유연성을 제공하지만, 코드가 다소 복잡해질 수 있습니다.
+
+
+----------------------------
+
 Spring JPA에서 실행되는 SQL 쿼리의 내용을 로그로 확인하려면, Hibernate의 로깅 설정을 활성화해야 합니다. Hibernate는 Spring Data JPA의 기본 ORM 툴이기 때문에, Hibernate 로깅을 설정하면 Spring JPA에서 실행되는 쿼리를 텍스트로 볼 수 있습니다.
 
 ### 방법 1: `application.properties` 파일을 사용한 설정
