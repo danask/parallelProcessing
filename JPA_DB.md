@@ -1,3 +1,102 @@
+Spring 애플리케이션에서 저장 프로시저가 제대로 연결되고 호출되는지 간단하게 테스트하려면, 다음과 같은 방법을 사용할 수 있습니다. 
+
+### 1. 간단한 저장 프로시저 생성
+먼저, 테스트를 위해 간단한 저장 프로시저를 생성합니다. 예를 들어, 간단한 "Hello, World!" 메시지를 반환하는 저장 프로시저를 만들어 보겠습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION kaiappinfo.hello_world()
+RETURNS text AS $$
+BEGIN
+    RETURN 'Hello, World!';
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 2. Spring Repository 설정
+이제 Spring 애플리케이션에서 저장 프로시저를 호출하는 간단한 리포지토리를 만듭니다.
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.query.Procedure;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface TestRepository extends JpaRepository<SomeEntity, Long> {
+
+    @Procedure(name = "kaiappinfo.hello_world")
+    String callHelloWorld();
+}
+```
+
+`SomeEntity`는 테스트를 위한 임의의 엔티티입니다. 저장 프로시저를 테스트하는 데 실제 데이터베이스 엔티티는 필요하지 않습니다.
+
+### 3. Service 및 Test 코드 작성
+이제 서비스 계층과 테스트 코드를 작성합니다.
+
+#### 서비스 계층
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class TestService {
+
+    @Autowired
+    private TestRepository testRepository;
+
+    public String callHelloWorld() {
+        return testRepository.callHelloWorld();
+    }
+}
+```
+
+#### 테스트 코드
+```java
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@SpringBootTest
+public class StoredProcTest {
+
+    @Autowired
+    private TestService testService;
+
+    @Test
+    public void testCallHelloWorld() {
+        String result = testService.callHelloWorld();
+        assertEquals("Hello, World!", result);
+    }
+}
+```
+
+### 4. Spring Boot Application 설정
+`application.yml` 또는 `application.properties`에서 데이터베이스 설정을 적절히 구성합니다.
+
+#### application.yml 예시
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://your-db-host:your-db-port/your-db-name
+    username: your-db-username
+    password: your-db-password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: kaiappinfo
+```
+
+### 5. 실행 및 확인
+위의 테스트 코드를 실행하면, 저장 프로시저가 제대로 호출되고 "Hello, World!" 메시지를 반환하는지 확인할 수 있습니다.
+
+이렇게 간단한 예제를 통해 저장 프로시저가 스프링 애플리케이션에서 올바르게 호출되는지 테스트할 수 있습니다. 기존의 복잡한 저장 프로시저로 테스트하기 전에, 간단한 프로시저를 통해 기본 연결과 호출이 문제 없는지 확인하는 것이 좋습니다.
+
+------------------------
 
 네, 일반 테이블에는 접근할 수 있지만, 저장 프로시저(Stored Procedure, SP)에 접근할 수 없는 경우가 있을 수 있습니다. 이는 데이터베이스 사용자의 권한 설정에 따라 다릅니다.
 
