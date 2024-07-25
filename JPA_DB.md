@@ -1,3 +1,108 @@
+다른 데이터베이스 테이블들은 잘 불러와지는데 특정 저장 프로시저만 제대로 호출되지 않는 경우, 다음과 같은 문제를 점검해볼 수 있습니다:
+
+### 1. 저장 프로시저 이름 및 스키마 확인
+저장 프로시저 이름과 스키마가 정확하게 지정되었는지 확인합니다. 특히, 스키마와 저장 프로시저 이름이 정확히 일치하는지 검토하세요.
+
+- 저장 프로시저 이름 및 스키마가 정확한지 확인합니다.
+- `@Procedure` 애노테이션의 `procedureName` 속성이 저장 프로시저의 전체 이름과 일치하는지 확인합니다.
+
+```java
+@Procedure(procedureName = "kaiappinfo.fn_appusage_datausage_daily_00")
+List<AppUsageTopApp> getAppUsageDataUsageDaily_00(...);
+```
+
+### 2. 저장 프로시저 파라미터 및 반환 타입 확인
+저장 프로시저의 파라미터와 반환 타입이 Java 메소드와 일치하는지 확인합니다.
+
+- 프로시저가 사용하는 파라미터의 순서와 타입이 Java 메소드의 파라미터와 일치해야 합니다.
+- 프로시저의 반환 타입이 Java 메소드에서 처리 가능한 타입인지 확인합니다.
+
+### 3. 저장 프로시저 권한 확인
+저장 프로시저를 호출하는 데이터베이스 사용자에게 적절한 권한이 부여되어 있는지 확인합니다.
+
+```sql
+GRANT EXECUTE ON FUNCTION kaiappinfo.fn_appusage_datausage_daily_00 TO your_user_name;
+```
+
+### 4. 저장 프로시저의 존재 여부 확인
+저장 프로시저가 데이터베이스에 실제로 존재하는지 확인합니다.
+
+```sql
+SELECT proname
+FROM pg_proc
+WHERE proname = 'fn_appusage_datausage_daily_00'
+AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'kaiappinfo');
+```
+
+### 5. 직접 JDBC를 통한 테스트
+Spring Data JPA를 사용하지 않고, `JdbcTemplate`을 이용하여 저장 프로시저를 호출해 보세요. 이는 Spring Data JPA의 문제를 분리하여 확인하는 데 도움이 됩니다.
+
+#### JdbcTemplate을 사용한 예제
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.CallableStatementCreator;
+import org.springframework.jdbc.core.CallableStatementCallback;
+import org.springframework.jdbc.core.CallableStatement;
+import org.springframework.stereotype.Service;
+
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class TestService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public Map<String, Object> callStoredProc() {
+        return jdbcTemplate.execute(
+            (CallableStatementCreator) conn -> {
+                CallableStatement cs = conn.prepareCall("{ call kaiappinfo.fn_appusage_datausage_daily_00(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) }");
+                cs.setString(1, "customerId");
+                cs.setLong(2, 123L);
+                cs.setString(3, "appVersion");
+                cs.setString(4, "startdate");
+                cs.setString(5, "enddate");
+                cs.setLong(6, 456L);
+                // set other parameters as needed
+                return cs;
+            },
+            (CallableStatementCallback<Map<String, Object>>) cs -> {
+                cs.execute();
+                Map<String, Object> resultMap = new HashMap<>();
+                // Process result set or output parameters here
+                return resultMap;
+            }
+        );
+    }
+}
+```
+
+### 6. 로그 확인 및 디버깅
+애플리케이션 로그 레벨을 DEBUG로 설정하고 저장 프로시저 호출 시 로그를 확인합니다. 이를 통해 오류 메시지나 스택 트레이스를 확인할 수 있습니다.
+
+#### `application.yml`에서 로그 레벨 설정
+```yaml
+logging:
+  level:
+    org.springframework: DEBUG
+    org.hibernate: DEBUG
+```
+
+### 7. 스프링 JPA 버전 및 JDBC 드라이버 확인
+사용 중인 Spring JPA와 JDBC 드라이버의 버전이 호환되는지 확인합니다. 때로는 드라이버의 버전 불일치로 인해 문제가 발생할 수 있습니다.
+
+### 8. Spring Boot 자동 설정 확인
+Spring Boot가 자동으로 설정하는 데이터 소스와 관련된 설정이 적절하게 구성되어 있는지 확인합니다.
+
+이 단계를 통해 문제를 해결할 수 있을 것입니다. 저장 프로시저와의 연결이 다른 데이터베이스 테이블과 다르게 동작하는 이유를 파악하고 문제를 해결해보세요.
+--------------------------
+
 저장 프로시저가 존재하지 않는다는 오류가 계속 발생하는 경우, 몇 가지 가능한 원인을 고려해볼 수 있습니다. 아래는 문제를 해결하기 위해 확인해 볼 몇 가지 단계입니다.
 
 ### 1. 스키마 지정 확인
