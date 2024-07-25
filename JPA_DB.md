@@ -1,4 +1,162 @@
 
+이 에러는 JPA에서 호출한 저장 프로시저의 이름이나 매개변수 타입이 PostgreSQL에 정의된 저장 프로시저와 일치하지 않기 때문에 발생합니다. 몇 가지 점검할 사항을 통해 이를 해결해보겠습니다.
+
+### 1. 매개변수 타입 일치 여부 점검
+PostgreSQL 저장 프로시저 정의에서 매개변수의 타입이 JPA 리포지토리에서 호출한 타입과 일치하는지 확인해야 합니다. 예를 들어, 저장 프로시저에서 `bigint` 타입을 사용했다면 JPA 리포지토리에서도 `Long` 타입을 사용해야 합니다.
+
+### 2. 명시적 타입 캐스팅 추가
+매개변수 타입이 일치하지 않는 경우, 명시적 타입 캐스팅을 추가하여 호출합니다.
+
+### 3. 프로시저 네임스페이스 확인
+저장 프로시저 이름에 네임스페이스가 포함되어 있는지 확인합니다.
+
+### 예제 수정
+1. 저장 프로시저 정의 확인:
+
+```sql
+CREATE OR REPLACE FUNCTION kaiappinfo.fn_appusage_datausage_daily_00(
+    cust_id character varying,
+    grp_id bigint,
+    app_ver character varying,
+    startdate character varying,
+    enddate character varying,
+    auid bigint,
+    appname1 character varying,
+    packagename1 character varying,
+    appname2 character varying,
+    packagename2 character varying,
+    appname3 character varying,
+    packagename3 character varying,
+    appname4 character varying,
+    packagename4 character varying,
+    appname5 character varying,
+    packagename5 character varying
+)
+RETURNS TABLE(
+    devicedate date,
+    devicecount bigint,
+    customerid character varying,
+    groupid integer,
+    groupname character varying,
+    appname character varying,
+    packagename character varying,
+    appversion character varying,
+    appuid integer,
+    avgbatteryusagepercentage double precision,
+    avgbackgroundtime double precision,
+    avgforegroundtime double precision,
+    avgtotaltime double precision,
+    devicestotalbatteryusagepercentage bigint,
+    devicestotalbackgroundtime bigint,
+    devicestotalforegroundtime bigint,
+    devicestotalusagetime bigint,
+    normalizedbatteryconsumption double precision,
+    avgnetworkusage double precision,
+    avgmobileusage double precision,
+    avgwifiusage double precision,
+    devicestotalmobileusage bigint,
+    devicestotalmobileforegroundusage bigint,
+    devicestotalmobilebackgroundusage bigint,
+    devicestotalwifiusage bigint,
+    devicestotalwififoregroundusage bigint,
+    devicestotalwifibackgroundusage bigint,
+    devicestotalnetworkusage bigint
+)
+AS $$
+BEGIN
+    -- Function implementation here
+END;
+$$ LANGUAGE plpgsql;
+```
+
+2. JPA 리포지토리 수정:
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.query.Procedure;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+
+@Repository
+public interface AppUsageRepository extends JpaRepository<AppUsageData, Long> {
+
+    @Procedure("kaiappinfo.fn_appusage_datausage_daily_00")
+    List<AppUsageData> getAppUsageDataUsageDaily_00(
+        String cust_id, Long grp_id, String app_ver, String startdate, 
+        String enddate, Long auid, String appname1, String packagename1, 
+        String appname2, String packagename2, String appname3, String packagename3, 
+        String appname4, String packagename4, String appname5, String packagename5
+    );
+}
+```
+
+3. 서비스 클래스:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
+
+@Service
+public class AppUsageService {
+
+    @Autowired
+    private AppUsageRepository appUsageRepository;
+
+    @Transactional
+    public List<AppUsageData> getAppUsageDataUsageDaily_00(
+        String cust_id, Long grp_id, String app_ver, String startdate, 
+        String enddate, Long auid, String appname1, String packagename1, 
+        String appname2, String packagename2, String appname3, String packagename3, 
+        String appname4, String packagename4, String appname5, String packagename5
+    ) {
+        return appUsageRepository.getAppUsageDataUsageDaily_00(
+            cust_id, grp_id, app_ver, startdate, enddate, auid, 
+            appname1, packagename1, appname2, packagename2, appname3, packagename3, 
+            appname4, packagename4, appname5, packagename5
+        );
+    }
+}
+```
+
+4. 컨트롤러 클래스:
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
+
+@RestController
+public class AppUsageController {
+
+    @Autowired
+    private AppUsageService appUsageService;
+
+    @GetMapping("/app-usage")
+    public List<AppUsageData> getAppUsageDataUsageDaily_00(
+        @RequestParam String cust_id, @RequestParam Long grp_id, @RequestParam String app_ver, 
+        @RequestParam String startdate, @RequestParam String enddate, @RequestParam Long auid, 
+        @RequestParam String appname1, @RequestParam String packagename1, @RequestParam String appname2, 
+        @RequestParam String packagename2, @RequestParam String appname3, @RequestParam String packagename3, 
+        @RequestParam String appname4, @RequestParam String packagename4, @RequestParam String appname5, 
+        @RequestParam String packagename5
+    ) {
+        return appUsageService.getAppUsageDataUsageDaily_00(
+            cust_id, grp_id, app_ver, startdate, enddate, auid, 
+            appname1, packagename1, appname2, packagename2, appname3, packagename3, 
+            appname4, packagename4, appname5, packagename5
+        );
+    }
+}
+```
+
+이제 저장 프로시저의 이름과 매개변수 타입이 일치하도록 수정되었습니다. 또한, 네임스페이스가 포함되어 있는지 확인하고 호출합니다. 이렇게 하면 `fn_appusage_datausage_daily_00` 저장 프로시저가 제대로 호출될 것입니다.
+
+-------------------------------
+
 Spring에서 저장 프로시저(Stored Procedure)를 호출하는 방법에는 여러 가지가 있습니다. `@Procedure` 애노테이션을 사용하거나, `JdbcTemplate` 및 `SimpleJdbcCall` 클래스를 활용할 수 있습니다. 여기서는 두 가지 방법을 설명하겠습니다.
 
 ### 방법 1: `@Procedure` 애노테이션 사용
