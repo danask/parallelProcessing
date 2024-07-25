@@ -1,4 +1,74 @@
 
+네, 일반 테이블에는 접근할 수 있지만, 저장 프로시저(Stored Procedure, SP)에 접근할 수 없는 경우가 있을 수 있습니다. 이는 데이터베이스 사용자의 권한 설정에 따라 다릅니다.
+
+PostgreSQL에서 특정 사용자에게 저장 프로시저에 대한 권한이 부여되지 않은 경우, 그 사용자는 해당 프로시저를 실행할 수 없습니다. 저장 프로시저에 대한 접근 권한이 제대로 설정되어 있는지 확인하는 것이 필요합니다.
+
+### 권한 확인 및 부여 방법
+
+1. **권한 확인**:
+   먼저, 데이터베이스 관리자로 로그인한 상태에서 다음 쿼리를 실행하여 저장 프로시저에 대한 권한을 확인합니다.
+
+   ```sql
+   \df+ kaiappinfo.fn_appusage_datausage_daily_00
+   ```
+
+2. **권한 부여**:
+   만약 특정 사용자에게 저장 프로시저에 대한 실행 권한이 없다면, 다음과 같은 명령을 사용하여 권한을 부여할 수 있습니다.
+
+   ```sql
+   GRANT EXECUTE ON FUNCTION kaiappinfo.fn_appusage_datausage_daily_00 TO your_user_name;
+   ```
+
+   여기서 `your_user_name`은 저장 프로시저를 실행할 데이터베이스 사용자입니다.
+
+### 예제
+
+```sql
+-- kaiappinfo 스키마의 모든 저장 프로시저에 대해 권한을 부여
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA kaiappinfo TO your_user_name;
+```
+
+### 참고 사항
+
+1. **스키마 지정**: 저장 프로시저 호출 시 스키마를 명시적으로 지정하는 것이 좋습니다. 예를 들어 `@Procedure("kaiappinfo.fn_appusage_datausage_daily_00")`와 같이 스키마를 명시적으로 지정합니다.
+
+2. **연결 설정**: `application.yml` 또는 `application.properties`에서 기본 스키마를 설정하여 데이터베이스 연결 시 해당 스키마를 기본으로 사용하도록 설정합니다.
+
+### 권한 확인 방법 예제
+
+PostgreSQL에서 특정 사용자가 저장 프로시저에 접근할 수 있는지 확인하려면 다음 명령을 사용합니다:
+
+```sql
+-- 저장 프로시저의 권한 정보 확인
+SELECT 
+  n.nspname as "Schema",
+  p.proname as "Name",
+  pg_catalog.pg_get_function_result(p.oid) as "Result data type",
+  pg_catalog.pg_get_function_arguments(p.oid) as "Argument data types",
+  CASE
+    WHEN p.proisagg THEN 'agg'
+    WHEN p.proiswindow THEN 'window'
+    WHEN p.prorettype = 'pg_catalog.trigger'::pg_catalog.regtype THEN 'trigger'
+    ELSE 'normal'
+  END as "Type",
+  r.rolname as "Owner",
+  p.proacl
+FROM 
+  pg_catalog.pg_proc p
+     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     LEFT JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
+WHERE 
+  pg_catalog.pg_function_is_visible(p.oid)
+  AND n.nspname <> 'pg_catalog'
+  AND n.nspname <> 'information_schema'
+  AND n.nspname = 'kaiappinfo'
+ORDER BY 
+  1, 2, 4;
+```
+
+위 방법들을 통해 데이터베이스 사용자에게 필요한 권한을 부여하고, 스키마 설정 및 프로시저 호출 방식을 확인하여 문제를 해결할 수 있습니다.
+
+--------------------------
 이 에러는 JPA에서 호출한 저장 프로시저의 이름이나 매개변수 타입이 PostgreSQL에 정의된 저장 프로시저와 일치하지 않기 때문에 발생합니다. 몇 가지 점검할 사항을 통해 이를 해결해보겠습니다.
 
 ### 1. 매개변수 타입 일치 여부 점검
