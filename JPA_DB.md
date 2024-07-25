@@ -1,3 +1,140 @@
+저장 프로시저가 존재하지 않는다는 오류가 계속 발생하는 경우, 몇 가지 가능한 원인을 고려해볼 수 있습니다. 아래는 문제를 해결하기 위해 확인해 볼 몇 가지 단계입니다.
+
+### 1. 스키마 지정 확인
+저장 프로시저 호출 시 스키마를 명시적으로 지정합니다. 예를 들어, `@Procedure` 어노테이션을 사용할 때 스키마를 포함하여 완전한 이름을 사용합니다.
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.query.Procedure;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface TestRepository extends JpaRepository<SomeEntity, Long> {
+
+    @Procedure("kaiappinfo.hello_world")
+    String callHelloWorld();
+}
+```
+
+### 2. 데이터베이스 연결 및 기본 스키마 설정 확인
+`application.yml` 또는 `application.properties` 파일에서 기본 스키마 설정을 올바르게 구성합니다.
+
+#### application.yml 예시
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://your-db-host:your-db-port/your-db-name
+    username: your-db-username
+    password: your-db-password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        default_schema: kaiappinfo
+```
+
+### 3. 기본 스키마 설정 후 명시적으로 스키마 지정
+기본 스키마를 설정하더라도, 프로시저 호출 시 명시적으로 스키마를 지정해보십시오.
+
+### 4. SQL 쿼리로 직접 확인
+애플리케이션 외부에서 데이터베이스에 직접 연결하여 저장 프로시저가 제대로 생성되고 호출되는지 확인합니다.
+
+```sql
+SET search_path TO kaiappinfo;
+
+SELECT kaiappinfo.hello_world();
+```
+
+### 5. 데이터베이스 사용자의 권한 확인
+데이터베이스 사용자가 해당 스키마와 저장 프로시저에 대한 권한이 있는지 확인합니다.
+
+```sql
+GRANT EXECUTE ON FUNCTION kaiappinfo.hello_world TO your_user_name;
+```
+
+### 6. 저장 프로시저의 존재 여부 확인
+`pg_proc` 테이블에서 저장 프로시저가 존재하는지 확인합니다.
+
+```sql
+SELECT * 
+FROM pg_proc 
+WHERE proname = 'hello_world' 
+AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'kaiappinfo');
+```
+
+### 예제 코드
+
+간단한 저장 프로시저를 호출하는 예제입니다.
+
+#### 간단한 저장 프로시저 생성
+```sql
+CREATE OR REPLACE FUNCTION kaiappinfo.hello_world()
+RETURNS text AS $$
+BEGIN
+    RETURN 'Hello, World!';
+END;
+$$ LANGUAGE plpgsql;
+```
+
+#### Repository 인터페이스
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.query.Procedure;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface TestRepository extends JpaRepository<SomeEntity, Long> {
+
+    @Procedure("kaiappinfo.hello_world")
+    String callHelloWorld();
+}
+```
+
+#### 서비스 계층
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class TestService {
+
+    @Autowired
+    private TestRepository testRepository;
+
+    public String callHelloWorld() {
+        return testRepository.callHelloWorld();
+    }
+}
+```
+
+#### 테스트 코드
+```java
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@SpringBootTest
+public class StoredProcTest {
+
+    @Autowired
+    private TestService testService;
+
+    @Test
+    public void testCallHelloWorld() {
+        String result = testService.callHelloWorld();
+        assertEquals("Hello, World!", result);
+    }
+}
+```
+
+### 요약
+이 단계들을 통해 저장 프로시저가 올바르게 인식되지 않는 문제를 해결할 수 있습니다. 스키마와 사용자 권한, 그리고 저장 프로시저의 존재 여부를 꼼꼼히 확인하는 것이 중요합니다.
+--------------------
+
 Spring 애플리케이션에서 저장 프로시저가 제대로 연결되고 호출되는지 간단하게 테스트하려면, 다음과 같은 방법을 사용할 수 있습니다. 
 
 ### 1. 간단한 저장 프로시저 생성
