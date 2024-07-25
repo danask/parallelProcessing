@@ -1,3 +1,108 @@
+저장 프로시저의 반환값을 보여주고 싶다면, 저장 프로시저에서 반환값을 `OUT` 파라미터로 설정하거나 `RESULT SET`을 반환해야 합니다. `JdbcTemplate`을 사용하여 이러한 반환값을 처리하는 방법을 아래에 설명합니다.
+
+### 1. **저장 프로시저 정의**
+
+저장 프로시저가 `OUT` 파라미터를 사용하여 값을 반환하도록 정의합니다. PostgreSQL에서 `OUT` 파라미터를 사용하는 간단한 저장 프로시저를 작성해 보겠습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION hello_world_with_return()
+RETURNS TABLE(message TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 'Hello, World!' AS message;
+END;
+$$;
+```
+
+이 저장 프로시저는 `message`라는 `TEXT` 형식의 값을 반환합니다.
+
+### 2. **Spring Boot 애플리케이션에서 저장 프로시저 호출**
+
+Spring Boot에서 `JdbcTemplate`을 사용하여 저장 프로시저를 호출하고 반환값을 처리하는 방법을 설명합니다.
+
+#### **2.1. 저장 프로시저 호출 및 반환값 처리**
+
+`JdbcTemplate`을 사용하여 저장 프로시저를 호출하고 반환된 결과를 처리합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.CallableStatementCreator;
+import org.springframework.jdbc.core.CallableStatementCallback;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import java.sql.CallableStatement;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class HelloWorldService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public List<String> callHelloWorldProcedure() {
+        return jdbcTemplate.execute(
+            (CallableStatementCreator) conn -> {
+                CallableStatement cs = conn.prepareCall("{ ? = call hello_world_with_return() }");
+                cs.registerOutParameter(1, java.sql.Types.REF_CURSOR);
+                return cs;
+            },
+            (CallableStatementCallback<List<String>>) cs -> {
+                cs.execute();
+                ResultSet rs = (ResultSet) cs.getObject(1);
+                List<String> messages = new ArrayList<>();
+                while (rs.next()) {
+                    messages.add(rs.getString("message"));
+                }
+                return messages;
+            }
+        );
+    }
+}
+```
+
+#### **2.2. 컨트롤러에서 서비스 호출**
+
+컨트롤러에서 `HelloWorldService`를 호출하여 저장 프로시저의 반환값을 클라이언트에게 반환합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api")
+public class HelloWorldController {
+
+    @Autowired
+    private HelloWorldService helloWorldService;
+
+    @GetMapping("/hello")
+    public List<String> sayHello() {
+        return helloWorldService.callHelloWorldProcedure();
+    }
+}
+```
+
+### 3. **테스트 및 결과 확인**
+
+1. **서버 실행**: Spring Boot 애플리케이션을 실행합니다.
+2. **API 호출**: `http://localhost:8080/api/hello`를 호출하여 저장 프로시저를 실행합니다.
+3. **결과 확인**: 반환된 JSON 응답에서 "Hello, World!" 메시지를 확인할 수 있습니다.
+
+이 예제는 저장 프로시저의 반환값을 `ResultSet` 형태로 처리하고, 이를 클라이언트에 JSON 형식으로 반환하는 방법을 보여줍니다. 저장 프로시저의 반환값이 `OUT` 파라미터로 제공될 경우, `CallableStatement`의 `getXXX` 메소드를 사용하여 값을 읽을 수 있습니다.
+
+-----------------------
 다른 데이터베이스 테이블들은 잘 불러와지는데 특정 저장 프로시저만 제대로 호출되지 않는 경우, 다음과 같은 문제를 점검해볼 수 있습니다:
 
 ### 1. 저장 프로시저 이름 및 스키마 확인
