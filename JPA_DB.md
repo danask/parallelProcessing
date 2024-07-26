@@ -1,3 +1,109 @@
+`jdbcTemplate.execute("SELECT 1");`는 단순히 쿼리를 실행하기 위한 명령으로, 쿼리 결과를 반환하지 않습니다. 쿼리 결과를 확인하려면 `JdbcTemplate`의 `queryForObject`나 `query` 메서드를 사용해야 합니다.
+
+다음은 `queryForObject`를 사용하여 간단한 쿼리 결과를 확인하는 방법입니다:
+
+### 예제: 간단한 쿼리 결과 확인
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class DatabaseService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public Integer testConnection() {
+        return jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+    }
+}
+```
+
+이 코드는 `SELECT 1` 쿼리를 실행하고 결과를 `Integer`로 반환합니다. 
+
+### 예제: 저장 프로시저 호출 및 결과 확인
+
+저장 프로시저를 호출하고 그 결과를 확인하려면 `JdbcTemplate`의 `query` 메서드를 사용합니다. 예를 들어, `hello_world_with_return` 저장 프로시저를 호출하고 결과를 확인하는 방법은 다음과 같습니다:
+
+#### 1. 저장 프로시저 정의 (다시 확인)
+
+```sql
+CREATE OR REPLACE FUNCTION hello_world_with_return()
+RETURNS TABLE(message TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 'Hello, World!' AS message;
+END;
+$$;
+```
+
+#### 2. Spring Boot 서비스 클래스에서 저장 프로시저 호출 및 결과 처리
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.stereotype.Service;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+
+@Service
+public class HelloWorldService {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    public List<String> callHelloWorldProcedure() {
+        String sql = "SELECT * FROM hello_world_with_return()";
+        return jdbcTemplate.query(sql, new RowMapper<String>() {
+            @Override
+            public String mapRow(ResultSet rs, int rowNum) throws SQLException {
+                return rs.getString("message");
+            }
+        });
+    }
+}
+```
+
+#### 3. 컨트롤러에서 서비스 호출
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api")
+public class HelloWorldController {
+
+    @Autowired
+    private HelloWorldService helloWorldService;
+
+    @GetMapping("/hello")
+    public List<String> sayHello() {
+        return helloWorldService.callHelloWorldProcedure();
+    }
+}
+```
+
+### 테스트 및 결과 확인
+
+1. **서버 실행**: Spring Boot 애플리케이션을 실행합니다.
+2. **API 호출**: `http://localhost:8080/api/hello`를 호출하여 저장 프로시저를 실행합니다.
+3. **결과 확인**: 반환된 JSON 응답에서 "Hello, World!" 메시지를 확인할 수 있습니다.
+
+이 예제는 저장 프로시저의 반환값을 처리하고 결과를 클라이언트에게 반환하는 방법을 보여줍니다. 이러한 방법을 사용하여 스프링 애플리케이션에서 저장 프로시저 호출 및 결과 확인을 할 수 있습니다.
+
+-------------------------
 
 네, 권한 문제로 인해 저장 프로시저 호출에서 `does not exist` 오류가 발생할 수 있습니다. 하지만 권한 문제로 인해 발생하는 일반적인 오류와는 약간의 차이가 있을 수 있습니다. 권한 문제로 인해 발생할 수 있는 오류는 보통 다음과 같습니다:
 
