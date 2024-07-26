@@ -1,3 +1,160 @@
+
+`Transformers`는 Hibernate에서 사용되는 클래스입니다. 이를 사용하려면 Hibernate 관련 라이브러리를 포함해야 합니다. 또한, 결과가 `List<AppUsageTopAppSPProjection>`에 제대로 매핑되지 않는 문제는 Projection이 아닌 Entity 클래스를 사용하여 직접 DTO로 변환하는 방법으로 해결할 수 있습니다.
+
+여기서는 `Transformers`를 사용하는 방법과 `JpaRepository`에서 네이티브 쿼리를 사용하여 결과를 매핑하는 방법을 모두 제시하겠습니다.
+
+### 방법 1: 네이티브 쿼리와 Hibernate Transformers 사용
+
+#### 의존성 추가
+
+먼저, `pom.xml` 파일에 Hibernate 관련 의존성을 추가합니다.
+
+```xml
+<dependency>
+    <groupId>org.hibernate</groupId>
+    <artifactId>hibernate-core</artifactId>
+    <version>5.4.32.Final</version>
+</dependency>
+```
+
+#### 코드 구현
+
+```java
+import org.hibernate.query.NativeQuery;
+import org.hibernate.transform.Transformers;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.Query;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<AppUsageTopAppSP> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        Query query = entityManager.createNativeQuery("SELECT * FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)")
+                .setParameter("customerId", customerId)
+                .setParameter("groupId", groupId)
+                .setParameter("appVersion", appVersion)
+                .setParameter("deviceDateStart", deviceDateStart)
+                .setParameter("deviceDateEnd", deviceDateEnd)
+                .setParameter("appUID", appUID)
+                .setParameter("appName1", appName1)
+                .setParameter("pkgName1", pkgName1)
+                .setParameter("appName2", appName2)
+                .setParameter("pkgName2", pkgName2)
+                .setParameter("appName3", appName3)
+                .setParameter("pkgName3", pkgName3)
+                .setParameter("appName4", appName4)
+                .setParameter("pkgName4", pkgName4)
+                .setParameter("appName5", appName5)
+                .setParameter("pkgName5", pkgName5);
+
+        query.unwrap(NativeQuery.class)
+                .setResultTransformer(Transformers.aliasToBean(AppUsageTopAppSP.class));
+        
+        return query.getResultList();
+    }
+}
+```
+
+### 방법 2: JPA 네이티브 쿼리와 Result Set Mapping 사용
+
+#### Entity 클래스 및 Result Set Mapping 정의
+
+```java
+import javax.persistence.Entity;
+import javax.persistence.Id;
+import javax.persistence.SqlResultSetMapping;
+import javax.persistence.EntityResult;
+import javax.persistence.ColumnResult;
+
+@Entity
+@SqlResultSetMapping(
+    name = "AppUsageTopAppSPMapping",
+    entities = @EntityResult(
+        entityClass = AppUsageTopAppSP.class,
+        fields = {
+            @FieldResult(name = "devicedate", column = "devicedate"),
+            @FieldResult(name = "devicecount", column = "devicecount"),
+            @FieldResult(name = "customerid", column = "customerid"),
+            @FieldResult(name = "groupid", column = "groupid"),
+            // 다른 필드들에 대해서도 마찬가지로 매핑합니다.
+        }
+    )
+)
+public class AppUsageTopAppSP {
+    @Id
+    private Long id;
+
+    private Date devicedate;
+    private Long devicecount;
+    private String customerid;
+    private Integer groupid;
+    // 다른 필드들도 추가합니다.
+}
+```
+
+#### Repository 인터페이스
+
+```java
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface AppUsageRepository extends JpaRepository<AppUsageTopAppSP, Long> {
+
+    @Query(value = "SELECT * FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)", nativeQuery = true)
+    List<AppUsageTopAppSP> callYourStoredProcedure(@Param("customerId") String customerId,
+                                                    @Param("groupId") Long groupId,
+                                                    @Param("appVersion") String appVersion,
+                                                    @Param("deviceDateStart") String deviceDateStart,
+                                                    @Param("deviceDateEnd") String deviceDateEnd,
+                                                    @Param("appUID") Long appUID,
+                                                    @Param("appName1") String appName1,
+                                                    @Param("pkgName1") String pkgName1,
+                                                    @Param("appName2") String appName2,
+                                                    @Param("pkgName2") String pkgName2,
+                                                    @Param("appName3") String appName3,
+                                                    @Param("pkgName3") String pkgName3,
+                                                    @Param("appName4") String appName4,
+                                                    @Param("pkgName4") String pkgName4,
+                                                    @Param("appName5") String appName5,
+                                                    @Param("pkgName5") String pkgName5);
+}
+```
+
+### 서비스에서 호출
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class YourService {
+
+    @Autowired
+    private AppUsageRepository appUsageRepository;
+
+    public List<AppUsageTopAppSP> getAppUsageData(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        return appUsageRepository.callYourStoredProcedure(customerId, groupId, appVersion, deviceDateStart, deviceDateEnd, appUID, appName1, pkgName1, appName2, pkgName2, appName3, pkgName3, appName4, pkgName4, appName5, pkgName5);
+    }
+}
+```
+
+이 두 가지 방법을 통해 원하는 결과를 얻을 수 있습니다. 첫 번째 방법은 Hibernate의 `Transformers`를 사용하여 직접 DTO로 매핑하는 방법이고, 두 번째 방법은 JPA 네이티브 쿼리와 Result Set Mapping을 사용하는 방법입니다. 적합한 방법을 선택하여 사용하시기 바랍니다.
+
+-------------------------------
+
 이 오류는 JPA 쿼리 결과를 원하는 DTO 클래스(`AppUsageTopAppSP`)로 변환할 수 없음을 의미합니다. 이 문제를 해결하기 위해 다음 두 가지 방법 중 하나를 사용할 수 있습니다.
 
 ### 방법 1: 네이티브 쿼리와 Result Transformer 사용
