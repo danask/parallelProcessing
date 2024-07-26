@@ -1,3 +1,97 @@
+이 오류는 JPA 쿼리 결과를 원하는 DTO 클래스(`AppUsageTopAppSP`)로 변환할 수 없음을 의미합니다. 이 문제를 해결하기 위해 다음 두 가지 방법 중 하나를 사용할 수 있습니다.
+
+### 방법 1: 네이티브 쿼리와 Result Transformer 사용
+
+네이티브 쿼리를 사용하고 결과를 원하는 DTO로 매핑하는 방법입니다. 이 방법은 쿼리 결과를 명시적으로 DTO로 변환하기 때문에 `ConverterNotFoundException` 문제를 해결할 수 있습니다.
+
+```java
+import org.hibernate.transform.Transformers;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.Query;
+import java.util.List;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<AppUsageTopAppSP> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        Query query = entityManager.createNativeQuery("SELECT * FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)")
+                .setParameter("customerId", customerId)
+                .setParameter("groupId", groupId)
+                .setParameter("appVersion", appVersion)
+                .setParameter("deviceDateStart", deviceDateStart)
+                .setParameter("deviceDateEnd", deviceDateEnd)
+                .setParameter("appUID", appUID)
+                .setParameter("appName1", appName1)
+                .setParameter("pkgName1", pkgName1)
+                .setParameter("appName2", appName2)
+                .setParameter("pkgName2", pkgName2)
+                .setParameter("appName3", appName3)
+                .setParameter("pkgName3", pkgName3)
+                .setParameter("appName4", appName4)
+                .setParameter("pkgName4", pkgName4)
+                .setParameter("appName5", appName5)
+                .setParameter("pkgName5", pkgName5);
+
+        query.unwrap(org.hibernate.query.NativeQuery.class)
+                .setResultTransformer(Transformers.aliasToBean(AppUsageTopAppSP.class));
+        
+        return query.getResultList();
+    }
+}
+```
+
+### 방법 2: JPA Projection 사용
+
+JPA Projection을 사용하여 인터페이스 기반의 DTO를 사용할 수도 있습니다. 이렇게 하면 자동으로 매핑됩니다.
+
+```java
+public interface AppUsageTopAppSPProjection {
+    Date getDevicedate();
+    Long getDevicecount();
+    String getCustomerid();
+    Integer getGroupid();
+    String getGroupname();
+    String getAppname();
+    String getPackagename();
+    String getAppversion();
+    Integer getAppuid();
+    Double getAvgbatteryusagepercentage();
+    Double getAvgbackgroundtime();
+    Double getAvgforegroundtime();
+    Double getAvgtotaltime();
+    Long getDevicestotalbatteryusagepercentage();
+    Long getDevicestotalbackgroundtime();
+    Long getDevicestotalforegroundtime();
+    Long getDevicestotalusagetime();
+    Double getNormalizedbatteryconsumption();
+    Double getAvgnetworkusage();
+    Double getAvgmobileusage();
+    Double getAvgwifiusage();
+    Long getDevicestotalmobileusage();
+    Long getDevicestotalmobileforegroundusage();
+    Long getDevicestotalmobilebackgroundusage();
+    Long getDevicestotalwifiusage();
+    Long getDevicestotalwififoregroundusage();
+    Long getDevicestotalwifibackgroundusage();
+    Long getDevicestotalnetworkusage();
+}
+
+public interface YourRepository extends JpaRepository<YourEntity, Long> {
+
+    @Query(value = "SELECT * FROM kaiappinfo.fn_appusage_datausage_daily_00(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", nativeQuery = true)
+    List<AppUsageTopAppSPProjection> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5);
+}
+```
+
+### 요약
+
+위의 두 가지 방법 중 하나를 사용하여 문제를 해결할 수 있을 것입니다. 첫 번째 방법은 네이티브 쿼리와 Hibernate Transformer를 사용하여 결과를 DTO로 매핑하는 방법이고, 두 번째 방법은 JPA Projection을 사용하여 인터페이스 기반의 DTO를 자동으로 매핑하는 방법입니다.
+
+--------------------------
 JPA를 사용하여 PostgreSQL의 저장 프로시저를 호출할 때 문제를 해결하기 위해 `@Procedure`를 사용할 때 발생하는 문제는 여러 가지가 있을 수 있습니다. 저장 프로시저 호출에서 스키마와 관련된 문제를 해결하고 제대로 동작하도록 하기 위해 다음과 같은 몇 가지 방법을 시도해 볼 수 있습니다.
 
 ### 방법 1: `@Query`와 네이티브 쿼리 사용
