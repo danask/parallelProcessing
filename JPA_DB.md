@@ -1,3 +1,119 @@
+수동으로 쿼리 결과를 원하는 클래스에 매핑하는 방법을 사용할 수 있습니다. 이 방법에서는 각 결과 행을 수동으로 객체에 매핑하여 리스트에 추가합니다.
+
+아래는 수동으로 쿼리 결과를 `AppUsageTopAppSP` 클래스에 매핑하는 예제입니다.
+
+### 수동 매핑 예제 코드
+
+```java
+import org.hibernate.query.NativeQuery;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.Query;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.ArrayList;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<AppUsageTopAppSP> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        Query query = entityManager.createNativeQuery(
+                "SELECT devicedate, devicecount, customerid, groupid, ... " + // 필요한 컬럼들 추가
+                "FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)")
+                .setParameter("customerId", customerId)
+                .setParameter("groupId", groupId)
+                .setParameter("appVersion", appVersion)
+                .setParameter("deviceDateStart", deviceDateStart)
+                .setParameter("deviceDateEnd", deviceDateEnd)
+                .setParameter("appUID", appUID)
+                .setParameter("appName1", appName1)
+                .setParameter("pkgName1", pkgName1)
+                .setParameter("appName2", appName2)
+                .setParameter("pkgName2", pkgName2)
+                .setParameter("appName3", appName3)
+                .setParameter("pkgName3", pkgName3)
+                .setParameter("appName4", appName4)
+                .setParameter("pkgName4", pkgName4)
+                .setParameter("appName5", appName5)
+                .setParameter("pkgName5", pkgName5);
+
+        List<Object[]> resultList = query.getResultList();
+        
+        List<AppUsageTopAppSP> appUsageTopAppList = new ArrayList<>();
+
+        for (Object[] row : resultList) {
+            AppUsageTopAppSP appUsageTopAppSP = new AppUsageTopAppSP();
+            appUsageTopAppSP.setDevicedate((Date) row[0]);
+            appUsageTopAppSP.setDevicecount((Long) row[1]);
+            appUsageTopAppSP.setCustomerid((String) row[2]);
+            appUsageTopAppSP.setGroupid((Integer) row[3]);
+            // 필요한 모든 필드 매핑
+            // appUsageTopAppSP.setOtherField((FieldType) row[N]);
+
+            appUsageTopAppList.add(appUsageTopAppSP);
+        }
+
+        return appUsageTopAppList;
+    }
+}
+```
+
+### AppUsageTopAppSP 클래스
+
+아래는 `AppUsageTopAppSP` 클래스의 예시입니다. 클래스의 필드와 매핑할 결과 컬럼의 순서 및 타입이 일치해야 합니다.
+
+```java
+public class AppUsageTopAppSP {
+    private Date devicedate;
+    private Long devicecount;
+    private String customerid;
+    private Integer groupid;
+    // 필요한 다른 필드들
+
+    // Getter와 Setter 메소드들
+
+    public Date getDevicedate() {
+        return devicedate;
+    }
+
+    public void setDevicedate(Date devicedate) {
+        this.devicedate = devicedate;
+    }
+
+    public Long getDevicecount() {
+        return devicecount;
+    }
+
+    public void setDevicecount(Long devicecount) {
+        this.devicecount = devicecount;
+    }
+
+    public String getCustomerid() {
+        return customerid;
+    }
+
+    public void setCustomerid(String customerid) {
+        this.customerid = customerid;
+    }
+
+    public Integer getGroupid() {
+        return groupid;
+    }
+
+    public void setGroupid(Integer groupid) {
+        this.groupid = groupid;
+    }
+
+    // 필요한 다른 필드들의 Getter와 Setter 메소드들
+}
+```
+
+이 예제에서는 `Object[]` 배열의 각 인덱스를 사용하여 수동으로 필드 값을 설정합니다. 이 방식은 유연성을 제공하며, Hibernate의 `Transformers`를 사용하지 않기 때문에 문제가 발생할 가능성이 적습니다.
+
+----------------------
 트랜스폼하기 전에 쿼리 결과를 미리 프린트해서 볼 수 있습니다. `query.getResultList()`를 호출하여 결과를 리스트로 받고, 이를 로그나 콘솔에 출력할 수 있습니다. 아래는 트랜스폼 전에 결과를 출력하는 예제입니다.
 
 ### 수정된 예제 코드
