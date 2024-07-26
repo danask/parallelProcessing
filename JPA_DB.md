@@ -1,3 +1,68 @@
+`DateType.INSTANCE`는 Hibernate에서 사용하는 특정 데이터 유형을 지정하는 데 사용됩니다. 하지만 이 예제에서 잘못 사용되었으며, 대신 `org.hibernate.type.StandardBasicTypes`를 사용하여 올바른 데이터 유형을 지정할 수 있습니다.
+
+아래는 수정된 예제입니다:
+
+### 수정된 예제 코드
+
+```java
+import org.hibernate.query.NativeQuery;
+import org.hibernate.transform.Transformers;
+import org.hibernate.type.StandardBasicTypes;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.Query;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<AppUsageTopAppSP> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        Query query = entityManager.createNativeQuery(
+                "SELECT devicedate, devicecount, customerid, groupid, ... " + // 필요한 컬럼들 추가
+                "FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)")
+                .setParameter("customerId", customerId)
+                .setParameter("groupId", groupId)
+                .setParameter("appVersion", appVersion)
+                .setParameter("deviceDateStart", deviceDateStart)
+                .setParameter("deviceDateEnd", deviceDateEnd)
+                .setParameter("appUID", appUID)
+                .setParameter("appName1", appName1)
+                .setParameter("pkgName1", pkgName1)
+                .setParameter("appName2", appName2)
+                .setParameter("pkgName2", pkgName2)
+                .setParameter("appName3", appName3)
+                .setParameter("pkgName3", pkgName3)
+                .setParameter("appName4", appName4)
+                .setParameter("pkgName4", pkgName4)
+                .setParameter("appName5", appName5)
+                .setParameter("pkgName5", pkgName5);
+
+        query.unwrap(NativeQuery.class)
+                .addScalar("devicedate", StandardBasicTypes.DATE)
+                .addScalar("devicecount", StandardBasicTypes.LONG)
+                .addScalar("customerid", StandardBasicTypes.STRING)
+                .addScalar("groupid", StandardBasicTypes.INTEGER)
+                .setResultTransformer(Transformers.aliasToBean(AppUsageTopAppSP.class));
+        
+        return query.getResultList();
+    }
+}
+```
+
+### 필요한 import 추가
+
+```java
+import org.hibernate.transform.Transformers;
+import org.hibernate.type.StandardBasicTypes;
+```
+
+위 코드는 Hibernate의 `StandardBasicTypes`를 사용하여 결과 세트의 각 컬럼에 대한 데이터 유형을 명시적으로 지정합니다. 이렇게 하면 Hibernate가 결과를 DTO 필드로 변환할 때 올바른 데이터 유형을 사용할 수 있습니다.
+
+--------------------
 첫 번째 방법에서 Hibernate의 `Transformers`를 사용하여 DTO로 매핑할 때 발생하는 `cannot resolve property access` 오류는 일반적으로 DTO 클래스의 필드와 데이터베이스 쿼리의 컬럼 이름이 일치하지 않기 때문에 발생합니다. 필드 이름과 쿼리 결과의 컬럼 이름이 정확히 일치하는지 확인해야 합니다.
 
 여기서 문제가 되는 `devicedate` 필드를 예로 들어 해결 방법을 설명하겠습니다.
