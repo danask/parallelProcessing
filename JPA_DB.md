@@ -1,3 +1,84 @@
+JPA를 사용하여 PostgreSQL의 저장 프로시저를 호출할 때 문제를 해결하기 위해 `@Procedure`를 사용할 때 발생하는 문제는 여러 가지가 있을 수 있습니다. 저장 프로시저 호출에서 스키마와 관련된 문제를 해결하고 제대로 동작하도록 하기 위해 다음과 같은 몇 가지 방법을 시도해 볼 수 있습니다.
+
+### 방법 1: `@Query`와 네이티브 쿼리 사용
+
+스프링 데이터 JPA에서 `@Query` 애노테이션을 사용하여 네이티브 쿼리를 직접 실행할 수 있습니다. 이는 스키마 문제를 회피하고 직접적으로 저장 프로시저를 호출하는 방법입니다.
+
+```java
+public interface YourRepository extends JpaRepository<YourEntity, Long> {
+
+    @Query(value = "SELECT * FROM kaiappinfo.fn_appusage_datausage_daily_00(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", nativeQuery = true)
+    List<YourEntity> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5);
+}
+```
+
+이 방법은 `@Procedure` 대신에 네이티브 SQL 쿼리를 사용하여 저장 프로시저를 호출하는 방법입니다.
+
+### 방법 2: `StoredProcedureQuery`를 사용한 JPA 저장 프로시저 호출
+
+`EntityManager`를 사용하여 `StoredProcedureQuery`를 생성하고 실행할 수 있습니다. 이는 JPA에서 제공하는 방식으로, 보다 세밀하게 제어할 수 있습니다.
+
+```java
+import javax.persistence.EntityManager;
+import javax.persistence.ParameterMode;
+import javax.persistence.PersistenceContext;
+import javax.persistence.StoredProcedureQuery;
+import java.util.List;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<Object[]> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        StoredProcedureQuery query = entityManager.createStoredProcedureQuery("kaiappinfo.fn_appusage_datausage_daily_00");
+        query.registerStoredProcedureParameter(1, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(2, Long.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(3, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(4, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(5, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(6, Long.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(7, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(8, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(9, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(10, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(11, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(12, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(13, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(14, String.class, ParameterMode.IN);
+        query.registerStoredProcedureParameter(15, String.class, ParameterMode.IN);
+        
+        query.setParameter(1, customerId);
+        query.setParameter(2, groupId);
+        query.setParameter(3, appVersion);
+        query.setParameter(4, deviceDateStart);
+        query.setParameter(5, deviceDateEnd);
+        query.setParameter(6, appUID);
+        query.setParameter(7, appName1);
+        query.setParameter(8, pkgName1);
+        query.setParameter(9, appName2);
+        query.setParameter(10, pkgName2);
+        query.setParameter(11, appName3);
+        query.setParameter(12, pkgName3);
+        query.setParameter(13, appName4);
+        query.setParameter(14, pkgName4);
+        query.setParameter(15, appName5);
+        
+        query.execute();
+        
+        return query.getResultList();
+    }
+}
+```
+
+이 방법은 `EntityManager`를 사용하여 저장 프로시저를 호출하고 결과를 처리하는 방법입니다. 
+
+### 요약
+
+위의 두 가지 방법 중 하나를 사용하여 문제를 해결할 수 있을 것입니다. 첫 번째 방법은 간단하게 네이티브 쿼리를 사용하여 저장 프로시저를 호출하는 것이고, 두 번째 방법은 `StoredProcedureQuery`를 사용하여 더 세밀하게 제어할 수 있는 방법입니다. 권한 문제를 해결했음에도 불구하고 `@Procedure`가 제대로 동작하지 않는다면 이 방법들을 사용하여 문제를 해결할 수 있을 것입니다.
+
+-----------------------------
 `jdbcTemplate.execute("SELECT 1");`는 단순히 쿼리를 실행하기 위한 명령으로, 쿼리 결과를 반환하지 않습니다. 쿼리 결과를 확인하려면 `JdbcTemplate`의 `queryForObject`나 `query` 메서드를 사용해야 합니다.
 
 다음은 `queryForObject`를 사용하여 간단한 쿼리 결과를 확인하는 방법입니다:
