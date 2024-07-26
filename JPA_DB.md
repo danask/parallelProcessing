@@ -1,3 +1,115 @@
+첫 번째 방법에서 Hibernate의 `Transformers`를 사용하여 DTO로 매핑할 때 발생하는 `cannot resolve property access` 오류는 일반적으로 DTO 클래스의 필드와 데이터베이스 쿼리의 컬럼 이름이 일치하지 않기 때문에 발생합니다. 필드 이름과 쿼리 결과의 컬럼 이름이 정확히 일치하는지 확인해야 합니다.
+
+여기서 문제가 되는 `devicedate` 필드를 예로 들어 해결 방법을 설명하겠습니다.
+
+### 1. DTO 클래스 수정
+
+DTO 클래스의 필드 이름이 쿼리 결과의 컬럼 이름과 일치하는지 확인합니다. 만약 컬럼 이름과 필드 이름이 다르면, `@Column` 어노테이션을 사용하여 매핑할 수 있습니다.
+
+```java
+import java.util.Date;
+
+public class AppUsageTopAppSP {
+    private Date devicedate;
+    private Long devicecount;
+    private String customerid;
+    private Integer groupid;
+
+    // Getters and setters
+
+    public Date getDevicedate() {
+        return devicedate;
+    }
+
+    public void setDevicedate(Date devicedate) {
+        this.devicedate = devicedate;
+    }
+
+    public Long getDevicecount() {
+        return devicecount;
+    }
+
+    public void setDevicecount(Long devicecount) {
+        this.devicecount = devicecount;
+    }
+
+    public String getCustomerid() {
+        return customerid;
+    }
+
+    public void setCustomerid(String customerid) {
+        this.customerid = customerid;
+    }
+
+    public Integer getGroupid() {
+        return groupid;
+    }
+
+    public void setGroupid(Integer groupid) {
+        this.groupid = groupid;
+    }
+
+    // 다른 필드들에 대한 getter와 setter도 추가
+}
+```
+
+### 2. 네이티브 쿼리와 Transformers 사용
+
+`Transformers.aliasToBean()`을 사용할 때, 쿼리에서 반환하는 컬럼 이름과 DTO 필드 이름이 일치하는지 확인합니다. 여기서는 SQL 쿼리에서 별칭을 사용하여 컬럼 이름을 DTO 필드 이름과 일치시킵니다.
+
+```java
+import org.hibernate.query.NativeQuery;
+import org.hibernate.transform.Transformers;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.Query;
+import org.springframework.stereotype.Service;
+import java.util.List;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<AppUsageTopAppSP> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        Query query = entityManager.createNativeQuery(
+                "SELECT devicedate, devicecount, customerid, groupid, ... " + // 필요한 컬럼들 추가
+                "FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)")
+                .setParameter("customerId", customerId)
+                .setParameter("groupId", groupId)
+                .setParameter("appVersion", appVersion)
+                .setParameter("deviceDateStart", deviceDateStart)
+                .setParameter("deviceDateEnd", deviceDateEnd)
+                .setParameter("appUID", appUID)
+                .setParameter("appName1", appName1)
+                .setParameter("pkgName1", pkgName1)
+                .setParameter("appName2", appName2)
+                .setParameter("pkgName2", pkgName2)
+                .setParameter("appName3", appName3)
+                .setParameter("pkgName3", pkgName3)
+                .setParameter("appName4", appName4)
+                .setParameter("pkgName4", pkgName4)
+                .setParameter("appName5", appName5)
+                .setParameter("pkgName5", pkgName5);
+
+        query.unwrap(NativeQuery.class)
+                .addScalar("devicedate", DateType.INSTANCE)
+                .addScalar("devicecount", LongType.INSTANCE)
+                .addScalar("customerid", StringType.INSTANCE)
+                .addScalar("groupid", IntegerType.INSTANCE)
+                .setResultTransformer(Transformers.aliasToBean(AppUsageTopAppSP.class));
+        
+        return query.getResultList();
+    }
+}
+```
+
+여기서 `addScalar()` 메서드를 사용하여 결과의 각 컬럼을 명시적으로 지정하여 Hibernate가 결과를 DTO 필드로 변환할 수 있도록 합니다.
+
+이 방법을 통해 필드 이름과 컬럼 이름이 일치하지 않아 발생하는 문제를 해결할 수 있습니다.
+
+---------------------
 
 `Transformers`는 Hibernate에서 사용되는 클래스입니다. 이를 사용하려면 Hibernate 관련 라이브러리를 포함해야 합니다. 또한, 결과가 `List<AppUsageTopAppSPProjection>`에 제대로 매핑되지 않는 문제는 Projection이 아닌 Entity 클래스를 사용하여 직접 DTO로 변환하는 방법으로 해결할 수 있습니다.
 
