@@ -1,3 +1,81 @@
+트랜스폼하기 전에 쿼리 결과를 미리 프린트해서 볼 수 있습니다. `query.getResultList()`를 호출하여 결과를 리스트로 받고, 이를 로그나 콘솔에 출력할 수 있습니다. 아래는 트랜스폼 전에 결과를 출력하는 예제입니다.
+
+### 수정된 예제 코드
+
+```java
+import org.hibernate.query.NativeQuery;
+import org.hibernate.transform.Transformers;
+import org.hibernate.type.StandardBasicTypes;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import javax.persistence.Query;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class YourService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<AppUsageTopAppSP> callYourStoredProcedure(String customerId, Long groupId, String appVersion, String deviceDateStart, String deviceDateEnd, Long appUID, String appName1, String pkgName1, String appName2, String pkgName2, String appName3, String pkgName3, String appName4, String pkgName4, String appName5, String pkgName5) {
+        Query query = entityManager.createNativeQuery(
+                "SELECT devicedate, devicecount, customerid, groupid, ... " + // 필요한 컬럼들 추가
+                "FROM kaiappinfo.fn_appusage_datausage_daily_00(:customerId, :groupId, :appVersion, :deviceDateStart, :deviceDateEnd, :appUID, :appName1, :pkgName1, :appName2, :pkgName2, :appName3, :pkgName3, :appName4, :pkgName4, :appName5, :pkgName5)")
+                .setParameter("customerId", customerId)
+                .setParameter("groupId", groupId)
+                .setParameter("appVersion", appVersion)
+                .setParameter("deviceDateStart", deviceDateStart)
+                .setParameter("deviceDateEnd", deviceDateEnd)
+                .setParameter("appUID", appUID)
+                .setParameter("appName1", appName1)
+                .setParameter("pkgName1", pkgName1)
+                .setParameter("appName2", appName2)
+                .setParameter("pkgName2", pkgName2)
+                .setParameter("appName3", appName3)
+                .setParameter("pkgName3", pkgName3)
+                .setParameter("appName4", appName4)
+                .setParameter("pkgName4", pkgName4)
+                .setParameter("appName5", appName5)
+                .setParameter("pkgName5", pkgName5);
+
+        List<Object[]> resultList = query.getResultList();
+        
+        // 결과 출력
+        for (Object[] row : resultList) {
+            System.out.println("Row: ");
+            for (Object column : row) {
+                System.out.print(column + " ");
+            }
+            System.out.println();
+        }
+
+        // 트랜스폼 후 결과 반환
+        query.unwrap(NativeQuery.class)
+                .addScalar("devicedate", StandardBasicTypes.DATE)
+                .addScalar("devicecount", StandardBasicTypes.LONG)
+                .addScalar("customerid", StandardBasicTypes.STRING)
+                .addScalar("groupid", StandardBasicTypes.INTEGER)
+                .setResultTransformer(Transformers.aliasToBean(AppUsageTopAppSP.class));
+        
+        return query.getResultList();
+    }
+}
+```
+
+### 필요한 import 추가
+
+```java
+import org.hibernate.transform.Transformers;
+import org.hibernate.type.StandardBasicTypes;
+import java.util.List;
+import java.util.Map;
+```
+
+위 코드에서 쿼리 실행 후 결과를 `List<Object[]>`로 받아 각 행을 출력합니다. 그런 다음 트랜스폼을 적용하여 최종 결과를 반환합니다. 이렇게 하면 트랜스폼 전에 쿼리 결과를 미리 확인할 수 있습니다.
+
+--------------------
 `DateType.INSTANCE`는 Hibernate에서 사용하는 특정 데이터 유형을 지정하는 데 사용됩니다. 하지만 이 예제에서 잘못 사용되었으며, 대신 `org.hibernate.type.StandardBasicTypes`를 사용하여 올바른 데이터 유형을 지정할 수 있습니다.
 
 아래는 수정된 예제입니다:
