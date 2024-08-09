@@ -1,3 +1,103 @@
+SQL 쿼리에서 동적 정렬(`ORDER BY`)을 쉽게 처리하는 방법은 몇 가지가 있습니다. 특히, `ORDER BY`에 `ASC`와 `DESC`를 동적으로 설정해야 하는 경우, 동적 SQL을 사용하는 것이 일반적이지만, 복잡한 로직이 있을 때는 이를 피하면서도 유연하게 처리할 수 있는 방법을 고려해볼 수 있습니다.
+
+다음은 동적 SQL을 최소화하면서 동적 정렬을 처리할 수 있는 몇 가지 방법입니다.
+
+### 1. `CASE` 문을 사용하는 방법
+
+`ORDER BY` 절에서 `CASE` 문을 사용하여 정렬 방향을 제어할 수 있습니다. 이렇게 하면 동적 SQL을 사용하지 않고도 정렬 방향을 제어할 수 있습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION getData(
+    sort_direction boolean DEFAULT false
+)
+RETURNS TABLE(appname character varying) AS
+$$
+BEGIN
+    RETURN QUERY 
+    SELECT appname
+    FROM my_table
+    ORDER BY 
+        CASE 
+            WHEN sort_direction THEN appname END DESC, 
+        CASE 
+            WHEN NOT sort_direction THEN appname END ASC;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+- `sort_direction`이 `true`이면 `DESC`로 정렬하고, `false`이면 `ASC`로 정렬합니다.
+
+### 2. 동적 쿼리에서 변수를 포함하여 처리하는 방법
+
+여전히 동적 SQL을 사용해야 하는 상황이라면, `EXECUTE` 문을 사용하여 동적 쿼리를 생성하고 실행할 수 있습니다. 이 경우, `ORDER BY` 절을 변수로 설정해 처리합니다.
+
+```sql
+CREATE OR REPLACE FUNCTION getData(
+    sort_direction boolean DEFAULT false
+)
+RETURNS TABLE(appname character varying) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    query := 'SELECT appname FROM my_table ORDER BY appname ';
+
+    IF sort_direction THEN
+        query := query || 'DESC';
+    ELSE
+        query := query || 'ASC';
+    END IF;
+
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 3. `NULLS FIRST` 또는 `NULLS LAST`와 함께 사용하기
+
+만약 정렬할 때 `NULL` 값을 함께 고려해야 한다면, `NULLS FIRST` 또는 `NULLS LAST`를 사용하여 정렬 우선순위를 제어할 수 있습니다.
+
+```sql
+ORDER BY 
+    appname IS NULL, 
+    appname ASC;
+```
+
+이 방법은 특정 컬럼에 `NULL`이 있을 때 정렬 순서를 지정할 수 있습니다. 
+
+### 4. 기본 SQL과 플래그만 이용한 방식
+
+특별한 처리 없이, 정렬 순서 플래그를 추가로 넣고 `ORDER BY`를 단순하게 처리할 수 있습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION getData(
+    sort_direction text DEFAULT 'ASC'
+)
+RETURNS TABLE(appname character varying) AS
+$$
+BEGIN
+    RETURN QUERY 
+    SELECT appname
+    FROM my_table
+    ORDER BY appname 
+    CASE sort_direction
+        WHEN 'ASC' THEN ASC
+        ELSE DESC
+    END;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+하지만 이 방식은 효율적이지 못하고, 가독성이 떨어질 수 있습니다.
+
+### 결론
+
+- **복잡한 로직이 필요하지 않다면**: `CASE` 문을 사용하여 정렬을 처리하는 것이 가장 간단합니다.
+- **복잡한 동적 SQL을 사용해야 한다면**: `EXECUTE`를 통해 정렬 로직을 동적으로 생성해 처리하는 것이 유연합니다.
+
+SQL 로직이 복잡할 때는 전체 쿼리에서 변수를 최소화하고 가능한 `CASE` 문이나 단순한 조건문으로 로직을 해결하는 것이 좋은 방법입니다.
+
+------------------------
 
 쿼리를 두 번 적지 않고 `sort_direction`에 따라 `ORDER BY` 절의 정렬 방향을 동적으로 설정하려면, 동적으로 쿼리를 생성하여 실행하는 방법을 사용해야 합니다. PL/pgSQL에서 동적 SQL을 생성하는 방식으로 이를 구현할 수 있습니다.
 
