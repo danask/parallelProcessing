@@ -1,3 +1,78 @@
+`ORDER BY` 절에서, 파라미터가 `NULL`이면 기본적으로 `appname` 필드를 기준으로 정렬하고, 값이 있으면 그 값을 기준으로 정렬하도록 쿼리를 작성할 수 있습니다.
+
+다음은 해당 로직을 구현한 예제입니다:
+
+### 구현 예제
+
+```sql
+CREATE OR REPLACE FUNCTION getData(_keyword character varying, _order_by character varying)
+RETURNS TABLE(appname character varying) AS
+$$
+DECLARE
+    variable text;
+    query text;
+BEGIN
+    -- 기본 쿼리 조건을 설정
+    query := 'SELECT appname FROM my_table WHERE count > 0';
+
+    -- 조건에 따라 variable 값을 설정
+    IF _keyword IS NOT NULL THEN
+        variable := ' AND appname = ' || quote_literal(_keyword);
+    ELSE
+        variable := ''; -- _keyword가 NULL인 경우 추가 조건이 없습니다.
+    END IF;
+
+    -- 최종 쿼리에 variable 추가
+    query := query || variable;
+
+    -- 조건에 따른 정렬 추가
+    IF _order_by IS NOT NULL THEN
+        query := query || ' ORDER BY ' || _order_by;
+    ELSE
+        query := query || ' ORDER BY appname'; -- _order_by가 NULL인 경우 appname으로 정렬
+    END IF;
+
+    -- 동적으로 쿼리 실행
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **변수 선언**:
+   - `variable`에 필터링 조건을 설정합니다.
+   - `query`에 기본 쿼리를 설정합니다.
+
+2. **조건에 따른 필터링**:
+   - `_keyword`가 `NULL`이 아닌 경우, `appname`이 `_keyword`와 일치하는 필터링 조건을 `variable`에 추가합니다.
+   - `_keyword`가 `NULL`인 경우 추가 필터링 없이 기본 쿼리를 사용합니다.
+
+3. **정렬 조건 추가**:
+   - `_order_by`가 `NULL`이 아니면 해당 값으로 정렬합니다.
+   - `_order_by`가 `NULL`이면 기본적으로 `appname`으로 정렬합니다.
+
+4. **쿼리 실행 및 결과 반환**:
+   - 동적으로 생성된 쿼리를 실행하고 그 결과를 반환합니다.
+
+### 사용 예
+
+이 함수는 다음과 같이 호출할 수 있습니다:
+
+```sql
+-- appname 필드를 기준으로 정렬
+SELECT * FROM getData('example_keyword', NULL);
+
+-- 특정 필드를 기준으로 정렬 (예: 'count DESC')
+SELECT * FROM getData('example_keyword', 'count DESC');
+```
+
+첫 번째 쿼리는 `_order_by`가 `NULL`이므로 기본적으로 `appname`으로 정렬합니다. 두 번째 쿼리는 `count` 필드를 기준으로 내림차순(`DESC`)으로 정렬합니다.
+
+이 방법으로, `_order_by`가 `NULL`일 때 기본 정렬 필드를 설정하고, 특정 필드를 지정할 경우 그에 따라 정렬할 수 있습니다.
+
+
+-------------------
 이해했습니다. 주어진 요구 사항에 따라 동적으로 쿼리를 생성하고 실행하려는 예제를 구현해 보겠습니다. 특히 `_keyword`가 NULL이 아닐 때 쿼리를 동적으로 생성하고, 그 쿼리를 사용하여 최종 쿼리를 구성하려는 목적입니다.
 
 ### 구현 예제
