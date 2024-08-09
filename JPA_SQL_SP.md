@@ -1,3 +1,73 @@
+`OFFSET` 및 `LIMIT` 절을 사용하여 결과를 페이지네이션하거나 특정 범위의 데이터를 선택할 수 있습니다. 이 절들은 동적 쿼리에서 처리할 수 있으며, `OFFSET`은 결과의 시작점을 지정하고 `LIMIT`은 반환할 최대 행 수를 지정합니다.
+
+다음은 `OFFSET`과 `LIMIT`을 동적 쿼리에 포함하는 예제입니다:
+
+### 예제: OFFSET 및 LIMIT 포함하기
+
+```sql
+CREATE OR REPLACE FUNCTION fn_stored_procedure(
+    _count integer, 
+    _sort_by1 text, 
+    _sort_direction1 boolean, 
+    _sort_by2 text, 
+    _sort_direction2 boolean,
+    _offset integer,
+    _limit integer
+)
+RETURNS TABLE(name text, count integer) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    -- 동적 쿼리 작성
+    query := 'SELECT appname as name, devicecount as count 
+              FROM my_table 
+              WHERE devicecount > $1 
+              ORDER BY ' || 
+              quote_ident(_sort_by1) || ' ' || 
+              CASE WHEN _sort_direction1 THEN 'DESC' ELSE 'ASC' END || ', ' ||
+              quote_ident(_sort_by2) || ' ' ||
+              CASE WHEN _sort_direction2 THEN 'DESC' ELSE 'ASC' END || ' ' ||
+              'OFFSET $2 LIMIT $3';
+
+    -- 동적 쿼리 실행
+    RETURN QUERY EXECUTE query USING _count, _offset, _limit;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **매개변수**:
+   - `_count`: `WHERE` 절에서 사용할 필터링 값.
+   - `_sort_by1`: 첫 번째 정렬 기준 필드.
+   - `_sort_direction1`: 첫 번째 필드의 정렬 방향 (`TRUE`는 `DESC`, `FALSE`는 `ASC`).
+   - `_sort_by2`: 두 번째 정렬 기준 필드.
+   - `_sort_direction2`: 두 번째 필드의 정렬 방향 (`TRUE`는 `DESC`, `FALSE`는 `ASC`).
+   - `_offset`: 결과의 시작 위치를 지정합니다. (페이지네이션에 사용)
+   - `_limit`: 반환할 최대 행 수를 지정합니다. (페이지네이션에 사용)
+
+2. **동적 쿼리 작성**:
+   - `ORDER BY` 절에 두 개의 필드를 추가합니다.
+   - `OFFSET`과 `LIMIT`을 동적 쿼리에 포함시킵니다.
+   - `quote_ident`로 필드 이름을 안전하게 처리합니다.
+
+3. **`EXECUTE` 명령어**:
+   - 동적 쿼리를 실행하며, `_count`, `_offset`, `_limit` 값을 쿼리에 바인딩합니다.
+
+### 예제 호출
+
+이 함수를 사용하여 다음과 같이 호출할 수 있습니다:
+
+```sql
+SELECT * FROM fn_stored_procedure(3, 'devicecount', TRUE, 'appname', FALSE, 10, 20);
+```
+
+이 호출은 `devicecount` 필드를 내림차순으로 정렬하고, 같은 값들에 대해 `appname` 필드를 오름차순으로 정렬합니다. 결과는 10번째 행부터 시작하며, 최대 20개의 행을 반환합니다.
+
+이렇게 하면, `OFFSET`과 `LIMIT`을 동적 쿼리에 포함시켜 페이지네이션을 구현할 수 있습니다.
+
+----------------------
 `ORDER BY` 절에서 정렬 방향을 동적으로 처리하기 위해, `_desc`와 같은 변수로 정렬 방향을 지정할 수 있습니다. 하지만, `quote_ident` 함수는 식별자(컬럼 이름 등)를 안전하게 처리하는 데 사용되며, 정렬 방향(ASC 또는 DESC)과 같은 문자열 값에는 적용되지 않습니다. 정렬 방향은 단순히 문자열로 붙여서 사용해야 합니다.
 
 다음은 `_desc`와 `_sort_by`를 사용하여 동적으로 쿼리를 생성하는 방법입니다:
