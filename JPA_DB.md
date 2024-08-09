@@ -1,4 +1,55 @@
 
+만약 전체 쿼리 안에 조건부로 일부 쿼리를 동적으로 추가해야 한다면, 쿼리를 동적으로 생성하고 그에 맞춰서 조건을 처리할 수 있습니다. 이 경우, 쿼리의 일부를 `IF` 조건에 따라 추가하거나 제외할 수 있습니다. 다음은 이런 시나리오를 처리하는 방법을 보여주는 예입니다.
+
+```sql
+CREATE OR REPLACE FUNCTION get_filtered_data(_keyword character varying, _customer_id integer, _group_id integer)
+RETURNS TABLE(appname character varying, customer_id integer, group_id integer) AS
+$$
+DECLARE
+    base_query text;
+BEGIN
+    -- 기본 쿼리
+    base_query := 'SELECT appname, customer_id, group_id FROM my_table WHERE 1=1';
+
+    -- 조건에 따라 키워드 필터 추가
+    IF _keyword IS NOT NULL AND _keyword <> '' THEN
+        base_query := base_query || ' AND appname LIKE ''%' || _keyword || '%''';
+    END IF;
+
+    -- 조건에 따라 customer_id 필터 추가
+    IF _customer_id IS NOT NULL AND _customer_id <> -1 THEN
+        base_query := base_query || ' AND customer_id = ' || _customer_id;
+    END IF;
+
+    -- 조건에 따라 group_id 필터 추가
+    IF _group_id IS NOT NULL AND _group_id <> -1 THEN
+        base_query := base_query || ' AND group_id = ' || _group_id;
+    END IF;
+
+    -- 동적으로 생성된 쿼리 실행 및 결과 반환
+    RETURN QUERY EXECUTE base_query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명:
+
+1. **기본 쿼리 설정**:
+   - `base_query := 'SELECT appname, customer_id, group_id FROM my_table WHERE 1=1';`:
+     - 기본 쿼리 문자열을 설정합니다. `1=1`은 쿼리 생성을 단순화하기 위해 항상 참인 조건으로 사용됩니다.
+
+2. **조건부 쿼리 추가**:
+   - **키워드 조건**: `_keyword`가 `NULL`이 아니고 빈 문자열이 아닐 경우에만 `appname LIKE` 조건을 추가합니다.
+   - **customer_id 조건**: `_customer_id`가 `NULL`이 아니고 -1이 아닐 경우에만 `customer_id` 필터를 추가합니다.
+   - **group_id 조건**: `_group_id`가 `NULL`이 아니고 -1이 아닐 경우에만 `group_id` 필터를 추가합니다.
+
+3. **쿼리 실행 및 결과 반환**:
+   - 동적으로 생성된 `base_query`를 실행하고 결과를 반환합니다.
+
+이 방식은 전체 쿼리 구조에 동적으로 조건을 추가하며, 조건에 따라 쿼리의 일부만 실행되도록 처리합니다.
+
+----------------------
+
 `_keyword`가 `NULL`이거나 빈 문자열(`''`)일 경우, 쿼리를 실행하지 않고 `NULL`을 반환하도록 하려면 PL/pgSQL에서 다음과 같이 구현할 수 있습니다.
 
 ```sql
