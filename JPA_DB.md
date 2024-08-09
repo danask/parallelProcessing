@@ -1,3 +1,61 @@
+이해했습니다. 주어진 요구 사항에 따라 동적으로 쿼리를 생성하고 실행하려는 예제를 구현해 보겠습니다. 특히 `_keyword`가 NULL이 아닐 때 쿼리를 동적으로 생성하고, 그 쿼리를 사용하여 최종 쿼리를 구성하려는 목적입니다.
+
+### 구현 예제
+
+```sql
+CREATE OR REPLACE FUNCTION getData(_keyword character varying)
+RETURNS TABLE(appname character varying) AS
+$$
+DECLARE
+    variable text;
+    query text;
+BEGIN
+    -- 기본 쿼리 조건을 설정
+    query := 'SELECT x FROM y WHERE count > ';
+
+    -- 조건에 따라 variable 값을 설정
+    IF _keyword IS NOT NULL THEN
+        variable := 'SELECT a FROM b WHERE appname = ' || quote_literal(_keyword);
+    ELSE
+        variable := 'SELECT a FROM b'; -- _keyword가 NULL인 경우 기본 쿼리
+    END IF;
+
+    -- 동적으로 쿼리 생성
+    query := query || ' (SELECT COUNT(*) FROM (' || variable || ') subquery)';
+
+    -- 동적으로 쿼리 실행
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **변수 선언**:
+   - `variable`과 `query` 변수를 선언합니다. `variable`은 조건에 따라 동적으로 생성될 쿼리를 저장하고, `query`는 최종적으로 실행할 쿼리를 구성합니다.
+
+2. **조건에 따른 변수 설정**:
+   - `_keyword`가 NULL이 아닌 경우, `variable`에 `appname`이 `_keyword`와 일치하는 데이터를 선택하는 쿼리를 설정합니다.
+   - `_keyword`가 NULL인 경우, 기본 쿼리를 설정합니다.
+
+3. **동적으로 쿼리 생성**:
+   - `query` 변수에 `variable` 쿼리를 포함하여 최종 쿼리를 만듭니다. 여기서는 `count > (SELECT COUNT(*) FROM ...)` 형태로 `variable` 쿼리 결과의 카운트를 비교합니다.
+
+4. **쿼리 실행 및 반환**:
+   - `RETURN QUERY EXECUTE query;`를 사용하여 동적으로 생성된 쿼리를 실행하고 결과를 반환합니다.
+
+### 사용 예
+
+이 함수를 호출하여 데이터를 필터링하는 방법은 다음과 같습니다:
+
+```sql
+SELECT * FROM getData('example_keyword');
+```
+
+이 쿼리는 `_keyword`가 NULL이 아닐 경우 `_keyword`와 일치하는 `appname`을 가진 데이터를 포함하는 쿼리를 동적으로 생성하여 실행합니다.
+
+이 접근 방법을 사용하면 `_keyword`의 값에 따라 쿼리를 동적으로 조정하고, 필요에 따라 기본 쿼리와 필터링된 쿼리를 유연하게 처리할 수 있습니다.
+----------------------
 
 만약 전체 쿼리 안에 조건부로 일부 쿼리를 동적으로 추가해야 한다면, 쿼리를 동적으로 생성하고 그에 맞춰서 조건을 처리할 수 있습니다. 이 경우, 쿼리의 일부를 `IF` 조건에 따라 추가하거나 제외할 수 있습니다. 다음은 이런 시나리오를 처리하는 방법을 보여주는 예입니다.
 
