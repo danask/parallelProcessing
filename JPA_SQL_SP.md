@@ -1,3 +1,52 @@
+
+`ORDER BY` 절에서 `_sort_by`를 사용하려고 할 때 문제가 발생하는 이유는, PostgreSQL의 PL/pgSQL에서 `ORDER BY` 절에 직접적으로 변수를 사용할 수 없기 때문입니다. 이를 해결하기 위해 동적 SQL을 사용하여 `ORDER BY` 절을 동적으로 구성해야 합니다.
+
+아래는 `ORDER BY` 절에서 `_sort_by`를 동적으로 처리하기 위해 `EXECUTE` 명령어를 사용하는 방법입니다:
+
+### 동적 SQL을 사용한 예제
+
+```sql
+CREATE OR REPLACE FUNCTION fn_stored_procedure(_count integer, _sort_by text)
+RETURNS TABLE(name text, count integer) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    -- 동적 쿼리 작성
+    query := 'SELECT appname as name, devicecount as count FROM my_table WHERE devicecount > $1 ORDER BY ' || quote_ident(_sort_by) || ' DESC';
+
+    -- 동적 쿼리 실행
+    RETURN QUERY EXECUTE query USING _count;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **`quote_ident` 함수 사용**:
+   - `_sort_by`를 `quote_ident` 함수로 감싸서 SQL 인젝션 공격을 방지하고, 안전하게 컬럼 이름을 사용할 수 있습니다. `quote_ident`는 입력된 식별자를 적절히 이스케이프하여 쿼리에서 안전하게 사용할 수 있도록 합니다.
+
+2. **동적 SQL 작성**:
+   - `query` 변수에 쿼리 문자열을 작성하고, `_sort_by` 값을 문자열로 직접 결합하여 정렬 기준을 동적으로 설정합니다. 정렬 방향은 하드코딩된 `DESC`를 사용합니다.
+
+3. **`EXECUTE` 명령어 사용**:
+   - `EXECUTE` 명령어는 동적으로 생성된 쿼리를 실행하는 데 사용됩니다. 쿼리 문자열을 동적으로 생성하고 실행합니다.
+
+4. **매개변수 바인딩**:
+   - `_count`는 `USING` 구문을 사용하여 쿼리에 바인딩됩니다. `$1`은 동적 SQL에서 바인딩된 매개변수를 나타냅니다.
+
+### 예제 실행
+
+위의 함수 정의를 사용하여 다음과 같이 호출할 수 있습니다:
+
+```sql
+SELECT * FROM fn_stored_procedure(3, 'devicecount');
+```
+
+이렇게 하면, `devicecount` 컬럼에 대해 동적으로 정렬된 결과를 얻을 수 있습니다. `ORDER BY` 절에 사용된 `_sort_by`는 `quote_ident`로 감싸져 안전하게 처리되며, `_count`는 `USING`으로 전달되어 쿼리에 바인딩됩니다.
+
+------------------------
+
 SQL 쿼리에서 동적 정렬(`ORDER BY`)을 쉽게 처리하는 방법은 몇 가지가 있습니다. 특히, `ORDER BY`에 `ASC`와 `DESC`를 동적으로 설정해야 하는 경우, 동적 SQL을 사용하는 것이 일반적이지만, 복잡한 로직이 있을 때는 이를 피하면서도 유연하게 처리할 수 있는 방법을 고려해볼 수 있습니다.
 
 다음은 동적 SQL을 최소화하면서 동적 정렬을 처리할 수 있는 몇 가지 방법입니다.
