@@ -1,3 +1,147 @@
+
+
+-------------------------
+
+`WHERE` 절에서 `LIKE` 연산자를 사용하여 `keyword` 변수를 포함한 검색을 수행하려면, 변수의 값을 적절히 포함시켜야 합니다. 단순히 `'%'keyword'%'`로 작성하면 변수로 인식되지 않고 문자 그대로 취급됩니다.
+
+### PostgreSQL에서 `LIKE`를 사용하는 방법:
+
+`Stored Procedure`에서 입력된 값이 특정 조건(`-1` 또는 `NULL`)일 때 `WHERE` 절에서 해당 조건을 제외하려면 `COALESCE` 또는 조건문(`IF`, `CASE`)을 사용하여 처리할 수 있습니다. 이렇게 하면 조건을 동적으로 제어할 수 있습니다. 
+
+아래는 PostgreSQL의 예제입니다:
+
+### 1. **단순한 `IF` 조건 사용**
+```sql
+CREATE OR REPLACE FUNCTION get_filtered_data(
+    _customer_id integer,
+    _group_id integer
+)
+RETURNS TABLE(customer_id integer, group_id integer, data_value text) AS
+$$
+BEGIN
+    RETURN QUERY
+    SELECT customer_id, group_id, data_value
+    FROM my_table
+    WHERE 
+        (customer_id = _customer_id OR _customer_id = -1)
+        AND 
+        (group_id = _group_id OR _group_id = -1);
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 2. **`COALESCE` 함수 사용**
+   - `COALESCE` 함수는 `NULL` 값을 대체하는 데 사용되며, 첫 번째로 `NULL`이 아닌 값을 반환합니다.
+   - 이를 통해 `NULL`이 입력될 경우 조건을 무시할 수 있습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION get_filtered_data(
+    _customer_id integer,
+    _group_id integer
+)
+RETURNS TABLE(customer_id integer, group_id integer, data_value text) AS
+$$
+BEGIN
+    RETURN QUERY
+    SELECT customer_id, group_id, data_value
+    FROM my_table
+    WHERE 
+        (customer_id = COALESCE(_customer_id, customer_id))
+        AND 
+        (group_id = COALESCE(_group_id, group_id));
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 3. **동적 SQL 사용**
+   - 동적 SQL을 사용하여 `WHERE` 절을 동적으로 생성하는 방법도 있습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION get_filtered_data(
+    _customer_id integer,
+    _group_id integer
+)
+RETURNS TABLE(customer_id integer, group_id integer, data_value text) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    query := 'SELECT customer_id, group_id, data_value FROM my_table WHERE 1=1';
+
+    IF _customer_id IS NOT NULL AND _customer_id != -1 THEN
+        query := query || ' AND customer_id = ' || _customer_id;
+    END IF;
+
+    IF _group_id IS NOT NULL AND _group_id != -1 THEN
+        query := query || ' AND group_id = ' || _group_id;
+    END IF;
+
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+- **첫 번째 방법:** `OR` 조건을 사용하여 `_customer_id`나 `_group_id`가 특정 값(`-1`)이면 조건을 무시합니다.
+- **두 번째 방법:** `COALESCE`를 사용하여 `_customer_id` 또는 `_group_id`가 `NULL`일 경우 조건을 무시하고, 입력된 값을 그대로 사용합니다.
+- **세 번째 방법:** 동적 SQL을 사용하여 필요한 조건만 `WHERE` 절에 추가합니다. 이 방법은 조건이 많아질 때 유용합니다.
+
+이 예제들을 통해 `Stored Procedure`에서 조건부로 `WHERE` 절을 적용하여 동적으로 쿼리를 생성할 수 있습니다.
+----------------------
+```sql
+WHERE appname LIKE '%' || keyword || '%'
+```
+- `||` 연산자를 사용하여 문자열을 결합합니다.
+- `keyword` 변수를 `%`와 함께 결합하여 부분 문자열 검색을 수행합니다.
+
+### 예시:
+```sql
+CREATE OR REPLACE FUNCTION search_by_keyword(keyword text)
+RETURNS TABLE(appname text) AS
+$$
+BEGIN
+    RETURN QUERY
+    SELECT appname
+    FROM my_table
+    WHERE appname LIKE '%' || keyword || '%';
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### `PL/pgSQL` 예시
+```sql
+CREATE OR REPLACE FUNCTION search_by_keyword(_keyword text)
+RETURNS TABLE(appname text) AS
+$$
+BEGIN
+    RETURN QUERY
+    SELECT appname
+    FROM my_table
+    WHERE appname LIKE '%' || _keyword || '%';
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 동적 SQL 예시
+```sql
+CREATE OR REPLACE FUNCTION search_by_keyword(_keyword text)
+RETURNS TABLE(appname text) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    query := 'SELECT appname FROM my_table WHERE appname LIKE ''%' || _keyword || '%''';
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 주의사항
+- 문자열 결합을 할 때 `||` 연산자를 사용합니다.
+- 동적 SQL을 사용할 경우에는 싱글쿼트(`'`)를 적절히 이스케이프(`''`)해야 합니다.
+
+이렇게 하면 `keyword` 변수를 포함하여 부분 검색을 수행할 수 있습니다.
+----------------------
 수동으로 쿼리 결과를 원하는 클래스에 매핑하는 방법을 사용할 수 있습니다. 이 방법에서는 각 결과 행을 수동으로 객체에 매핑하여 리스트에 추가합니다.
 
 아래는 수동으로 쿼리 결과를 `AppUsageTopAppSP` 클래스에 매핑하는 예제입니다.
