@@ -1,3 +1,54 @@
+`ORDER BY` 절에서 정렬 방향을 동적으로 처리하기 위해, `_desc`와 같은 변수로 정렬 방향을 지정할 수 있습니다. 하지만, `quote_ident` 함수는 식별자(컬럼 이름 등)를 안전하게 처리하는 데 사용되며, 정렬 방향(ASC 또는 DESC)과 같은 문자열 값에는 적용되지 않습니다. 정렬 방향은 단순히 문자열로 붙여서 사용해야 합니다.
+
+다음은 `_desc`와 `_sort_by`를 사용하여 동적으로 쿼리를 생성하는 방법입니다:
+
+### 수정된 예제
+
+```sql
+CREATE OR REPLACE FUNCTION fn_stored_procedure(_count integer, _sort_by text, _desc boolean)
+RETURNS TABLE(name text, count integer) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    -- 동적 쿼리 작성
+    query := 'SELECT appname as name, devicecount as count FROM my_table WHERE devicecount > $1 ORDER BY ' || quote_ident(_sort_by) || ' ' ||
+             CASE WHEN _desc THEN 'DESC' ELSE 'ASC' END;
+
+    -- 동적 쿼리 실행
+    RETURN QUERY EXECUTE query USING _count;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **정렬 방향 처리**:
+   - `_desc`는 boolean 타입으로, `TRUE`면 `DESC`, `FALSE`면 `ASC`를 사용합니다.
+   - `CASE` 문을 사용하여 `_desc`의 값에 따라 정렬 방향을 결정합니다.
+
+2. **`quote_ident` 사용**:
+   - `_sort_by`를 `quote_ident`로 감싸서 안전하게 컬럼 이름을 처리합니다.
+
+3. **정렬 방향 문자열 결합**:
+   - `ORDER BY` 절의 정렬 방향은 `DESC` 또는 `ASC`로 직접 결합합니다. 이는 문자열로 직접 추가하는 것이기 때문에 `quote_ident`를 사용하지 않습니다.
+
+4. **`EXECUTE` 명령어**:
+   - `EXECUTE` 명령어로 동적으로 생성된 쿼리를 실행하고, `_count`는 쿼리에 바인딩됩니다.
+
+### 예제 실행
+
+위의 함수를 사용하여 다음과 같이 호출할 수 있습니다:
+
+```sql
+SELECT * FROM fn_stored_procedure(3, 'devicecount', TRUE);  -- Descending order
+SELECT * FROM fn_stored_procedure(3, 'devicecount', FALSE); -- Ascending order
+```
+
+이렇게 하면 `_sort_by` 컬럼을 기준으로 동적으로 정렬 방향을 설정하여 결과를 얻을 수 있습니다.
+
+
+------------------
 
 `ORDER BY` 절에서 `_sort_by`를 사용하려고 할 때 문제가 발생하는 이유는, PostgreSQL의 PL/pgSQL에서 `ORDER BY` 절에 직접적으로 변수를 사용할 수 없기 때문입니다. 이를 해결하기 위해 동적 SQL을 사용하여 `ORDER BY` 절을 동적으로 구성해야 합니다.
 
