@@ -1,3 +1,61 @@
+`sort_direction`을 `boolean` 값으로 받아서 정렬 순서를 지정할 수 있습니다. `true`일 때는 내림차순(`DESC`), `false`일 때는 오름차순(`ASC`)으로 정렬하도록 설정할 수 있습니다.
+
+### SQL 함수 예제
+
+```sql
+CREATE OR REPLACE FUNCTION getData(_order_by character varying, sort_direction boolean DEFAULT false)
+RETURNS TABLE(appname character varying) AS
+$$
+DECLARE
+    query text;
+    sort_order text;
+BEGIN
+    -- 정렬 방향을 결정
+    IF sort_direction THEN
+        sort_order := 'DESC';
+    ELSE
+        sort_order := 'ASC';
+    END IF;
+
+    -- 기본 쿼리 설정
+    query := 'SELECT appname FROM my_table';
+
+    -- 정렬 조건 추가
+    query := query || ' ORDER BY ' || _order_by || ' ' || sort_order;
+
+    -- 동적으로 쿼리 실행
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **정렬 방향 결정**:
+   - `sort_direction`이 `true`이면 `sort_order`는 `'DESC'`가 되고, `false`이면 `'ASC'`가 됩니다.
+
+2. **기본 쿼리**:
+   - `query` 변수에 기본 `SELECT` 쿼리를 설정합니다.
+
+3. **정렬 조건 추가**:
+   - `_order_by` 변수와 `sort_order`를 사용하여 `ORDER BY` 절을 추가합니다.
+
+4. **쿼리 실행 및 결과 반환**:
+   - 최종적으로 생성된 쿼리를 실행하고 결과를 반환합니다.
+
+### 사용 예
+
+```sql
+-- appname 필드를 오름차순으로 정렬 (false는 ASC)
+SELECT * FROM getData('appname', false);
+
+-- count 필드를 내림차순으로 정렬 (true는 DESC)
+SELECT * FROM getData('count', true);
+```
+
+이 방식은 간단한 `boolean` 값을 사용해 정렬 방향을 쉽게 제어할 수 있습니다. `true`는 내림차순(`DESC`), `false`는 오름차순(`ASC`)을 의미합니다.
+
+------------------------
 `ORDER BY` 절에서, 파라미터가 `NULL`이면 기본적으로 `appname` 필드를 기준으로 정렬하고, 값이 있으면 그 값을 기준으로 정렬하도록 쿼리를 작성할 수 있습니다.
 
 다음은 해당 로직을 구현한 예제입니다:
