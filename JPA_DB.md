@@ -1,5 +1,87 @@
 
+`_deviceCount`가 `-1`이 아닌 경우에만 `deviceCount > _deviceCount` 조건을 적용하려면, PL/pgSQL 함수에서 다음과 같은 방법으로 구현할 수 있습니다.
 
+```sql
+CREATE OR REPLACE FUNCTION get_filtered_data(
+    _customer_id integer,
+    _group_id integer,
+    _appName character varying,
+    _deviceCount integer
+)
+RETURNS TABLE(customer_id integer, group_id integer, appname character varying, devicecount integer, data_value text) AS
+$$
+BEGIN
+    RETURN QUERY
+    SELECT customer_id, group_id, appname, devicecount, data_value
+    FROM my_table
+    WHERE 
+        (customer_id = _customer_id OR _customer_id = -1)
+        AND 
+        (group_id = _group_id OR _group_id = -1)
+        AND 
+        (appname = _appName OR _appName IS NULL)
+        AND 
+        (_deviceCount = -1 OR devicecount > _deviceCount);
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명:
+
+- `(customer_id = _customer_id OR _customer_id = -1)`: `customer_id` 필터, `_customer_id`가 `-1`이면 조건을 무시.
+- `(group_id = _group_id OR _group_id = -1)`: `group_id` 필터, `_group_id`가 `-1`이면 조건을 무시.
+- `(appname = _appName OR _appName IS NULL)`: `appname` 필터, `_appName`이 `NULL`이면 조건을 무시.
+- `(_deviceCount = -1 OR devicecount > _deviceCount)`: `_deviceCount`가 `-1`이 아니면 `devicecount > _deviceCount` 조건을 적용, 그렇지 않으면 조건을 무시.
+
+이 방식은 `_deviceCount`가 `-1`일 경우 해당 조건을 무시하고, 그렇지 않을 경우 `deviceCount > _deviceCount` 조건을 적용합니다. 이는 `_deviceCount` 값이 특정 임계값 이상인지 확인하는데 유용합니다.
+
+---------------------------------
+
+PL/pgSQL에서는 `IF` 문을 사용하여 조건을 처리할 수 있습니다. 하지만 `IF` 문은 보통 절차적인 논리에서 사용되고, SQL 쿼리 내에서 조건을 동적으로 변경하려면 `CASE` 문이나 `COALESCE`를 사용하는 것이 더 일반적입니다.
+
+지금 설명하신 조건을 처리하려면, WHERE 절 내에서 다음과 같은 조건을 사용하면 됩니다:
+
+```sql
+WHERE 
+    (customer_id = _customer_id OR _customer_id = -1)
+    AND 
+    (group_id = _group_id OR _group_id = -1)
+    AND 
+    (appname = _appName OR _appName IS NULL);
+```
+
+이 코드의 의미는 `_appName`이 `NULL`이 아닌 경우에만 `appname` 컬럼이 `_appName`과 일치하는 값을 반환하도록 하고, `_appName`이 `NULL`일 경우에는 이 조건을 무시하도록 합니다.
+
+### 전체 함수 코드 예시:
+
+```sql
+CREATE OR REPLACE FUNCTION get_filtered_data(
+    _customer_id integer,
+    _group_id integer,
+    _appName character varying
+)
+RETURNS TABLE(customer_id integer, group_id integer, appname character varying, data_value text) AS
+$$
+BEGIN
+    RETURN QUERY
+    SELECT customer_id, group_id, appname, data_value
+    FROM my_table
+    WHERE 
+        (customer_id = _customer_id OR _customer_id = -1)
+        AND 
+        (group_id = _group_id OR _group_id = -1)
+        AND 
+        (appname = _appName OR _appName IS NULL);
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명:
+
+- `(appname = _appName OR _appName IS NULL)` 조건은 `_appName`이 `NULL`이 아닌 경우 `appname`이 `_appName`과 일치하는 데이터를 필터링하며, `_appName`이 `NULL`이면 해당 조건을 무시하게 됩니다.
+- 이렇게 하면 `_appName`이 `NULL`일 때 `appname` 필터를 무시하고, 그렇지 않으면 해당 필터를 적용할 수 있습니다. 
+
+이 방식을 사용하면 입력된 값에 따라 동적으로 조건을 적용할 수 있어 더 유연한 쿼리를 작성할 수 있습니다.
 -------------------------
 
 `WHERE` 절에서 `LIKE` 연산자를 사용하여 `keyword` 변수를 포함한 검색을 수행하려면, 변수의 값을 적절히 포함시켜야 합니다. 단순히 `'%'keyword'%'`로 작성하면 변수로 인식되지 않고 문자 그대로 취급됩니다.
