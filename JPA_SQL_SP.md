@@ -1,3 +1,102 @@
+
+쿼리를 두 번 적지 않고 `sort_direction`에 따라 `ORDER BY` 절의 정렬 방향을 동적으로 설정하려면, 동적으로 쿼리를 생성하여 실행하는 방법을 사용해야 합니다. PL/pgSQL에서 동적 SQL을 생성하는 방식으로 이를 구현할 수 있습니다.
+
+### 예제: `sort_direction`에 따라 `DESC` 또는 `ASC` 설정
+
+```sql
+CREATE OR REPLACE FUNCTION getData(sort_direction boolean DEFAULT false)
+RETURNS TABLE(appname character varying) AS
+$$
+DECLARE
+    sort_order text;
+BEGIN
+    -- sort_direction에 따라 정렬 순서를 설정
+    IF sort_direction THEN
+        sort_order := 'DESC';
+    ELSE
+        sort_order := 'ASC';
+    END IF;
+
+    -- 동적 쿼리 실행
+    RETURN QUERY EXECUTE 
+        'SELECT appname 
+         FROM my_table 
+         ORDER BY appname ' || sort_order;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **동적 SQL 생성**:
+   - `sort_direction`이 `true`이면 `sort_order`를 `'DESC'`로 설정하고, `false`이면 `'ASC'`로 설정합니다.
+   - 그런 다음, 동적으로 생성된 `ORDER BY` 절과 함께 쿼리를 생성하여 실행합니다.
+
+2. **동적 쿼리 실행**:
+   - `EXECUTE`를 사용하여 동적으로 생성된 쿼리를 실행하고 그 결과를 반환합니다.
+
+### 사용 예
+
+```sql
+-- appname 필드를 오름차순으로 정렬
+SELECT * FROM getData(false);
+
+-- appname 필드를 내림차순으로 정렬
+SELECT * FROM getData(true);
+```
+
+이 방법은 하나의 쿼리만 작성하면서 `sort_direction`에 따라 정렬 방향을 동적으로 변경할 수 있도록 합니다.
+
+----------------------
+
+만약 `RETURN`에서 쿼리를 직접 쓰고 싶다면, `ORDER BY` 조건을 동적으로 설정할 수는 없지만, 고정된 `ORDER BY` 조건을 사용하여 정렬을 수행할 수 있습니다. `sort_direction`에 따라 다른 쿼리를 직접 반환하는 방법을 사용할 수 있습니다.
+
+### 예제: `sort_direction`에 따라 직접 쿼리 반환
+
+```sql
+CREATE OR REPLACE FUNCTION getData(sort_direction boolean DEFAULT false)
+RETURNS TABLE(appname character varying) AS
+$$
+BEGIN
+    IF sort_direction THEN
+        -- 내림차순 정렬
+        RETURN QUERY
+        SELECT appname 
+        FROM my_table 
+        ORDER BY appname DESC;
+    ELSE
+        -- 오름차순 정렬
+        RETURN QUERY
+        SELECT appname 
+        FROM my_table 
+        ORDER BY appname ASC;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명
+
+1. **정렬 방향에 따른 조건 설정**:
+   - `sort_direction`이 `true`이면 내림차순(`DESC`)으로 정렬하는 쿼리를 반환하고, `false`이면 오름차순(`ASC`)으로 정렬하는 쿼리를 반환합니다.
+
+2. **쿼리 직접 반환**:
+   - 각 경우에 따라 `RETURN QUERY`를 사용하여 고정된 쿼리를 반환합니다.
+
+### 사용 예
+
+```sql
+-- appname 필드를 오름차순으로 정렬
+SELECT * FROM getData(false);
+
+-- appname 필드를 내림차순으로 정렬
+SELECT * FROM getData(true);
+```
+
+이 방법은 정렬 기준이 미리 결정되어 있어, 동적으로 조건을 변경할 수 없지만, 간단하게 사용할 수 있습니다. 만약 특정 필드가 아니라 여러 필드로 정렬을 하려면, 각 필드에 대해 별도의 함수나 `IF` 문을 추가해야 합니다.
+
+--------------------
+
 `sort_direction`을 `boolean` 값으로 받아서 정렬 순서를 지정할 수 있습니다. `true`일 때는 내림차순(`DESC`), `false`일 때는 오름차순(`ASC`)으로 정렬하도록 설정할 수 있습니다.
 
 ### SQL 함수 예제
