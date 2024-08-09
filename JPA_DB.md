@@ -1,4 +1,43 @@
 
+`_keyword`가 `NULL`이거나 빈 문자열(`''`)일 경우, 쿼리를 실행하지 않고 `NULL`을 반환하도록 하려면 PL/pgSQL에서 다음과 같이 구현할 수 있습니다.
+
+```sql
+CREATE OR REPLACE FUNCTION get_appname_by_keyword(_keyword character varying)
+RETURNS character varying AS
+$$
+DECLARE
+    result character varying;
+    query text;
+BEGIN
+    IF _keyword IS NULL OR _keyword = '' THEN
+        RETURN NULL;
+    ELSE
+        query := 'SELECT appname FROM my_table WHERE appname LIKE ''%' || _keyword || '%'' LIMIT 1';
+        EXECUTE query INTO result;
+        RETURN result;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 설명:
+
+1. **조건문**: 
+   - `IF _keyword IS NULL OR _keyword = '' THEN`: `_keyword`가 `NULL`이거나 빈 문자열일 경우, 바로 `NULL`을 반환합니다.
+   
+2. **쿼리 생성 및 실행**: 
+   - `query := 'SELECT appname FROM my_table WHERE appname LIKE ''%' || _keyword || '%'' LIMIT 1';`:
+     - `_keyword`가 유효할 때만 쿼리를 생성합니다.
+     - `LIMIT 1`을 추가해 한 개의 결과만 반환합니다.
+   - `EXECUTE query INTO result;`: 동적으로 생성된 쿼리를 실행하고, 결과를 `result` 변수에 저장합니다.
+
+3. **결과 반환**: 
+   - `RETURN result;`: 결과를 반환합니다.
+
+이 방식은 `_keyword`가 `NULL`이거나 빈 문자열일 경우 `NULL`을 반환하고, 그렇지 않을 경우 쿼리 결과를 반환합니다.
+
+-----------------------
+
 `_deviceCount`가 `-1`이 아닌 경우에만 `deviceCount > _deviceCount` 조건을 적용하려면, PL/pgSQL 함수에서 다음과 같은 방법으로 구현할 수 있습니다.
 
 ```sql
