@@ -1,3 +1,47 @@
+
+`query := 'SELECT ... FROM ... WHERE ...'`라는 동적 SQL을 구성한 후, 이 SQL을 실행하고 결과를 반환하는 방법을 설명하겠습니다. 특히, `RETURN QUERY EXECUTE` 구문을 사용하는 경우입니다.
+
+## 동적 SQL 사용 예제
+
+아래는 동적 SQL을 이용해 `appname`을 검색하는 쿼리를 만드는 예제입니다:
+
+```sql
+CREATE OR REPLACE FUNCTION search_appname(_keyword text)
+RETURNS TABLE(appname text, devicecount integer) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    -- 동적 SQL 쿼리 구성
+    query := 'SELECT appname, devicecount FROM my_table WHERE appname LIKE ''%' || _keyword || '%''';
+
+    -- 동적 SQL 실행 및 결과 반환
+    RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 주요 사항:
+1. **쿼리 문자열 생성**:
+   - `query := 'SELECT appname, devicecount FROM my_table WHERE appname LIKE ''%' || _keyword || '%''';` 구문은 동적 SQL을 문자열로 생성합니다. 
+   - `LIKE ''%' || _keyword || '%'''` 부분은 `appname` 컬럼에서 `_keyword`를 포함하는 모든 레코드를 검색합니다.
+   - SQL에서 작은 따옴표(`'`)를 이스케이프하려면 두 개의 작은 따옴표(`''`)를 사용해야 합니다.
+
+2. **`RETURN QUERY EXECUTE`**:
+   - `RETURN QUERY EXECUTE query;`는 동적으로 생성된 쿼리를 실행하고 그 결과를 함수의 반환값으로 사용합니다.
+
+### 추가 설명:
+- **`EXECUTE query USING _keyword`**: 이 구문은 매개변수를 사용한 동적 SQL 실행 시 유용합니다. 하지만 지금처럼 `LIKE '%' || _keyword || '%'`로 문자열 연결을 사용한 경우, 직접 `USING` 구문 없이도 사용할 수 있습니다.
+
+## 예제 시나리오
+
+- 만약 `_keyword`가 'abc'라면, SQL 쿼리는 `'SELECT appname, devicecount FROM my_table WHERE appname LIKE '%abc%'`'로 동적으로 생성됩니다.
+- 이 쿼리는 `RETURN QUERY EXECUTE`를 통해 실행되고, 결과가 함수의 반환값으로 제공됩니다.
+
+이 방식으로, 동적 SQL 쿼리를 효과적으로 실행하고 그 결과를 반환할 수 있습니다.
+
+----------------------
+
 `OFFSET` 및 `LIMIT` 절을 사용하여 결과를 페이지네이션하거나 특정 범위의 데이터를 선택할 수 있습니다. 이 절들은 동적 쿼리에서 처리할 수 있으며, `OFFSET`은 결과의 시작점을 지정하고 `LIMIT`은 반환할 최대 행 수를 지정합니다.
 
 다음은 `OFFSET`과 `LIMIT`을 동적 쿼리에 포함하는 예제입니다:
