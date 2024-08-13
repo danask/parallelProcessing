@@ -1,3 +1,95 @@
+전체적으로 올바른 접근이지만, 몇 가지 수정이 필요합니다. 특히, SQL 쿼리의 동적 문자열 생성 및 매개변수의 사용과 관련된 부분에서 수정할 부분이 있습니다.
+
+### 수정된 코드 예시:
+
+```sql
+CREATE OR REPLACE FUNCTION your_function_name(
+    c_id integer,
+    _record_type integer,
+    _app_ver text,
+    _apppckver_id integer,
+    _start_date date,
+    _aUID integer,
+    _device_count integer,
+    _normalized_battery_consumption double precision,
+    _avg_network_usage double precision,
+    _avg_mobile_usage double precision,
+    _keyword text,
+    _order_by text,
+    _order_by_desc boolean,
+    _order_by2 text,
+    _order_by_desc2 boolean,
+    _offset integer,
+    _first integer
+)
+RETURNS TABLE(appname text) AS
+$$
+DECLARE
+    query text;
+BEGIN
+    query := '
+        SELECT dapv.app_name AS appname
+        FROM kaiappinfo.kpi_apps_usage_period_00 kau
+        LEFT JOIN kaiappinfo.dim_apps_package_version dapv ON kau.apppckver_id = dapv.apppckver_id
+        LEFT JOIN kaiappinfo.kpi_data_usage_period_00 kdu ON kau.period = kdu.period
+            AND kau.start_date = kdu.start_date
+            AND kau.dcg_id = kdu.dcg_id
+            AND kau.apppckver_id = kdu.apppckver_id
+            AND kau.app_uid = kdu.app_uid
+        WHERE dcg.dcg_id = $1
+            AND kau.period = $2
+            AND dapv.app_version = $3
+            AND kau.start_date = $4
+            AND kau.app_uid = $5
+            AND ($6 = -1 OR kau.device_count > $6)
+            AND ($7 = -1 OR kau.normalized_battery_consumption >= $7)
+            AND ($8 = -1 OR kdu.average_network_usage >= $8)
+            AND ($9 = -1 OR kdu.average_mobile_usage >= $9)
+            AND ($10 IS NULL OR (dapv.app_name LIKE ''%' || $10 || '%'' OR dapv.package_name LIKE ''%' || $10 || '%''))
+        GROUP BY dapv.app_name
+        ORDER BY ' || quote_ident(_order_by) || ' ' ||
+            CASE WHEN _order_by_desc THEN ''DESC'' ELSE ''ASC'' END || ', ' ||
+            quote_ident(_order_by2) || ' ' ||
+            CASE WHEN _order_by_desc2 THEN ''DESC'' ELSE ''ASC'' END || '
+        OFFSET $11 ROWS FETCH FIRST $12 ROWS ONLY';
+
+    RETURN QUERY EXECUTE query USING
+        c_id,
+        _record_type,
+        _app_ver,
+        _start_date,
+        _aUID,
+        _device_count,
+        _normalized_battery_consumption,
+        _avg_network_usage,
+        _avg_mobile_usage,
+        _keyword,
+        _offset,
+        _first;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 수정 및 설명:
+
+1. **매개변수 사용:**
+   - `$1`, `$2` 등의 매개변수는 `EXECUTE` 구문에서 `USING` 절을 통해 전달됩니다.
+   - `quote_ident()`를 사용하여 컬럼 이름이나 다른 식별자를 동적으로 삽입합니다.
+   - `''DESC''`와 `''ASC''`를 사용하여 문자열로서의 정렬 순서를 삽입합니다.
+
+2. **`ORDER BY` 구문:**
+   - `_order_by`와 `_order_by2`를 동적으로 받아와 정렬할 수 있습니다.
+   - `CASE WHEN _order_by_desc THEN ''DESC'' ELSE ''ASC'' END` 구문을 사용하여 정렬 방향을 설정합니다.
+
+3. **`OFFSET` 및 `LIMIT` 처리:**
+   - `OFFSET $11 ROWS FETCH FIRST $12 ROWS ONLY` 구문으로 페이징 처리(`OFFSET` 및 `LIMIT`)를 적용합니다.
+
+4. **`quote_ident()` 함수:**
+   - `quote_ident()`는 동적으로 식별자(예: 컬럼 이름)를 SQL 쿼리에 삽입할 때 사용됩니다. 이는 SQL 인젝션을 방지하고, 올바른 식별자가 사용되도록 보장합니다.
+
+이 방식으로 쿼리를 동적으로 구성하면서도 보안과 성능을 유지할 수 있습니다.
+
+-----------------
 
 `query := 'SELECT ... FROM ... WHERE ...'`라는 동적 SQL을 구성한 후, 이 SQL을 실행하고 결과를 반환하는 방법을 설명하겠습니다. 특히, `RETURN QUERY EXECUTE` 구문을 사용하는 경우입니다.
 
