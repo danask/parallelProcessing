@@ -1,3 +1,46 @@
+JPA에서 `LIKE` 연산자를 사용하여 특수 문자가 포함된 검색을 수행할 때, 특수 문자를 포함한 입력값을 올바르게 처리하려면 특수 문자를 이스케이프 처리해야 합니다. 다음은 JPA에서 특수 문자를 포함한 `LIKE` 조건을 사용하는 방법입니다.
+
+### **1. 이스케이프 처리**
+특수 문자(예: `@##%*()`)를 포함한 값을 `LIKE` 조건으로 사용할 때, `@`, `#`, `%`, `*`, `(`, `)` 같은 특수 문자가 문제가 될 수 있습니다. 이 문자를 이스케이프 처리하거나, 필요에 따라 그대로 사용할 수 있도록 주의해야 합니다.
+
+### **2. JPA에서 `LIKE` 사용**
+JPA에서는 기본적으로 `@Query` 어노테이션을 사용하거나, Spring Data JPA 메서드 쿼리에서 `LIKE` 조건을 직접 사용할 수 있습니다.
+
+```java
+@Query("SELECT e FROM Entity e WHERE e.appName LIKE :keyword ESCAPE '\\'")
+List<Entity> findByAppNameLike(@Param("keyword") String keyword);
+```
+
+### **3. 입력값 예시**
+입력값을 다음과 같이 전달할 수 있습니다:
+
+```java
+String input = "@##%*()"; 
+// JPA 쿼리 실행
+List<Entity> result = repository.findByAppNameLike("%" + input + "%");
+```
+
+### **4. 특수 문자 처리**
+- `%`: 와일드카드로 사용됩니다. 특정 패턴과 일치하는 모든 문자열을 찾습니다.
+- `_`: 단일 문자를 대체하는 와일드카드입니다.
+- 특수 문자를 그대로 사용하려면 이스케이프 문자(`\`)를 사용하여 처리할 수 있습니다.
+
+```java
+String input = "@##%*()";
+String escapedInput = input.replace("%", "\\%")
+                           .replace("_", "\\_")
+                           .replace("\\", "\\\\");
+List<Entity> result = repository.findByAppNameLike("%" + escapedInput + "%");
+```
+
+이렇게 하면 입력값의 특수 문자가 제대로 처리된 상태로 쿼리가 실행됩니다. 
+
+**정리:** 
+- 입력값을 `LIKE` 조건에 사용할 때 특수 문자를 주의해서 처리해야 합니다.
+- 특수 문자를 그대로 사용하려면 이스케이프 처리가 필요합니다.
+- JPA 쿼리에서 이스케이프 처리된 문자열을 사용하여 안전하게 검색할 수 있습니다.
+
+-------------------------
 MongoDB와 PostgreSQL에서 이스케이프 처리가 필요한 주요 문자는 다릅니다. 각 데이터베이스에서 이스케이프 처리를 고려해야 하는 문자는 다음과 같습니다.
 
 ### 1. **MongoDB**
