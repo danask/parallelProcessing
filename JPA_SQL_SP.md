@@ -1,3 +1,156 @@
+
+JPA를 사용하면서 입력값까지 로깅하려면 몇 가지 방법이 있습니다. 아래에 그 방법들을 설명합니다.
+
+### 1. **Spring AOP 사용**
+Spring AOP(Aspect-Oriented Programming)를 사용하여 모든 Repository 메소드 호출 시 입력값을 로깅할 수 있습니다.
+
+```java
+import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.After;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+@Aspect
+@Component
+public class LoggingAspect {
+
+    private static final Logger logger = LoggerFactory.getLogger(LoggingAspect.class);
+
+    @Before("execution(* com.yourpackage.repository.*.*(..))")
+    public void logBefore(JoinPoint joinPoint) {
+        logger.info("Method: " + joinPoint.getSignature().getName());
+        Object[] args = joinPoint.getArgs();
+        for (Object arg : args) {
+            logger.info("Input value: " + arg);
+        }
+    }
+
+    @After("execution(* com.yourpackage.repository.*.*(..))")
+    public void logAfter(JoinPoint joinPoint) {
+        logger.info("Method finished: " + joinPoint.getSignature().getName());
+    }
+}
+```
+
+- **@Before**: JPA Repository 메소드 호출 전에 실행됩니다.
+- **@After**: 메소드 실행 후에 로깅됩니다.
+- **JoinPoint**: 메소드의 이름과 인자 값들을 얻을 수 있습니다.
+
+### 2. **Spring `HandlerInterceptor` 사용**
+
+이 방법은 Spring MVC의 `HandlerInterceptor`를 사용하여 요청의 파라미터와 바디를 로깅하는 것입니다.
+
+```java
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.servlet.ModelAndView;
+
+@Component
+public class LoggingInterceptor implements HandlerInterceptor {
+
+    private static final Logger logger = LoggerFactory.getLogger(LoggingInterceptor.class);
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        logger.info("Request URI: " + request.getRequestURI());
+        logger.info("Request Parameters: " + request.getParameterMap());
+        return true;
+    }
+
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        // Post handle logic
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        // After completion logic
+    }
+}
+```
+
+그리고 `WebMvcConfigurer`에서 인터셉터를 등록합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    @Autowired
+    private LoggingInterceptor loggingInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(loggingInterceptor);
+    }
+}
+```
+
+### 3. **Hibernate SQL 및 파라미터 로깅 설정**
+
+JPA에서 Hibernate를 사용 중이라면, SQL 쿼리와 파라미터를 로깅하도록 설정할 수 있습니다.
+
+```yaml
+# application.yml
+spring:
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+        generate_statistics: true
+        type:
+          definer-metadata: true
+```
+
+이 설정은 JPA/Hibernate에서 생성된 SQL 쿼리와 그에 사용된 파라미터를 로깅합니다.
+
+### 4. **Custom Repository Method**
+
+특정 리포지토리 메소드에서만 로깅을 하고 싶다면, 메소드 내부에서 직접 로깅을 추가할 수 있습니다.
+
+```java
+@Repository
+public interface MyRepository extends JpaRepository<MyEntity, Long> {
+
+    @Query("SELECT e FROM MyEntity e WHERE e.name = :name")
+    List<MyEntity> findByName(@Param("name") String name);
+}
+
+@Service
+public class MyService {
+
+    private final MyRepository myRepository;
+    private static final Logger logger = LoggerFactory.getLogger(MyService.class);
+
+    public MyService(MyRepository myRepository) {
+        this.myRepository = myRepository;
+    }
+
+    public List<MyEntity> getEntitiesByName(String name) {
+        logger.info("Finding entities with name: " + name);
+        return myRepository.findByName(name);
+    }
+}
+```
+
+이런 방법들을 사용하여 JPA에서 입력값까지 포함한 로깅을 설정할 수 있습니다. AOP는 가장 강력한 방법이지만, 특정 상황에서는 다른 방법들이 더 적합할 수 있습니다.
+
+----------------------------
+
 전체적으로 올바른 접근이지만, 몇 가지 수정이 필요합니다. 특히, SQL 쿼리의 동적 문자열 생성 및 매개변수의 사용과 관련된 부분에서 수정할 부분이 있습니다.
 
 ### 수정된 코드 예시:
