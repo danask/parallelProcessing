@@ -1,11 +1,9 @@
+MongoDB에서 특정 필드(예: `IMEI`)가 중복된 문서들 중 `lastModifiedDate`를 기준으로 최신 문서를 남기고 더 오래된 문서를 삭제하는 로직을 작성하려면, 다음과 같은 절차를 따를 수 있습니다. 이 작업은 두 단계로 이루어집니다:
 
-MongoDB에서 특정 필드(예: `IMEI`)가 중복된 경우, 더 오래된 문서를 삭제하는 로직을 구현하려면 다음과 같은 방법으로 접근할 수 있습니다. 이 작업은 MongoDB의 aggregation과 삭제 작업을 결합하여 수행할 수 있습니다.
+1. 중복된 `IMEI`를 가진 문서들 중 가장 최신의 `lastModifiedDate`를 가진 문서를 식별합니다.
+2. 나머지 중복된 문서들을 삭제합니다.
 
-아래는 Java와 Spring Data MongoDB를 사용하여 이 로직을 구현하는 방법에 대한 예제입니다.
-
-### 1. 중복된 IMEI 값을 가진 문서들을 찾기
-
-먼저, 중복된 `IMEI` 필드를 가진 문서들을 찾는 aggregation 파이프라인을 작성합니다. 가장 오래된 문서를 제외한 나머지 중복된 문서들을 선택해야 합니다.
+아래는 Spring Data MongoDB를 사용하여 이 로직을 구현하는 예제입니다.
 
 ```java
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,9 +15,12 @@ import org.springframework.data.mongodb.core.aggregation.MatchOperation;
 import org.springframework.data.mongodb.core.aggregation.ProjectionOperation;
 import org.springframework.data.mongodb.core.aggregation.SortOperation;
 import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class YourServiceClass {
@@ -27,87 +28,66 @@ public class YourServiceClass {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    public List<String> findDuplicateImeiDocuments() {
-        // Group by IMEI and gather the list of IDs sorted by timestamp
-        GroupOperation groupByImei = Aggregation.group("IMEI")
-                .push(new BasicDBObject("id", "$_id").append("ts", "$ts")).as("docs")
-                .count().as("count");
+    public void removeOldDocumentsByIMEI() {
+        // Step 1: Find the latest document for each IMEI
+        SortOperation sortByLastModifiedDateDesc = Aggregation.sort(Sort.Direction.DESC, "lastModifiedDate");
+        GroupOperation groupByIMEI = Aggregation.group("IMEI")
+                .first("lastModifiedDate").as("lastModifiedDate")
+                .first("_id").as("id");
 
-        // Filter groups where the count is greater than 1 (i.e., duplicates exist)
-        MatchOperation matchDuplicates = Aggregation.match(Criteria.where("count").gt(1));
+        ProjectionOperation projectIdAndIMEI = Aggregation.project("id");
 
-        // Unwind the docs array and sort by timestamp ascending (oldest first)
         Aggregation aggregation = Aggregation.newAggregation(
-                groupByImei,
-                matchDuplicates,
-                Aggregation.unwind("docs"),
-                new SortOperation(Sort.by(Sort.Direction.ASC, "docs.ts")),
-                // Skip the latest document and keep the older ones
-                Aggregation.group("IMEI")
-                        .push("docs.id").slice(-1).as("oldestDocs")
+                sortByLastModifiedDateDesc,
+                groupByIMEI,
+                projectIdAndIMEI
         );
 
-        // Execute the aggregation
-        AggregationResults<DuplicateDocument> results = mongoTemplate.aggregate(aggregation, "collectionName", DuplicateDocument.class);
+        AggregationResults<DocumentIdProjection> results = mongoTemplate.aggregate(aggregation, "collectionName", DocumentIdProjection.class);
 
-        // Extract the IDs of documents to delete
-        List<String> idsToDelete = results.getMappedResults().stream()
-                .flatMap(doc -> doc.getOldestDocs().stream())
-                .collect(Collectors.toList());
+        // Step 2: Collect the IDs of the documents to keep
+        Set<String> idsToKeep = results.getMappedResults().stream()
+                .map(DocumentIdProjection::getId)
+                .collect(Collectors.toSet());
 
-        return idsToDelete;
+        // Step 3: Delete documents with the same IMEI but not in the idsToKeep
+        Query deleteQuery = new Query();
+        deleteQuery.addCriteria(Criteria.where("IMEI").exists(true)
+                .andOperator(Criteria.where("_id").nin(idsToKeep)));
+
+        mongoTemplate.remove(deleteQuery, "collectionName");
     }
 
-    public void deleteDuplicateDocuments(List<String> idsToDelete) {
-        if (!idsToDelete.isEmpty()) {
-            mongoTemplate.remove(Query.query(Criteria.where("_id").in(idsToDelete)), "collectionName");
-        }
-    }
+    // Projection class for results
+    public static class DocumentIdProjection {
+        private String id;
 
-    public static class DuplicateDocument {
-        private List<String> oldestDocs;
-
-        public List<String> getOldestDocs() {
-            return oldestDocs;
+        public String getId() {
+            return id;
         }
 
-        public void setOldestDocs(List<String> oldestDocs) {
-            this.oldestDocs = oldestDocs;
+        public void setId(String id) {
+            this.id = id;
         }
     }
 }
 ```
 
-### 2. 중복된 문서 삭제 로직
+### 설명:
 
-위에서 찾은 중복된 `IMEI`를 가진 문서들의 `_id` 목록을 사용하여 해당 문서를 삭제합니다.
+1. **SortOperation**: 먼저 `lastModifiedDate` 기준으로 내림차순으로 문서들을 정렬합니다. 이렇게 하면 가장 최신의 문서가 그룹화할 때 첫 번째로 오게 됩니다.
 
-### 3. 전체 프로세스 실행
+2. **GroupOperation**: `IMEI` 필드로 그룹화하여 각 그룹에서 가장 최신 `lastModifiedDate`를 가진 문서의 `_id`만을 남깁니다.
 
-```java
-@Service
-public class YourServiceClass {
+3. **ProjectionOperation**: `_id`와 `IMEI` 필드를 프로젝트합니다.
 
-    @Autowired
-    private MongoTemplate mongoTemplate;
+4. **Aggregation**: 집계 파이프라인을 사용해 가장 최신 문서의 `_id`만 추출합니다.
 
-    public void removeOldestDuplicateDocuments() {
-        // Step 1: Find duplicate documents
-        List<String> idsToDelete = findDuplicateImeiDocuments();
+5. **Set<String> idsToKeep**: 삭제하지 않고 남겨둘 문서들의 `_id`를 수집합니다.
 
-        // Step 2: Delete the duplicate documents
-        deleteDuplicateDocuments(idsToDelete);
-    }
-}
-```
+6. **Query deleteQuery**: `IMEI` 필드가 존재하면서, `idsToKeep`에 포함되지 않은 문서들을 삭제합니다.
 
-### 요약
-
-1. **중복된 IMEI 필드**를 가진 문서들을 `Aggregation`으로 찾아냅니다. 중복된 문서들 중 가장 오래된 것들을 `oldestDocs`로 추출합니다.
-2. `MongoTemplate`의 `remove` 메서드를 사용하여 중복된 문서를 삭제합니다.
-3. 최종적으로 이 로직을 호출하여 중복된 `IMEI` 필드를 가진 문서들을 자동으로 관리합니다.
-
-이 방법을 통해 MongoDB에서 중복된 `IMEI` 필드를 가진 오래된 문서를 삭제할 수 있습니다.
+이 코드를 실행하면 중복된 `IMEI`를 가진 문서들 중 가장 최신의 문서만 남기고 나머지는 삭제됩니다.
 
 -------------------------
 
