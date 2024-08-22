@@ -1,4 +1,116 @@
 
+MongoDB에서 특정 필드(예: `IMEI`)가 중복된 경우, 더 오래된 문서를 삭제하는 로직을 구현하려면 다음과 같은 방법으로 접근할 수 있습니다. 이 작업은 MongoDB의 aggregation과 삭제 작업을 결합하여 수행할 수 있습니다.
+
+아래는 Java와 Spring Data MongoDB를 사용하여 이 로직을 구현하는 방법에 대한 예제입니다.
+
+### 1. 중복된 IMEI 값을 가진 문서들을 찾기
+
+먼저, 중복된 `IMEI` 필드를 가진 문서들을 찾는 aggregation 파이프라인을 작성합니다. 가장 오래된 문서를 제외한 나머지 중복된 문서들을 선택해야 합니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.aggregation.MatchOperation;
+import org.springframework.data.mongodb.core.aggregation.ProjectionOperation;
+import org.springframework.data.mongodb.core.aggregation.SortOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class YourServiceClass {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public List<String> findDuplicateImeiDocuments() {
+        // Group by IMEI and gather the list of IDs sorted by timestamp
+        GroupOperation groupByImei = Aggregation.group("IMEI")
+                .push(new BasicDBObject("id", "$_id").append("ts", "$ts")).as("docs")
+                .count().as("count");
+
+        // Filter groups where the count is greater than 1 (i.e., duplicates exist)
+        MatchOperation matchDuplicates = Aggregation.match(Criteria.where("count").gt(1));
+
+        // Unwind the docs array and sort by timestamp ascending (oldest first)
+        Aggregation aggregation = Aggregation.newAggregation(
+                groupByImei,
+                matchDuplicates,
+                Aggregation.unwind("docs"),
+                new SortOperation(Sort.by(Sort.Direction.ASC, "docs.ts")),
+                // Skip the latest document and keep the older ones
+                Aggregation.group("IMEI")
+                        .push("docs.id").slice(-1).as("oldestDocs")
+        );
+
+        // Execute the aggregation
+        AggregationResults<DuplicateDocument> results = mongoTemplate.aggregate(aggregation, "collectionName", DuplicateDocument.class);
+
+        // Extract the IDs of documents to delete
+        List<String> idsToDelete = results.getMappedResults().stream()
+                .flatMap(doc -> doc.getOldestDocs().stream())
+                .collect(Collectors.toList());
+
+        return idsToDelete;
+    }
+
+    public void deleteDuplicateDocuments(List<String> idsToDelete) {
+        if (!idsToDelete.isEmpty()) {
+            mongoTemplate.remove(Query.query(Criteria.where("_id").in(idsToDelete)), "collectionName");
+        }
+    }
+
+    public static class DuplicateDocument {
+        private List<String> oldestDocs;
+
+        public List<String> getOldestDocs() {
+            return oldestDocs;
+        }
+
+        public void setOldestDocs(List<String> oldestDocs) {
+            this.oldestDocs = oldestDocs;
+        }
+    }
+}
+```
+
+### 2. 중복된 문서 삭제 로직
+
+위에서 찾은 중복된 `IMEI`를 가진 문서들의 `_id` 목록을 사용하여 해당 문서를 삭제합니다.
+
+### 3. 전체 프로세스 실행
+
+```java
+@Service
+public class YourServiceClass {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public void removeOldestDuplicateDocuments() {
+        // Step 1: Find duplicate documents
+        List<String> idsToDelete = findDuplicateImeiDocuments();
+
+        // Step 2: Delete the duplicate documents
+        deleteDuplicateDocuments(idsToDelete);
+    }
+}
+```
+
+### 요약
+
+1. **중복된 IMEI 필드**를 가진 문서들을 `Aggregation`으로 찾아냅니다. 중복된 문서들 중 가장 오래된 것들을 `oldestDocs`로 추출합니다.
+2. `MongoTemplate`의 `remove` 메서드를 사용하여 중복된 문서를 삭제합니다.
+3. 최종적으로 이 로직을 호출하여 중복된 `IMEI` 필드를 가진 문서들을 자동으로 관리합니다.
+
+이 방법을 통해 MongoDB에서 중복된 `IMEI` 필드를 가진 오래된 문서를 삭제할 수 있습니다.
+
+-------------------------
+
 MongoDB에서 주어진 `id`, `appName`, `ts` 필드를 사용하여, 가장 최신 날짜(`ts`)에서 각 `id`에 대해 `appName`을 추출하여 해시맵으로 반환하려면, 아래와 같은 방법을 사용할 수 있습니다.
 
 먼저, Spring Data MongoDB를 사용하여 이를 구현하는 예제 코드를 제공하겠습니다.
