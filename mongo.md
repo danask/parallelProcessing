@@ -89,6 +89,93 @@ public class YourServiceClass {
 
 이 코드를 실행하면 중복된 `IMEI`를 가진 문서들 중 가장 최신의 문서만 남기고 나머지는 삭제됩니다.
 
+
+`Aggregation.group("IMEI")`를 사용하여 그룹화할 때, MongoDB는 기본적으로 그룹화 키(여기서는 `"IMEI"`)를 `_id` 필드에 할당합니다. 그래서 결과의 `_id` 필드에 `IMEI` 값이 들어갑니다. 
+
+이 상황을 피하려면, 그룹화 결과에서 `_id` 필드를 명시적으로 설정하여 원래의 문서 `_id`를 유지하거나 다른 필드로 지정할 수 있습니다. 아래는 이를 해결하는 방법입니다.
+
+### 수정된 코드
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.aggregation.ProjectionOperation;
+import org.springframework.data.mongodb.core.aggregation.SortOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Service
+public class YourServiceClass {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public void removeOldDocumentsByIMEI() {
+        // Step 1: Sort by 'lastModifiedDate' in descending order
+        SortOperation sortByLastModifiedDateDesc = Aggregation.sort(Sort.Direction.DESC, "lastModifiedDate");
+
+        // Step 2: Group by 'IMEI' and get the first 'lastModifiedDate' and original '_id'
+        GroupOperation groupByIMEI = Aggregation.group("IMEI")
+                .first("lastModifiedDate").as("lastModifiedDate")
+                .first("_id").as("originalId");
+
+        // Step 3: Project the 'originalId' field
+        ProjectionOperation projectId = Aggregation.project("originalId");
+
+        // Step 4: Create aggregation pipeline
+        Aggregation aggregation = Aggregation.newAggregation(
+                sortByLastModifiedDateDesc,
+                groupByIMEI,
+                projectId
+        );
+
+        // Step 5: Execute aggregation and retrieve results
+        AggregationResults<DocumentIdProjection> results = mongoTemplate.aggregate(aggregation, "collectionName", DocumentIdProjection.class);
+
+        // Step 6: Collect the IDs of the documents to keep
+        Set<String> idsToKeep = results.getMappedResults().stream()
+                .map(DocumentIdProjection::getOriginalId)
+                .collect(Collectors.toSet());
+
+        // Step 7: Delete documents with the same IMEI but not in the idsToKeep
+        Query deleteQuery = new Query();
+        deleteQuery.addCriteria(Criteria.where("IMEI").exists(true)
+                .andOperator(Criteria.where("_id").nin(idsToKeep)));
+
+        mongoTemplate.remove(deleteQuery, "collectionName");
+    }
+
+    // Projection class for results
+    public static class DocumentIdProjection {
+        private String originalId;
+
+        public String getOriginalId() {
+            return originalId;
+        }
+
+        public void setOriginalId(String originalId) {
+            this.originalId = originalId;
+        }
+    }
+}
+```
+
+### 주요 변경 사항:
+
+1. **GroupOperation**: 그룹화된 `IMEI` 값을 `_id`로 설정하지 않도록, 그룹화 키와 별개로 원래 문서의 `_id`를 `"originalId"`라는 필드에 저장했습니다.
+
+2. **ProjectionOperation**: `project` 단계에서 그룹화 결과의 `"originalId"`를 필드로 선택했습니다. 이렇게 하면 `originalId` 필드에 실제 문서의 `_id`가 남게 됩니다.
+
+이렇게 수정된 코드에서는 그룹화된 결과의 `_id`가 `IMEI` 값으로 대체되지 않으며, 원래 문서의 `_id`가 `"originalId"` 필드에 남아 있게 됩니다. 그런 다음, 이 `"originalId"`를 사용하여 나머지 중복 문서를 삭제할 수 있습니다.
+
 -------------------------
 
 MongoDB에서 주어진 `id`, `appName`, `ts` 필드를 사용하여, 가장 최신 날짜(`ts`)에서 각 `id`에 대해 `appName`을 추출하여 해시맵으로 반환하려면, 아래와 같은 방법을 사용할 수 있습니다.
