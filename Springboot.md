@@ -1,4 +1,131 @@
 
+타임아웃을 길게 설정하더라도, **중간에 연결에 문제가 생겼다는 것을 기록**하거나 감지하는 방법은 여러 가지가 있습니다. 이를 통해 애플리케이션이 네트워크 장애나 연결 문제를 보다 빨리 감지하고 대응할 수 있게 할 수 있습니다. 여기 몇 가지 방법을 소개합니다:
+
+### 1. **커넥션 풀의 `ConnectionTest` 설정**
+   많은 커넥션 풀은 연결이 유효한지 확인하는 방법을 제공합니다. 이를 통해 주기적으로 연결이 정상인지 확인하고, 문제가 발생하면 로그를 남기거나 재시도를 할 수 있습니다.
+
+#### HikariCP 예시:
+`connectionTestQuery`를 설정하여 특정 쿼리로 주기적으로 연결 상태를 확인합니다.
+
+```yaml
+spring:
+  datasource:
+    hikari:
+      connection-test-query: SELECT 1
+      validation-timeout: 5000   # 유효성 검사 타임아웃 (5초)
+```
+
+이 설정은 연결을 가져오기 전에 `SELECT 1` 쿼리를 실행하여 연결이 정상인지 확인합니다. 만약 이 쿼리가 실패하면, 즉시 문제가 발생했음을 알 수 있습니다.
+
+### 2. **Heartbeat (헬스 체크) 구현**
+   주기적으로 데이터베이스와 연결된 상태에서 간단한 쿼리를 보내어 연결 상태를 확인하는 **헬스 체크**를 구현할 수 있습니다. 문제가 발생하면 로그를 남기고, 관리자에게 알리거나 재시도할 수 있습니다.
+
+```java
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.SQLException;
+
+@Service
+public class DatabaseHealthCheck {
+
+    private final DataSource dataSource;
+
+    public DatabaseHealthCheck(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
+    @Scheduled(fixedRate = 30000)  // 30초마다 헬스 체크 실행
+    public void checkConnection() {
+        try (Connection connection = dataSource.getConnection()) {
+            if (connection.isValid(5)) {
+                System.out.println("Database connection is healthy.");
+            }
+        } catch (SQLException e) {
+            // 문제가 발생하면 로그를 남기고 알림 발송
+            System.err.println("Database connection issue detected: " + e.getMessage());
+        }
+    }
+}
+```
+
+위 코드는 주기적으로 DB 연결 상태를 확인하고, 문제가 발생하면 로그를 남깁니다. 이를 통해 연결이 문제가 있더라도 즉시 감지할 수 있습니다.
+
+### 3. **Spring AOP와 로깅으로 감지**
+   **Spring AOP**를 사용하여 예외가 발생할 때 로그를 남기고 알림을 발송하는 방식도 가능합니다. 데이터베이스 연결에 대한 오류가 발생했을 때 이를 감지하고 로그를 남기거나 다른 조치를 취할 수 있습니다.
+
+```java
+import org.aspectj.lang.annotation.AfterThrowing;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.stereotype.Component;
+
+@Aspect
+@Component
+public class ConnectionErrorLogger {
+
+    @AfterThrowing(pointcut = "execution(* javax.sql.DataSource.getConnection(..))", throwing = "exception")
+    public void logConnectionError(Exception exception) {
+        // 연결 문제 발생 시 로그 남기기
+        System.err.println("Database connection error: " + exception.getMessage());
+        // 추가적으로 알림이나 재시도 로직을 넣을 수 있음
+    }
+}
+```
+
+### 4. **Spring Retry를 통한 재시도 및 로그 기록**
+   만약 연결에 실패하면 자동으로 재시도하도록 **Spring Retry**를 사용할 수 있습니다. 재시도할 때마다 실패를 기록하고 경고 메시지를 남기도록 설정할 수 있습니다.
+
+```java
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.stereotype.Service;
+import java.sql.Connection;
+import java.sql.SQLException;
+
+@Service
+public class MyDatabaseService {
+
+    @Retryable(
+        value = { SQLException.class },  // 재시도할 예외
+        maxAttempts = 3,                // 최대 재시도 횟수
+        backoff = @Backoff(delay = 5000)  // 재시도 간격 (5초)
+    )
+    public Connection getConnection() throws SQLException {
+        // DB 연결 시도
+        System.out.println("Attempting to connect to database...");
+        throw new SQLException("Connection failed");
+    }
+}
+```
+
+재시도하는 동안 실패가 발생하면 로그에 기록되고, 재시도 후에도 실패 시 예외가 발생합니다.
+
+### 5. **Database Connection Pool Monitoring**
+   많은 데이터베이스 커넥션 풀 라이브러리는 **모니터링** 기능을 제공합니다. HikariCP 같은 경우에도, 연결 실패 및 타임아웃과 같은 문제를 감지하고 통계나 로그를 남길 수 있습니다. `metrics`나 JMX 모니터링을 설정하여 실시간으로 연결 상태를 추적할 수 있습니다.
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "metrics"
+```
+
+이 설정을 통해 연결 상태를 모니터링하고, 연결에 문제가 생겼을 때 경고를 받을 수 있습니다.
+
+### 요약
+
+- **`connectionTestQuery`**: 주기적으로 쿼리를 실행해 연결 상태를 확인.
+- **헬스 체크 (Heartbeat)**: 주기적인 DB 연결 상태 확인 및 로그 남기기.
+- **Spring AOP**: DB 연결 오류 시 로그 및 알림 처리.
+- **Spring Retry**: 연결 실패 시 재시도 및 로그 처리.
+- **Connection Pool Monitoring**: HikariCP나 다른 연결 풀의 모니터링 기능을 활용해 연결 문제를 감지.
+
+이러한 방법을 활용하면 타임아웃 시간이 길더라도 **연결에 문제가 발생했을 때 이를 기록하거나 빠르게 감지**할 수 있습니다.
+
+---------------------
+
 **`maxIdle`**은 **연결 풀(Connection Pool)**에서 유휴 상태로 유지할 수 있는 **최대 연결 수**를 지정하는 설정입니다. 유휴 상태의 연결은 데이터베이스와 연결된 상태이지만, 현재 사용 중이 아닌 연결을 의미합니다.
 
 ### `maxIdle`의 역할
