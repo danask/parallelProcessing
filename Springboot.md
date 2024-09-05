@@ -1,3 +1,64 @@
+Spring JDBC에서 PostgreSQL에 연결할 때, 연결이 끊기거나 시간이 초과되면 **Connection Timeout** 및 **Socket Timeout**과 같은 설정을 통해 얼마나 기다릴지 제어할 수 있습니다. 기본적으로 설정되지 않은 경우, PostgreSQL 클라이언트 드라이버의 기본 시간 초과 설정에 의존하게 됩니다.
+
+### 설정 가능한 주요 타임아웃 값들
+
+1. **Connection Timeout** (`loginTimeout` or `connectionTimeout`): 데이터베이스에 처음 연결할 때, 연결이 완료될 때까지 기다리는 시간입니다.
+   - 기본적으로 무제한일 수 있지만, 일반적으로 몇 초에서 몇 분으로 설정됩니다.
+   
+2. **Socket Timeout** (`socketTimeout`): 서버로부터 응답을 기다릴 때 얼마나 기다릴지 설정합니다.
+   - 이 값은 네트워크 상태에 따라 응답 지연 시간을 제어합니다.
+   
+3. **Connection Validation Timeout**: 사용 중인 연결이 유효한지 확인하기 위해 실행하는 쿼리가 일정 시간 내에 완료되지 않으면 연결을 닫을 수 있습니다.
+
+### PostgreSQL JDBC URL에서 설정하는 방법
+
+`application.yml` 또는 `application.properties`에 다음과 같은 방식으로 타임아웃을 설정할 수 있습니다.
+
+#### 1. `application.yml` 설정
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydb
+    username: myuser
+    password: mypassword
+    hikari:
+      connection-timeout: 30000 # 연결을 시도하는 시간 (30초)
+      validation-timeout: 5000   # 연결 유효성 검사 타임아웃 (5초)
+      idle-timeout: 600000       # 연결이 유휴 상태일 때 대기 시간 (10분)
+      max-lifetime: 1800000      # 연결의 최대 수명 (30분)
+      maximum-pool-size: 10      # 최대 연결 수
+```
+
+#### 2. `application.properties` 설정
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/mydb
+spring.datasource.username=myuser
+spring.datasource.password=mypassword
+spring.datasource.hikari.connection-timeout=30000
+spring.datasource.hikari.validation-timeout=5000
+spring.datasource.hikari.idle-timeout=600000
+spring.datasource.hikari.max-lifetime=1800000
+spring.datasource.hikari.maximum-pool-size=10
+```
+
+### 각 옵션의 의미
+
+- **connection-timeout**: 연결을 시도할 때 기다릴 최대 시간(밀리초). 예를 들어, `30000`은 30초를 의미합니다. 30초 내에 연결이 이루어지지 않으면 예외가 발생합니다.
+- **validation-timeout**: 연결이 유효한지 확인하는 데 사용할 타임아웃(밀리초). 연결 풀에서 반환된 연결이 유효하지 않다면, 이 시간 내에 연결을 닫고 새 연결을 시도합니다.
+- **idle-timeout**: 유휴 상태의 연결을 얼마나 오래 유지할지 설정합니다. 이 시간이 지나면 연결을 닫습니다.
+- **max-lifetime**: 연결의 최대 수명. 이 시간이 지나면 연결이 닫히고 새 연결로 교체됩니다.
+
+### PostgreSQL 드라이버의 기본 타임아웃
+
+만약 명시적으로 설정하지 않으면, PostgreSQL JDBC 드라이버는 다음과 같은 기본값을 사용합니다:
+- `socketTimeout`: 기본값은 0 (무제한).
+- `loginTimeout`: 기본값은 0 (무제한).
+
+타임아웃을 적절히 설정하여 네트워크 문제가 발생하거나 서버가 응답하지 않을 때 애플리케이션이 무기한 대기하는 것을 방지할 수 있습니다.
+
+------------------------
 
 데이터베이스가 동일한 리포지토리 구조를 공유하고 있으며, 테이블 이름만 다르다면 런타임 시 테이블 이름을 동적으로 설정할 수 있는 방법이 더 간단할 수 있습니다. 스프링에서 이러한 동적 테이블 이름 설정을 지원하지 않기 때문에, 엔티티 매핑을 직접 설정하는 방법을 사용할 수 있습니다.
 
