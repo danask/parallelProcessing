@@ -1,3 +1,131 @@
+
+**`maxIdle`**은 **연결 풀(Connection Pool)**에서 유휴 상태로 유지할 수 있는 **최대 연결 수**를 지정하는 설정입니다. 유휴 상태의 연결은 데이터베이스와 연결된 상태이지만, 현재 사용 중이 아닌 연결을 의미합니다.
+
+### `maxIdle`의 역할
+
+- **최대 유휴 연결 수**: 풀에 반환된 연결이 일정 시간 동안 사용되지 않으면 유휴 상태로 전환됩니다. **`maxIdle`**은 풀에서 유지할 수 있는 유휴 상태의 연결 수의 상한선입니다.
+- **최적화**: 너무 많은 유휴 연결을 유지하면 메모리 낭비가 발생할 수 있고, 너무 적게 유지하면 필요할 때 새 연결을 생성하는데 오버헤드가 발생할 수 있습니다. 이를 최적화하는 것이 중요합니다.
+
+### 설정이 동작하는 방식
+
+- **최대 유휴 연결 수를 초과**하면, 유휴 상태의 연결은 닫히고 풀에서 제거됩니다.
+- **최대 유휴 연결 수보다 적은** 유휴 연결이 풀에 있으면, 이 연결들은 유지되며 새 연결을 생성하지 않아도 재사용이 가능합니다.
+
+### 예시
+
+아래는 `HikariCP`에서 `maxIdle`에 해당하는 설정으로 **유휴 연결 수**를 제한하는 예시입니다.
+
+#### `application.yml` 예시:
+
+```yaml
+spring:
+  datasource:
+    hikari:
+      minimum-idle: 5          # 최소 유휴 연결 수 (minIdle)
+      maximum-pool-size: 10     # 최대 연결 수
+```
+
+### 관련 설정
+
+- **`minIdle`** (or `minimum-idle`): 최소 유휴 연결 수. 풀에서 항상 최소한 이 수만큼의 연결이 유휴 상태로 유지됩니다.
+- **`maxIdle`** (or `maximum-pool-size` in HikariCP): 풀에서 유지할 수 있는 최대 유휴 연결 수입니다.
+- **`idleTimeout`**: 유휴 상태에서 연결을 유지할 수 있는 최대 시간입니다. 이 시간이 지나면 유휴 연결이 닫힙니다.
+
+### `maxIdle`이 없는 연결 풀
+
+HikariCP와 같은 최신 연결 풀 라이브러리에서는 **`maxIdle`** 설정이 따로 없고, 대신 **`minimum-idle`**과 **`maximum-pool-size`**로 유휴 연결을 관리합니다. 유휴 연결의 수는 풀 크기에 따라 자동으로 관리되며, 적정 수의 유휴 연결을 유지하도록 설계되었습니다.
+
+### 요약
+
+- **`maxIdle`**: 유휴 상태로 유지할 수 있는 최대 연결 수.
+- 최적의 **유휴 연결** 수를 관리함으로써 성능과 자원을 효율적으로 사용할 수 있습니다.
+- 최신 풀 라이브러리에서는 `maxIdle` 대신 **`minimum-idle`**과 **`maximum-pool-size`**를 사용하여 연결 수를 관리합니다.
+
+--------------------
+
+Spring JDBC 또는 PostgreSQL JDBC 드라이버에서는 **재시도 메커니즘**이 기본적으로 제공되지 않습니다. 즉, 연결이나 쿼리가 실패한 후 자동으로 재시도하지 않습니다. 대신 재시도를 구현하려면 직접 로직을 작성하거나, **Spring Retry** 같은 라이브러리를 사용해야 합니다.
+
+### Spring Retry를 사용한 재시도 설정
+
+Spring Retry를 사용하면 데이터베이스 연결이나 쿼리가 실패했을 때 재시도를 설정할 수 있습니다. 여기서는 **재시도 횟수**와 **재시도 간격**을 설정할 수 있습니다.
+
+#### 1. Spring Retry 의존성 추가
+
+`pom.xml`에 Spring Retry 의존성을 추가합니다.
+
+```xml
+<dependency>
+    <groupId>org.springframework.retry</groupId>
+    <artifactId>spring-retry</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId>
+</dependency>
+```
+
+#### 2. 재시도 로직 설정
+
+`@Retryable` 애노테이션을 사용하여 특정 메소드에 대해 재시도를 설정할 수 있습니다.
+
+```java
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyDatabaseService {
+
+    @Retryable(
+        value = { SQLException.class },  // 재시도할 예외 타입
+        maxAttempts = 3,                // 최대 재시도 횟수
+        backoff = @Backoff(delay = 30000)  // 재시도 간격 (30초)
+    )
+    public void queryDatabase() throws SQLException {
+        // DB 연결 또는 쿼리 실행
+        System.out.println("Executing query...");
+        // 연결이 실패하거나 예외가 발생할 경우
+        throw new SQLException("Connection failed");
+    }
+}
+```
+
+#### 3. Spring Retry 설정 활성화
+
+Spring Boot 애플리케이션 클래스에서 `@EnableRetry` 애노테이션을 추가하여 재시도 기능을 활성화합니다.
+
+```java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.retry.annotation.EnableRetry;
+
+@SpringBootApplication
+@EnableRetry
+public class MyApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+```
+
+### 주요 설정
+
+- **`maxAttempts`**: 재시도할 최대 횟수 (예: 3회).
+- **`backoff`**: 재시도 간격 설정 (`delay` 값은 밀리초로 설정). 위 예에서는 30초 후에 재시도하도록 설정했습니다.
+
+### 예시 설명
+
+- 처음에 DB 연결 또는 쿼리가 실패하면, **최대 3번**까지 **30초 간격**으로 재시도합니다.
+- 각 재시도 시에도 연결이 실패하면, 마지막으로 예외를 던지며 재시도를 멈춥니다.
+
+### 결론
+
+- **재시도 간격**은 `@Retryable`의 `backoff`에서 설정하며, 위 예시에서는 30초로 설정했습니다.
+- **재시도 횟수**는 `maxAttempts`로 설정되며, 3번까지 시도할 수 있습니다.
+- Spring Retry를 사용하면 재시도를 손쉽게 구현할 수 있으며, 원하는 재시도 간격과 횟수를 설정할 수 있습니다.
+
+--------------------
+
 Spring JDBC에서 PostgreSQL에 연결할 때, 연결이 끊기거나 시간이 초과되면 **Connection Timeout** 및 **Socket Timeout**과 같은 설정을 통해 얼마나 기다릴지 제어할 수 있습니다. 기본적으로 설정되지 않은 경우, PostgreSQL 클라이언트 드라이버의 기본 시간 초과 설정에 의존하게 됩니다.
 
 ### 설정 가능한 주요 타임아웃 값들
@@ -93,6 +221,53 @@ Spring JDBC에서 PostgreSQL을 연결할 때, 타임아웃 설정을 명시하�
 - **Socket Timeout**: 무제한 (설정하지 않으면 대기 시간에 영향을 미치지 않음)
 
 따라서, **최종 대기 시간**은 40분 35초입니다.
+
+**`socketTimeout`**은 서버로부터 응답을 기다릴 때 설정하는 타임아웃 값으로, 클라이언트가 요청을 보낸 후 서버가 응답하지 않을 때 얼마나 기다릴지를 결정합니다. 
+
+### 기본적인 동작
+
+- **`socketTimeout`**은 **PostgreSQL JDBC 드라이버**에서 설정되는 값입니다.
+- 이 값이 설정되면, 서버가 일정 시간 안에 응답하지 않으면 연결이 끊어지고 예외(`java.net.SocketTimeoutException`)가 발생합니다.
+- **기본값**은 `0`으로 설정되어 있어, 타임아웃이 없고, 서버의 응답을 무한정 기다립니다.
+
+### `socketTimeout` 설정 방법
+
+1. **JDBC URL**에 `socketTimeout`을 추가해서 설정할 수 있습니다.
+
+#### `application.yml` 예시:
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydb?socketTimeout=30
+    username: myuser
+    password: mypassword
+```
+
+#### `application.properties` 예시:
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/mydb?socketTimeout=30
+spring.datasource.username=myuser
+spring.datasource.password=mypassword
+```
+
+위 예시에서 `socketTimeout=30`으로 설정하면, 서버가 응답하지 않을 때 **30초** 동안 기다린 후 연결을 종료하고 예외를 발생시킵니다.
+
+### `socketTimeout`이 유용한 상황
+
+1. **네트워크 지연 또는 서버 응답 지연**:
+   - 네트워크 문제가 있거나 서버가 응답을 보내지 않는 상황에서 클라이언트가 무기한 대기하는 것을 방지합니다.
+   
+2. **서버 다운**:
+   - 서버가 응답을 중단한 경우, 일정 시간 후 클라이언트가 문제를 감지하고 재시도할 수 있게 합니다.
+
+### 설정하지 않으면 (기본값)
+
+- **기본값**은 `0`으로 설정되어 있어, 타임아웃이 없고 서버의 응답을 무한정 기다리게 됩니다.
+- 따라서 네트워크 문제나 서버 응답 중단 시 클라이언트는 무한정 대기할 수 있으므로, 적절한 `socketTimeout` 값을 설정하는 것이 좋습니다.
+
+타임아웃을 설정함으로써 서버 응답이 느리거나 응답하지 않을 때 애플리케이션이 대기하지 않도록 하고, 빠르게 실패하고 재시도를 할 수 있는 구조를 만들 수 있습니다.
 
 ------------------------
 
