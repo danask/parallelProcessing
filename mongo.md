@@ -1,3 +1,124 @@
+
+MongoDB에서 `upsert`를 사용하는 경우, 중복 문제는 주로 **중복 키** 또는 **인덱스**와 관련이 있습니다. `upsert`는 주어진 조건에 따라 문서를 삽입하거나, 기존 문서를 업데이트하는 방식입니다. 하지만 `upsert`를 사용했을 때 중복 문제가 발생한다면, 이는 중복 키가 존재해서 새로운 문서를 삽입할 수 없다는 오류일 가능성이 높습니다.
+
+이를 해결하는 방법을 몇 가지 소개합니다.
+
+### 1. **적절한 인덱스 설정 확인**
+MongoDB에서 특정 필드에 유일성을 보장하기 위해 인덱스를 설정했는지 확인해야 합니다. `upsert` 시 중복으로 인한 문제가 발생하는 경우, 주로 **unique 인덱스**를 설정했지만 해당 조건에 맞는 문서가 여러 개 있거나, 문서를 업데이트할 때 고유 인덱스를 침범하는 경우입니다.
+
+**해결책:**
+- **중복을 방지하기 위한 인덱스 설정**이 필요한 필드에 고유 인덱스를 설정하세요.
+- 인덱스 설정 예:
+  
+  ```bash
+  db.collection.createIndex({ fieldName: 1 }, { unique: true })
+  ```
+
+  예를 들어 `IMEI` 필드에 고유 인덱스를 설정하려면 다음과 같은 명령을 사용합니다:
+
+  ```bash
+  db.collection.createIndex({ IMEI: 1 }, { unique: true })
+  ```
+
+### 2. **Upsert할 때 검색 조건을 명확하게 지정**
+`upsert`는 `find` 조건에 맞는 문서를 찾아서 업데이트하고, 없으면 삽입합니다. 이때, 검색 조건이 너무 넓거나 불명확할 경우, 중복 문서를 처리하지 못할 수 있습니다.
+
+**해결책:**
+- `find` 조건을 명확하게 지정하여 중복된 문서가 삽입되지 않도록 해야 합니다.
+
+예를 들어, 특정 `IMEI`와 `deviceId`를 기준으로 문서를 찾고, 없으면 삽입하려면:
+
+```java
+Query query = new Query();
+query.addCriteria(Criteria.where("IMEI").is(imeiValue).and("deviceId").is(deviceIdValue));
+
+Update update = new Update();
+update.set("lastModifiedDate", new Date());
+update.set("otherField", newValue);
+
+mongoTemplate.upsert(query, update, "collectionName");
+```
+
+### 3. **Duplicate Key 오류 처리**
+MongoDB에서 `upsert` 시 중복 키 오류를 발생시키지 않으려면, 고유한 필드(예: `IMEI`나 `deviceId`)에 대해 중복된 값이 존재할 가능성을 최소화해야 합니다. 
+
+**해결책:**
+- **복수의 중복된 문서를 제거한 후 upsert** 작업을 실행합니다. 중복된 문서가 있으면 `upsert`가 실패할 수 있습니다.
+- 예를 들어, `IMEI`가 중복된 문서가 있다면, 중복된 문서들을 먼저 제거하고, 그 이후에 `upsert`를 실행합니다.
+
+중복된 `IMEI` 필드의 문서가 존재하는지 먼저 확인하고, 필요시 삭제한 후 `upsert`를 실행하는 방식입니다.
+
+```java
+// Step 1: Remove any duplicate documents based on IMEI before upsert
+Query findDuplicatesQuery = new Query();
+findDuplicatesQuery.addCriteria(Criteria.where("IMEI").is(imeiValue));
+
+// Remove all except one
+mongoTemplate.remove(findDuplicatesQuery.limit(1), "collectionName");
+
+// Step 2: Now perform the upsert safely
+Query upsertQuery = new Query();
+upsertQuery.addCriteria(Criteria.where("IMEI").is(imeiValue));
+
+Update update = new Update();
+update.set("lastModifiedDate", new Date());
+update.set("otherField", newValue);
+
+mongoTemplate.upsert(upsertQuery, update, "collectionName");
+```
+
+### 4. **Bulk Upsert**
+여러 문서를 한 번에 upsert해야 한다면, MongoDB의 **bulk operations**를 사용하여 효율적으로 여러 문서를 처리할 수 있습니다. `BulkOperations`는 중복 처리를 효율적으로 관리할 수 있는 방법을 제공합니다.
+
+```java
+List<WriteModel<Document>> operations = new ArrayList<>();
+
+// Prepare upsert operations
+for (Document doc : documents) {
+    Bson filter = Filters.eq("IMEI", doc.getString("IMEI"));
+    Bson update = Updates.combine(
+            Updates.set("lastModifiedDate", doc.getDate("lastModifiedDate")),
+            Updates.set("otherField", doc.getString("otherField"))
+    );
+
+    // Add upsert operation to list
+    operations.add(new UpdateOneModel<>(filter, update, new UpdateOptions().upsert(true)));
+}
+
+// Execute bulk upsert
+mongoTemplate.getCollection("collectionName").bulkWrite(operations);
+```
+
+이 코드는 한 번에 여러 문서를 처리하며, 중복 키 문제를 보다 효율적으로 처리할 수 있습니다.
+
+### 5. **Transaction을 이용한 중복 처리**
+MongoDB의 트랜잭션을 사용하면 복잡한 `upsert` 및 중복 키 문제를 트랜잭션 내에서 관리할 수 있습니다. 트랜잭션을 이용하여 먼저 중복 문서를 제거한 후, upsert를 안전하게 실행할 수 있습니다.
+
+```java
+mongoTemplate.executeInTransaction(mongoOperations -> {
+    // 중복 제거
+    mongoOperations.remove(query, "collectionName");
+    
+    // Upsert 실행
+    mongoOperations.upsert(query, update, "collectionName");
+    
+    return null;
+});
+```
+
+이 방법은 중복된 문서 삭제 및 `upsert` 작업을 트랜잭션 안에서 관리하여 안전하게 처리할 수 있습니다.
+
+### 결론:
+1. **고유 인덱스**를 설정하여 중복 삽입을 방지합니다.
+2. **명확한 검색 조건**을 사용하여 `upsert`가 정확하게 작동하도록 합니다.
+3. **중복 문서가 있으면 삭제**하고, 그 후에 `upsert`를 실행합니다.
+4. 여러 문서를 한 번에 처리할 때는 **bulk upsert** 또는 **트랜잭션**을 사용하는 것이 좋습니다.
+
+이 방법들을 활용하면 MongoDB에서 `upsert` 중 발생하는 중복 문제를 해결할 수 있습니다.
+
+
+-----------------------------
+
 MongoDB에서 특정 필드(예: `IMEI`)가 중복된 문서들 중 `lastModifiedDate`를 기준으로 최신 문서를 남기고 더 오래된 문서를 삭제하는 로직을 작성하려면, 다음과 같은 절차를 따를 수 있습니다. 이 작업은 두 단계로 이루어집니다:
 
 1. 중복된 `IMEI`를 가진 문서들 중 가장 최신의 `lastModifiedDate`를 가진 문서를 식별합니다.
