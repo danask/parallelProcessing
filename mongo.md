@@ -1,4 +1,95 @@
 
+`BulkOperationException`에서 발생한 에러는 **MongoDB에서 중복 키 오류** 때문입니다. MongoDB는 `_id` 필드를 기본적으로 고유한 값으로 간주하고, 이미 존재하는 `_id` 값을 사용하여 삽입을 시도할 때 오류를 발생시킵니다.
+
+에러 메시지에서 확인할 수 있듯이, `_id` 값이 `60679032178d767ad014b938` 등과 같은 중복된 키로 인해 `E11000 duplicate key error`가 발생했습니다. 이를 해결하기 위한 몇 가지 방법을 살펴보겠습니다.
+
+### 1. **`_id` 필드를 수동으로 설정하지 않도록 조정**
+MongoDB는 각 문서에 대해 자동으로 `_id` 필드를 생성합니다. 그러나 코드에서 수동으로 `_id`를 설정하려고 할 때 중복된 값이 존재할 수 있습니다. 만약 `bulk upsert`를 사용하는 경우, `_id` 필드를 자동 생성하도록 하거나, 중복된 `_id` 값이 발생하지 않도록 관리해야 합니다.
+
+**해결책**:
+- **새로운 문서를 삽입할 때 `_id` 필드를 지정하지 않음**: MongoDB가 자동으로 `_id` 필드를 생성하도록 두는 것이 좋습니다.
+- **기존 문서의 `_id`를 유지하면서 업데이트만 수행**: 중복된 `_id`가 발생하지 않도록 기존 문서를 찾아 업데이트하는 방식으로 처리합니다.
+
+예를 들어, `_id` 필드를 자동으로 생성하고, 다른 필드를 기준으로 `upsert`를 진행하도록 할 수 있습니다.
+
+### 2. **`BulkOperations`에서 중복된 키 무시 처리**
+`BulkOperations`에서 중복된 `_id` 키에 대한 오류를 무시하고 계속 진행하려면, **unordered** 모드를 사용하는 방법이 있습니다. `unordered` 모드를 사용하면 오류가 발생하더라도 계속해서 다른 작업을 진행합니다.
+
+```java
+BulkOperations bulkOps = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, "deviceStorage");
+
+List<InsertOneModel<Document>> operations = new ArrayList<>();
+for (Document doc : documents) {
+    operations.add(new InsertOneModel<>(doc));
+}
+
+// Using unordered mode to avoid stopping on duplicate errors
+bulkOps.insert(documents);
+bulkOps.execute();
+```
+
+이 방식에서는 중복된 키가 발생해도 프로세스가 중단되지 않고, 나머지 문서들을 처리하게 됩니다.
+
+### 3. **기존 문서가 존재하는지 확인 후 upsert**
+`upsert`를 실행하기 전에 동일한 `_id`를 가진 문서가 이미 존재하는지 확인한 후, 존재하지 않을 경우에만 문서를 삽입하는 방식으로 처리할 수 있습니다.
+
+```java
+Query query = new Query();
+query.addCriteria(Criteria.where("_id").is(doc.getObjectId("_id")));
+
+Update update = new Update();
+update.set("lastModifiedDate", doc.getDate("lastModifiedDate"));
+update.set("otherField", doc.getString("otherField"));
+
+// Use upsert to update existing document or insert new one if it doesn't exist
+mongoTemplate.upsert(query, update, "deviceStorage");
+```
+
+이 코드는 `_id`가 중복되었을 때 문서를 삽입하려고 하지 않고, 기존 문서를 업데이트합니다.
+
+### 4. **`BulkWriteException` 처리**
+`BulkWriteException`을 캐치하여 중복된 키 오류가 발생한 경우, 이를 무시하고 나머지 작업을 처리하는 로직을 추가할 수 있습니다.
+
+```java
+try {
+    BulkWriteResult result = mongoTemplate.getCollection("deviceStorage").bulkWrite(operations);
+} catch (BulkWriteException e) {
+    for (BulkWriteError error : e.getWriteErrors()) {
+        if (error.getCode() == 11000) {
+            // Handle duplicate key error
+            System.out.println("Duplicate key error: " + error.getMessage());
+        }
+    }
+}
+```
+
+이 방식은 중복 키 오류가 발생했을 때 해당 오류를 처리하고, 나머지 작업을 계속 수행할 수 있게 합니다.
+
+### 5. **중복된 `_id`가 포함되지 않도록 문서 준비**
+업데이트할 문서 목록을 처리할 때, 이미 존재하는 `_id` 값을 가진 문서가 포함되지 않도록 필터링하는 방법도 있습니다. 이를 위해, MongoDB에서 `_id` 값이 이미 존재하는지 확인한 후, 새로운 `_id`를 가진 문서만 삽입하도록 처리할 수 있습니다.
+
+```java
+for (Document doc : documents) {
+    Query query = new Query();
+    query.addCriteria(Criteria.where("_id").is(doc.getObjectId("_id")));
+
+    boolean exists = mongoTemplate.exists(query, "deviceStorage");
+    if (!exists) {
+        // Insert the document if it doesn't already exist
+        mongoTemplate.insert(doc, "deviceStorage");
+    }
+}
+```
+
+이 방식으로 중복된 `_id`가 있는지 사전에 확인하고, 중복되지 않은 문서만 삽입할 수 있습니다.
+
+### 결론:
+- **`_id`를 자동으로 생성**하는 방식을 고려하거나, 수동으로 설정하는 경우 중복되지 않도록 관리합니다.
+- `BulkOperations`에서 **`unordered` 모드**를 사용하여 중복 키 오류를 무시하고 나머지 문서를 처리합니다.
+- **기존 문서를 업데이트**하거나 **중복된 문서만 필터링**하는 방법을 사용하여 오류를 줄일 수 있습니다.
+
+
+--------------------------
 MongoDB에서 `upsert`를 사용하는 경우, 중복 문제는 주로 **중복 키** 또는 **인덱스**와 관련이 있습니다. `upsert`는 주어진 조건에 따라 문서를 삽입하거나, 기존 문서를 업데이트하는 방식입니다. 하지만 `upsert`를 사용했을 때 중복 문제가 발생한다면, 이는 중복 키가 존재해서 새로운 문서를 삽입할 수 없다는 오류일 가능성이 높습니다.
 
 이를 해결하는 방법을 몇 가지 소개합니다.
