@@ -1,3 +1,73 @@
+현재 `BulkOperations`를 `unordered` 모드로 사용하고 있음에도 불구하고 중복 키 오류가 발생하는 상황입니다. 이 경우, 아래와 같은 개선 방안을 적용할 수 있습니다.
+
+### 개선 방안
+
+1. **중복된 `_id`를 사전에 확인하고 처리**:
+   현재 코드에서는 `_id`에 해당하는 값을 사용하여 `upsert`를 진행하지만, 중복된 `_id`로 인해 오류가 발생하고 있습니다. 이를 해결하기 위해 사전에 해당 `_id`가 이미 존재하는지 확인하는 방법을 추가할 수 있습니다. 다만, 이는 성능에 영향을 줄 수 있기 때문에, 상황에 맞게 고려해야 합니다.
+
+   ```java
+   public void updateDeviceStorages(List<DeviceStorage> deviceStorageList) {
+       log.info("number of devices to update imei/sn: [{}]", deviceStorageList.size());
+       BulkOperations deviceInfoBulkOperation = this.getBulkOps();
+       
+       deviceStorageList.stream().forEach(deviceStorage -> {
+           Query query = new Query(Criteria.where(ID_FIELD).is(deviceStorage.getId()));
+
+           // 먼저 해당 id의 존재 여부 확인
+           if (!mongoTemplate.exists(query, DeviceStorage.class)) {
+               Update update = new Update()
+                       .set(DEVICEID_FIELD, deviceStorage.getDeviceId())
+                       .set(MEI, deviceStorage.getMei())
+                       .set(PRIMARY_MEI, deviceStorage.getPrimaryMei())
+                       .set(SECONDARY_MEI, deviceStorage.getSecondaryMei())
+                       .set(SERIAL, deviceStorage.getSerial());
+               deviceInfoBulkOperation.upsert(query, update);
+           }
+       });
+       deviceInfoBulkOperation.execute();
+   }
+   ```
+
+2. **중복 키 예외 무시 처리**:
+   `BulkWriteException`에서 중복된 키에 대한 오류는 `code: 11000`으로 반환됩니다. 이를 처리하기 위해 예외를 캐치하고, 중복 키 오류는 무시하도록 할 수 있습니다.
+
+   ```java
+   public void updateDeviceStorages(List<DeviceStorage> deviceStorageList) {
+       log.info("number of devices to update imei/sn: [{}]", deviceStorageList.size());
+       BulkOperations deviceInfoBulkOperation = this.getBulkOps();
+
+       deviceStorageList.stream().forEach(deviceStorage -> {
+           Query query = new Query(Criteria.where(ID_FIELD).is(deviceStorage.getId()));
+
+           Update update = new Update()
+                   .set(DEVICEID_FIELD, deviceStorage.getDeviceId())
+                   .set(MEI, deviceStorage.getMei())
+                   .set(PRIMARY_MEI, deviceStorage.getPrimaryMei())
+                   .set(SECONDARY_MEI, deviceStorage.getSecondaryMei())
+                   .set(SERIAL, deviceStorage.getSerial());
+           deviceInfoBulkOperation.upsert(query, update);
+       });
+
+       try {
+           deviceInfoBulkOperation.execute();
+       } catch (BulkOperationException e) {
+           e.getErrors().stream().filter(error -> error.getCode() != 11000)
+               .forEach(error -> log.error("Bulk operation failed: " + error.getMessage()));
+           // 중복 키 오류는 무시하고 나머지 처리
+       }
+   }
+   ```
+
+3. **IMEI와 같은 고유한 필드를 기준으로 중복 문서 확인**:
+   만약 `_id` 대신에 `IMEI` 필드가 고유해야 한다면, `_id` 대신 `IMEI` 필드를 기준으로 중복을 체크하거나 `upsert`를 수행할 수 있습니다. 다음과 같이 쿼리를 IMEI로 변경해 중복을 방지할 수 있습니다.
+
+   ```java
+   Query query = new Query(Criteria.where("imei").is(deviceStorage.getMei()));
+   ```
+
+이 방법들을 통해 `BulkOperationException`을 보다 효율적으로 처리하고 중복 키 오류로 인한 문제를 해결할 수 있을 것입니다.
+
+-------------------------
 
 `BulkOperationException`에서 발생한 에러는 **MongoDB에서 중복 키 오류** 때문입니다. MongoDB는 `_id` 필드를 기본적으로 고유한 값으로 간주하고, 이미 존재하는 `_id` 값을 사용하여 삽입을 시도할 때 오류를 발생시킵니다.
 
