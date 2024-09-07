@@ -1,3 +1,79 @@
+
+중복된 경우에 중복된 레코드들을 어떻게 처리할지에 대한 전략은 두 가지 방법으로 나눌 수 있습니다. 
+
+1. **중복된 레코드를 모두 업데이트하는 방법**:
+   - 동일한 `IMEI` 값을 가진 레코드가 여러 개 있는 경우, 이를 **모두 업데이트**하는 방식입니다. 이는 중복된 레코드들이 존재하더라도 각각의 문서를 업데이트하고, 별도로 처리하지 않는 방식입니다.
+
+2. **가장 최신 레코드만 업데이트하는 방법**:
+   - 중복된 경우, **가장 최신의 문서**만 업데이트하고 이전 레코드들은 그대로 남겨두는 방식입니다. 이를 위해 `lastModifiedDate`와 같은 시간 정보를 기준으로 최신 문서를 식별할 수 있습니다.
+
+각 방법에 대한 구체적인 코드 예시를 보여드리겠습니다.
+
+### 1. **모든 중복된 레코드 업데이트하기**
+기본적으로 `BulkOperations`에서는 동일한 필드 기준으로 여러 문서가 중복되더라도, 이를 모두 업데이트하는 것이 가능합니다. 아래 코드는 `IMEI`를 기준으로 중복된 모든 문서를 업데이트합니다.
+
+```java
+public void updateDeviceStorages(List<DeviceStorage> deviceStorageList) {
+    log.info("number of devices to update imei/sn: [{}]", deviceStorageList.size());
+    BulkOperations deviceInfoBulkOperation = this.getBulkOps();
+    
+    deviceStorageList.stream().forEach(deviceStorage -> {
+        // IMEI를 기준으로 모든 문서를 찾음
+        Query query = new Query(Criteria.where("imei").is(deviceStorage.getMei()));
+        
+        Update update = new Update()
+                .set(DEVICEID_FIELD, deviceStorage.getDeviceId())
+                .set(PRIMARY_MEI, deviceStorage.getPrimaryMei())
+                .set(SECONDARY_MEI, deviceStorage.getSecondaryMei())
+                .set(SERIAL, deviceStorage.getSerial())
+                .set(LAST_MODIFIED_DATE, new Date());
+
+        deviceInfoBulkOperation.updateMulti(query, update);
+    });
+
+    deviceInfoBulkOperation.execute();
+}
+```
+
+여기서 `updateMulti`를 사용하면 동일한 `IMEI`를 가진 모든 문서를 업데이트할 수 있습니다.
+
+### 2. **가장 최신의 레코드만 업데이트하고 이전 레코드는 놔두기**
+`lastModifiedDate`와 같은 시간 필드를 사용해 가장 최신의 문서만 업데이트하는 방법입니다. 이를 위해 `IMEI`를 기준으로 문서들을 찾고, 최신 문서만 필터링한 후 업데이트합니다.
+
+```java
+public void updateDeviceStorages(List<DeviceStorage> deviceStorageList) {
+    log.info("number of devices to update imei/sn: [{}]", deviceStorageList.size());
+    BulkOperations deviceInfoBulkOperation = this.getBulkOps();
+    
+    deviceStorageList.stream().forEach(deviceStorage -> {
+        // IMEI를 기준으로 최신 문서만 업데이트
+        Query query = new Query(Criteria.where("imei").is(deviceStorage.getMei()))
+                .with(Sort.by(Sort.Direction.DESC, "lastModifiedDate"))
+                .limit(1); // 최신 문서 하나만 가져옴
+        
+        Update update = new Update()
+                .set(DEVICEID_FIELD, deviceStorage.getDeviceId())
+                .set(PRIMARY_MEI, deviceStorage.getPrimaryMei())
+                .set(SECONDARY_MEI, deviceStorage.getSecondaryMei())
+                .set(SERIAL, deviceStorage.getSerial())
+                .set(LAST_MODIFIED_DATE, new Date());
+
+        deviceInfoBulkOperation.upsert(query, update);
+    });
+
+    deviceInfoBulkOperation.execute();
+}
+```
+
+### 선택 사항
+- **중복 레코드를 모두 업데이트할지**, 또는 **가장 최신 문서만 업데이트할지**는 비즈니스 요구 사항에 따라 다릅니다. 모든 중복 레코드를 업데이트하는 경우 데이터 일관성을 유지할 수 있고, 최신 문서만 업데이트하는 경우 불필요한 업데이트를 줄일 수 있습니다.
+- **`IMEI`를 기준으로 문서들의 중복 여부를 판단**하고, 최신 문서만을 업데이트하는 방식이 필요하다면, 위 두 번째 방법이 적합할 것입니다.
+
+이를 통해 MongoDB의 중복된 데이터 처리 문제를 해결할 수 있을 것입니다.
+
+
+------------------------
+
 현재 `BulkOperations`를 `unordered` 모드로 사용하고 있음에도 불구하고 중복 키 오류가 발생하는 상황입니다. 이 경우, 아래와 같은 개선 방안을 적용할 수 있습니다.
 
 ### 개선 방안
