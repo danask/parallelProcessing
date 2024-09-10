@@ -1,3 +1,142 @@
+
+Spring Boot 애플리케이션에서 AWS Step Functions를 사용해 Athena 쿼리를 실행하고 그 응답을 받는 간단한 예제를 설명드리겠습니다. 이 과정은 다음 단계로 이루어집니다:
+
+1. Athena 쿼리 실행을 Step Functions에서 시작
+2. Step Functions에서 쿼리 결과를 기다리고 폴링
+3. 쿼리 완료 후 결과를 반환
+
+### 1. AWS SDK 의존성 추가
+
+`pom.xml`에 AWS SDK와 Step Functions, Athena 의존성을 추가해야 합니다.
+
+```xml
+<dependency>
+    <groupId>com.amazonaws</groupId>
+    <artifactId>aws-java-sdk-stepfunctions</artifactId>
+    <version>1.12.300</version> <!-- 최신 버전 사용 -->
+</dependency>
+
+<dependency>
+    <groupId>com.amazonaws</groupId>
+    <artifactId>aws-java-sdk-athena</artifactId>
+    <version>1.12.300</version> <!-- 최신 버전 사용 -->
+</dependency>
+```
+
+### 2. Athena 쿼리 상태기계(State Machine) 정의
+
+AWS 콘솔 또는 CloudFormation을 사용하여 Step Functions 상태기계를 생성합니다. 상태기계는 Athena 쿼리를 시작하고 결과를 폴링합니다.
+
+#### 상태기계 정의 (예시)
+
+```json
+{
+  "Comment": "Athena Query Execution using Step Functions",
+  "StartAt": "StartAthenaQuery",
+  "States": {
+    "StartAthenaQuery": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution",
+      "Parameters": {
+        "QueryString": "SELECT * FROM your_table LIMIT 10",
+        "QueryExecutionContext": {
+          "Database": "your_database"
+        },
+        "ResultConfiguration": {
+          "OutputLocation": "s3://your-output-bucket/"
+        }
+      },
+      "Next": "WaitForQuery"
+    },
+    "WaitForQuery": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "CheckQueryStatus"
+    },
+    "CheckQueryStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:getQueryExecution",
+      "Parameters": {
+        "QueryExecutionId.$": "$.QueryExecutionId"
+      },
+      "End": true
+    }
+  }
+}
+```
+
+이 상태기계는 Athena 쿼리를 실행하고 그 결과를 폴링하여 처리합니다.
+
+### 3. Spring Boot에서 Step Functions 호출
+
+이제 Spring Boot에서 Step Functions를 사용하여 Athena 쿼리를 실행하고 결과를 기다리는 코드를 작성합니다.
+
+#### Step Functions 실행 서비스
+
+```java
+import com.amazonaws.services.stepfunctions.AWSStepFunctions;
+import com.amazonaws.services.stepfunctions.AWSStepFunctionsClientBuilder;
+import com.amazonaws.services.stepfunctions.model.StartExecutionRequest;
+import com.amazonaws.services.stepfunctions.model.StartExecutionResult;
+import org.springframework.stereotype.Service;
+
+@Service
+public class StepFunctionService {
+
+    private final AWSStepFunctions stepFunctionsClient = AWSStepFunctionsClientBuilder.defaultClient();
+
+    public String startStepFunction(String stateMachineArn, String query) {
+        String input = String.format("{\"QueryString\": \"%s\"}", query);
+
+        StartExecutionRequest request = new StartExecutionRequest()
+                .withStateMachineArn(stateMachineArn)
+                .withInput(input);
+
+        StartExecutionResult result = stepFunctionsClient.startExecution(request);
+        return result.getExecutionArn(); // 실행된 Step Function의 ARN을 반환
+    }
+}
+```
+
+#### Athena 쿼리 실행 및 결과 대기 컨트롤러
+
+```java
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class AthenaQueryController {
+
+    private final StepFunctionService stepFunctionService;
+
+    public AthenaQueryController(StepFunctionService stepFunctionService) {
+        this.stepFunctionService = stepFunctionService;
+    }
+
+    @GetMapping("/execute-query")
+    public String executeAthenaQuery(@RequestParam String query) {
+        // Step Functions 상태기계 ARN을 입력
+        String stateMachineArn = "arn:aws:states:your-region:your-account-id:stateMachine:your-state-machine-name";
+
+        // Athena 쿼리를 실행하고 Step Functions를 통해 처리
+        String executionArn = stepFunctionService.startStepFunction(stateMachineArn, query);
+
+        return "Step Function execution started with ARN: " + executionArn;
+    }
+}
+```
+
+### 4. Step Functions 결과 확인
+
+Step Functions에서 `executionArn`을 사용하여 실행 상태를 확인할 수 있습니다. 이를 통해 Athena 쿼리의 실행이 완료되었는지 확인합니다. 필요에 따라 결과를 S3 버킷에서 가져와 사용할 수 있습니다.
+
+### 요약
+
+이 예제에서는 Spring Boot에서 Step Functions를 사용하여 Athena 쿼리를 비동기로 실행하고, 쿼리 완료 여부를 Step Functions 상태기계를 통해 확인하는 방법을 설명했습니다.
+
+--------------------------
+
 AWS LocalStack은 로컬 환경에서 AWS 서비스를 에뮬레이트하는 도구로, 실제 AWS 서비스를 사용하는 것과 비슷한 환경을 제공합니다. 여기서는 Spring Boot 서비스에서 AWS LocalStack을 사용하여 S3에 업로드된 CSV 파일을 읽고 파싱하는 로직을 만드는 과정을 안내해 드리겠습니다.
 
 먼저, 프로젝트에 필요한 의존성을 추가해야 합니다. Maven을 사용하는 경우 `pom.xml` 파일에 다음 의존성을 추가할 수 있습니다.
