@@ -1,4 +1,71 @@
 
+JPA와 QueryDSL을 서비스에 동시에 설치하고 사용하는 것은 전혀 문제되지 않습니다. 사실, 이 두 기술은 함께 잘 작동하며, 각기 다른 용도로 사용됩니다.
+
+### 1. JPA와 QueryDSL의 관계
+- **JPA (Java Persistence API)**: 객체-관계 매핑(ORM) 기술로, 데이터베이스와 객체 간의 매핑을 간편하게 관리할 수 있습니다. JPA를 사용하면 엔티티 클래스를 정의하고, CRUD 작업을 쉽게 처리할 수 있습니다.
+- **QueryDSL**: JPA와 함께 사용될 수 있는 타입 안전한 쿼리 빌더입니다. 복잡한 쿼리를 작성할 때 JPA보다 더 직관적이고 안전하게 쿼리를 생성할 수 있습니다.
+
+### 2. 함께 사용하는 경우
+- JPA를 통해 기본적인 CRUD 작업을 처리하고, 복잡한 쿼리나 동적 쿼리가 필요한 경우 QueryDSL을 사용할 수 있습니다.
+- QueryDSL은 JPA 엔티티와 함께 사용할 수 있으므로, JPA를 사용하여 정의한 엔티티에 대한 QueryDSL 쿼리를 쉽게 작성할 수 있습니다.
+
+### 3. 설정 예시
+#### 3.1 Maven 의존성
+```xml
+<dependencies>
+    <!-- JPA -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <!-- QueryDSL -->
+    <dependency>
+        <groupId>com.querydsl</groupId>
+        <artifactId>querydsl-jpa</artifactId>
+        <version>5.0.0</version>
+    </dependency>
+</dependencies>
+```
+
+#### 3.2 Gradle 의존성
+```groovy
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'com.querydsl:querydsl-jpa:5.0.0'
+    annotationProcessor 'com.querydsl:querydsl-apt:5.0.0:jpa'
+}
+```
+
+### 4. 사용 예시
+```java
+@Service
+public class MyService {
+
+    @Autowired
+    private EntityManager entityManager;
+
+    // JPA를 통한 CRUD 작업
+    public MyEntity save(MyEntity entity) {
+        return entityManager.merge(entity);
+    }
+
+    // QueryDSL을 통한 복잡한 쿼리
+    public List<MyEntity> findByCriteria(String name) {
+        JPAQueryFactory queryFactory = new JPAQueryFactory(entityManager);
+        QMyEntity qEntity = QMyEntity.myEntity;
+        return queryFactory
+            .selectFrom(qEntity)
+            .where(qEntity.name.eq(name))
+            .fetch();
+    }
+}
+```
+
+### 결론
+JPA와 QueryDSL을 동시에 사용하는 것은 매우 일반적인 패턴이며, 복잡한 쿼리와 데이터 조작을 보다 쉽게 처리할 수 있도록 해줍니다. 설치와 설정을 동시에 진행해도 문제가 없으니, 필요에 따라 자유롭게 활용하면 됩니다.
+
+------------------------
+
 **QueryDSL**과 **JPA Criteria API**는 성능적인 면에서 큰 차이가 없습니다. 두 방식 모두 **JPA**와 **Hibernate**의 API를 사용하며, **결과 쿼리**는 결국 같은 **JPQL** 또는 **SQL**로 변환되어 실행되기 때문입니다. 하지만 성능에 미치는 영향이 전혀 없는 것은 아닙니다. 몇 가지 성능 관련 차이점과 고려할 부분을 살펴보겠습니다.
 
 ### 1. **쿼리 작성 방식에 따른 성능 차이**
