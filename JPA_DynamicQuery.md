@@ -1,3 +1,94 @@
+타입 무관하게 QueryDSL을 활용하여 여러 데이터 타입을 처리하려면, 주로 제네릭 메서드를 사용하여 다양한 조건에 따라 동적 쿼리를 작성할 수 있습니다. 아래는 `String`, `Integer`, `Float`, `Double` 타입을 처리하는 예제입니다.
+
+### 예시: 동적 쿼리 메서드
+
+다음은 여러 타입의 필드를 조건으로 사용하는 동적 쿼리 메서드를 구현한 예입니다. 여기서는 `User` 엔티티를 예로 들어 설명하겠습니다.
+
+#### 1. User 엔티티 정의
+```java
+@Entity
+public class User {
+    @Id
+    private Long id;
+
+    private String name;
+    private Integer age;
+    private Float height;
+    private Double salary;
+
+    // getters and setters
+}
+```
+
+#### 2. QueryDSL을 사용한 동적 쿼리 메서드
+```java
+import com.querydsl.jpa.impl.JPAQueryFactory;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class UserService {
+
+    private final JPAQueryFactory queryFactory;
+
+    public UserService(JPAQueryFactory queryFactory) {
+        this.queryFactory = queryFactory;
+    }
+
+    public List<User> findUsers(String name, Integer age, Float height, Double salary) {
+        QUser user = QUser.user;
+        JPAQuery<User> query = queryFactory.selectFrom(user);
+
+        // 조건 추가
+        if (name != null) {
+            query.where(user.name.eq(name));
+        }
+        if (age != null) {
+            query.where(user.age.eq(age));
+        }
+        if (height != null) {
+            query.where(user.height.eq(height));
+        }
+        if (salary != null) {
+            query.where(user.salary.eq(salary));
+        }
+
+        return query.fetch();
+    }
+}
+```
+
+### 3. 사용 예시
+이 메서드를 호출할 때, 다양한 타입의 값을 전달하여 동적으로 쿼리를 실행할 수 있습니다.
+
+```java
+@Service
+public class UserController {
+
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    public void executeQuery() {
+        // 예를 들어, name이 "John", age가 30인 사용자 찾기
+        List<User> users = userService.findUsers("John", 30, null, null);
+        
+        // 또는 height가 1.75m인 사용자 찾기
+        List<User> usersByHeight = userService.findUsers(null, null, 1.75f, null);
+        
+        // salary가 50000.0인 사용자 찾기
+        List<User> usersBySalary = userService.findUsers(null, null, null, 50000.0);
+    }
+}
+```
+
+### 결론
+이와 같이 QueryDSL을 활용하여 제네릭 메서드를 통해 다양한 타입의 필드를 기반으로 동적 쿼리를 작성할 수 있습니다. 조건이 필요할 때만 쿼리에 추가하여, 타입이 섞여 있는 경우에도 유연하게 처리할 수 있습니다.
+
+---------------------------
 
 JPA와 QueryDSL을 서비스에 동시에 설치하고 사용하는 것은 전혀 문제되지 않습니다. 사실, 이 두 기술은 함께 잘 작동하며, 각기 다른 용도로 사용됩니다.
 
