@@ -131,6 +131,97 @@ public class UserController {
 ```
 - `@JsonView`를 사용하여, 엔티티의 필드 노출 여부를 동적으로 조정할 수 있습니다.
 
+
+`BasicView.class`는 **`@JsonView`** 애너테이션을 사용하여 특정 조건에서 직렬화할 필드를 정의하는 뷰 클래스입니다. Spring의 `@JsonView`는 동일한 객체에서 상황에 따라 다른 필드를 선택적으로 반환할 수 있도록 해줍니다. 이때 `BasicView`와 같은 뷰 클래스는 단순한 마커 인터페이스로, 반환할 필드를 그룹화하는 역할을 합니다.
+
+### 예제 설명:
+
+#### 1. **뷰 인터페이스**
+- **`BasicView`**: 가장 기본적인 정보만 반환할 때 사용됩니다. 여기서는 `id`와 `name` 필드에 적용됩니다.
+- **`DetailedView`**: 더 자세한 정보를 반환할 때 사용되며, `age` 필드도 포함됩니다. `DetailedView`는 `BasicView`를 확장하므로 `DetailedView`를 사용할 때는 `id`, `name`, `age`가 모두 반환됩니다.
+
+```java
+public class User {
+    public interface BasicView {}           // 기본 정보 (id, name)만 포함
+    public interface DetailedView extends BasicView {}  // 기본 정보에 더해 자세한 정보(age 포함)
+
+    @JsonView(BasicView.class)  // 기본 뷰에서 반환될 필드
+    private Long id;
+
+    @JsonView(BasicView.class)  // 기본 뷰에서 반환될 필드
+    private String name;
+
+    @JsonView(DetailedView.class)  // 상세 뷰에서만 반환될 필드
+    private Integer age;
+
+    // getters and setters
+}
+```
+
+#### 2. **컨트롤러 사용 예시**
+
+Spring의 `@JsonView` 애너테이션을 사용하여 API의 응답을 동적으로 조정할 수 있습니다.
+
+```java
+@RestController
+public class UserController {
+
+    // 기본 뷰만 반환하는 API 엔드포인트
+    @GetMapping("/user")
+    @JsonView(User.BasicView.class)
+    public User getUserBasic() {
+        return new User(1L, "John", 30);
+    }
+
+    // 상세 뷰를 반환하는 API 엔드포인트
+    @GetMapping("/user-details")
+    @JsonView(User.DetailedView.class)
+    public User getUserDetailed() {
+        return new User(1L, "John", 30);
+    }
+}
+```
+
+#### 3. **결과**
+1. **`/user` 엔드포인트 호출**:
+   - 반환 값: `{"id": 1, "name": "John"}`
+   - `BasicView.class`로 정의된 필드만 응답에 포함되며, `age` 필드는 제외됩니다.
+
+2. **`/user-details` 엔드포인트 호출**:
+   - 반환 값: `{"id": 1, "name": "John", "age": 30}`
+   - `DetailedView.class`로 정의된 필드 (`age`)까지 포함되어 응답됩니다.
+
+### 결론
+`BasicView.class`는 API의 응답에서 반환할 필드를 그룹화하는 역할을 하며, `@JsonView` 애너테이션을 통해 같은 객체라도 특정 API에서는 기본 정보만, 다른 API에서는 추가 정보를 포함하는 동적 응답 처리가 가능합니다.
+
+`BasicView`는 단순한 **마커 인터페이스**입니다. 이 인터페이스는 어떤 특별한 구현이나 코드가 들어가는 것이 아니라, `@JsonView` 애너테이션에서 사용될 때 반환할 필드를 그룹화하기 위해 사용됩니다. 따라서 `BasicView` 자체는 코드가 매우 간단합니다.
+
+### `BasicView` 코드:
+```java
+public interface BasicView {
+    // 이 인터페이스는 마커로만 사용되며, 실제로 메서드를 포함하지 않음
+}
+```
+
+`BasicView`는 그 자체로는 아무런 로직이나 필드를 포함하지 않는 빈 인터페이스입니다. `@JsonView`에서 해당 인터페이스를 지정함으로써, 그 인터페이스가 적용된 필드만 선택적으로 직렬화(즉, API 응답으로 반환)되도록 지정할 수 있습니다.
+
+### 예시 설명:
+- `BasicView`는 기본 응답에 포함될 필드들을 나타내며, 이를 사용해 `@JsonView(BasicView.class)`로 필드를 직렬화할지 결정할 수 있습니다.
+- 만약 더 많은 필드를 직렬화하고 싶다면, `BasicView`를 확장한 다른 인터페이스(예: `DetailedView`)를 만들 수 있습니다.
+
+```java
+public interface BasicView {
+    // 기본적인 뷰에 해당하는 필드만 포함됨
+}
+
+public interface DetailedView extends BasicView {
+    // 기본적인 필드에 더해 추가적인 필드도 포함됨
+}
+```
+
+이 구조를 활용하여, API 응답을 다양한 상황에서 동적으로 필터링하고 그룹화된 데이터를 제공할 수 있습니다.
+
+
 ### 결론
 동적 API 응답을 구현하는 방법은 다양하며, 요구 사항에 따라 적합한 방법을 선택할 수 있습니다. REST API에서는 `Map`, `JsonNode`와 같은 동적 구조를 사용하거나, `@JsonView`를 통해 엔티티의 노출 필드를 제어할 수 있습니다. 더 복잡한 시나리오나 클라이언트가 요청하는 데이터의 형식이 가변적인 경우에는 **GraphQL**을 고려할 수 있습니다.
 
