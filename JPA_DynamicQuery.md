@@ -1,3 +1,195 @@
+
+프론트엔드에서 **`WHERE` 절의 조건**과 함께 **조회할 필드의 종류**를 정의하여 요청을 보낸다면, 이러한 요구를 처리하는 백엔드 구조는 두 가지 핵심적인 요소를 고려해야 합니다:
+
+1. **WHERE 절 조건**: 동적으로 필터링할 조건.
+2. **조회할 필드 목록**: 어떤 필드들을 포함할지 선택적으로 처리.
+
+이를 처리하려면 프론트엔드에서 보낸 **동적 쿼리 조건**과 **응답할 필드 목록**을 구분하고, 이를 반영하여 **동적 SQL**을 생성해야 합니다.
+
+### 구조 설계
+
+#### 1. **프론트엔드 요청 예시**
+
+프론트엔드는 JSON 형식으로 다음과 같은 데이터를 요청할 수 있습니다.
+
+```json
+{
+  "conditions": {
+    "name": "John",
+    "age": 30
+  },
+  "fields": ["id", "name", "email"]  // 조회할 필드 목록
+}
+```
+
+- **`conditions`**: `WHERE` 절에 사용할 필터 조건.
+- **`fields`**: 클라이언트가 조회하고자 하는 필드 목록.
+
+#### 2. **Controller**: `@RequestBody`로 JSON 수신
+
+Controller는 이 요청을 받아 `conditions`와 `fields`를 각각 처리합니다.
+
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/search")
+    public ResponseEntity<List<Map<String, Object>>> searchUsers(
+            @RequestBody Map<String, Object> request) {
+
+        Map<String, Object> conditions = (Map<String, Object>) request.get("conditions");
+        List<String> fields = (List<String>) request.get("fields");
+
+        // 서비스로 조건 및 조회할 필드 목록 전달
+        List<Map<String, Object>> response = userService.searchUsers(conditions, fields);
+        
+        return ResponseEntity.ok(response);  // 동적 응답 반환
+    }
+}
+```
+
+#### 3. **Service**: QueryDSL을 사용해 동적 쿼리 생성
+
+import lombok.*;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class User {
+    private Long id;
+    private String name;
+    private String email;
+    private Integer age;
+}
+
+
+Service에서 `conditions`를 기반으로 `WHERE` 조건을 동적으로 생성하고, `fields` 리스트에 있는 필드만 선택하여 데이터를 조회합니다.
+
+```java
+@Service
+public class UserService {
+
+    @Autowired
+    private JPAQueryFactory queryFactory;
+
+    public List<Map<String, Object>> searchUsers(Map<String, Object> conditions, List<String> fields) {
+        QUser user = QUser.user;
+
+        // 동적 WHERE 절 구성
+        BooleanBuilder builder = new BooleanBuilder();
+        conditions.forEach((key, value) -> {
+            switch (key) {
+                case "name":
+                    builder.and(user.name.eq((String) value));
+                    break;
+                case "age":
+                    builder.and(user.age.eq((Integer) value));
+                    break;
+                // 다른 조건들 추가
+            }
+        });
+
+        // 조회할 필드를 동적으로 선택
+        JPAQuery<?> query = queryFactory.select(buildSelectFields(user, fields))
+                                        .from(user)
+                                        .where(builder);
+
+        List<Tuple> results = query.fetch();
+        
+        // 결과를 동적으로 응답으로 변환
+        return buildDynamicResponse(results, fields);
+    }
+
+    // 동적으로 필드 선택
+    private Expression<?>[] buildSelectFields(QUser user, List<String> fields) {
+        List<Expression<?>> selectFields = new ArrayList<>();
+
+        if (fields.contains("id")) selectFields.add(user.id);
+        if (fields.contains("name")) selectFields.add(user.name);
+        if (fields.contains("email")) selectFields.add(user.email);
+        if (fields.contains("age")) selectFields.add(user.age);
+        // 필요한 경우 추가 필드 처리
+
+        return selectFields.toArray(new Expression<?>[0]);
+    }
+
+    // 동적 응답 생성
+    private List<Map<String, Object>> buildDynamicResponse(List<Tuple> results, List<String> fields) {
+        List<Map<String, Object>> response = new ArrayList<>();
+
+        for (Tuple tuple : results) {
+            Map<String, Object> userMap = new HashMap<>();
+
+            int index = 0;
+            if (fields.contains("id")) userMap.put("id", tuple.get(index++));
+            if (fields.contains("name")) userMap.put("name", tuple.get(index++));
+            if (fields.contains("email")) userMap.put("email", tuple.get(index++));
+            if (fields.contains("age")) userMap.put("age", tuple.get(index++));
+
+            response.add(userMap);
+        }
+
+        return response;
+    }
+}
+```
+
+#### 4. **설명**:
+
+1. **`buildSelectFields` 메서드**: `fields` 리스트에 포함된 필드만을 선택하여 QueryDSL의 `select`에 전달합니다. 선택한 필드를 기반으로 필요한 데이터를 조회할 수 있게 동적 SQL을 구성합니다.
+
+2. **`buildDynamicResponse` 메서드**: 조회된 결과를 `Tuple` 형식으로 받아서 요청한 필드에 따라 동적으로 응답을 생성합니다.
+
+#### 5. **동작 예시**:
+
+프론트엔드에서 다음과 같은 요청이 올 경우:
+
+```json
+{
+  "conditions": {
+    "name": "John",
+    "age": 30
+  },
+  "fields": ["id", "name", "email"]
+}
+```
+
+서비스에서 실행되는 쿼리는 다음과 같이 동적으로 생성됩니다:
+
+```sql
+SELECT id, name, email 
+FROM user 
+WHERE name = 'John' 
+AND age = 30;
+```
+
+#### 응답 예시:
+```json
+[
+  {
+    "id": 1,
+    "name": "John",
+    "email": "john@example.com"
+  }
+]
+```
+
+이 구조에서는:
+- **동적 WHERE 절**: 요청한 조건에 따라 동적으로 쿼리 조건을 생성합니다.
+- **동적 필드 선택**: 클라이언트가 요청한 필드만을 데이터베이스에서 선택하고 응답으로 반환합니다.
+
+---
+
+### 결론:
+이러한 설계는 **대규모 필드**를 다루거나 **복잡한 쿼리**를 동적으로 처리할 때 유용합니다. 클라이언트가 원하는 조건과 필드를 모두 동적으로 처리할 수 있으며, 성능 최적화 및 유지보수 측면에서도 유연한 구조를 제공합니다.
+
+
+
 대용량(예: 100개) 필드를 동적으로 처리하는 API를 설계할 때 가장 중요한 점은 **동적 요청 파라미터 처리** 및 **동적 응답**을 효율적으로 처리하는 것입니다. 이를 위해 다음 요소를 고려한 설계를 제안합니다:
 
 1. **동적 요청 처리**: 프론트엔드에서 어떤 파라미터가 들어올지 모르므로 동적 파라미터 수용.
