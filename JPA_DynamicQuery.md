@@ -1,3 +1,141 @@
+
+API 응답을 동적으로 처리하는 것은 특정 상황에 따라 데이터를 가변적으로 구조화하고 반환하는 것을 의미합니다. 이 작업은 **REST API**나 **GraphQL**에서 가능합니다. 동적으로 응답을 처리하려면 다음과 같은 방법을 고려할 수 있습니다.
+
+### 1. **Dynamic JSON 구조**
+- 특정 조건에 따라 응답 구조를 동적으로 생성하는 방법입니다. 예를 들어, 사용자가 요청한 필드나 조건에 따라 응답에서 반환할 데이터의 속성을 동적으로 결정할 수 있습니다.
+- **Spring Boot**에서는 `Map`이나 `JsonNode`와 같은 동적 데이터 구조를 사용하여 다양한 형식으로 응답을 반환할 수 있습니다.
+
+#### 예시:
+```java
+@RestController
+public class DynamicResponseController {
+
+    @GetMapping("/dynamic-response")
+    public ResponseEntity<?> getDynamicResponse(@RequestParam(required = false) String type) {
+        Map<String, Object> response = new HashMap<>();
+        
+        // 요청에 따라 응답을 동적으로 생성
+        if ("basic".equals(type)) {
+            response.put("message", "Basic response");
+            response.put("status", "ok");
+        } else if ("detailed".equals(type)) {
+            response.put("message", "Detailed response");
+            response.put("status", "ok");
+            response.put("timestamp", LocalDateTime.now());
+            response.put("details", List.of("Item1", "Item2"));
+        } else {
+            response.put("message", "Default response");
+        }
+        
+        return ResponseEntity.ok(response);
+    }
+}
+```
+
+- 위 코드는 사용자가 `type` 파라미터에 따라 기본 또는 상세한 응답을 요청할 수 있게 처리합니다.
+- `Map<String, Object>`를 사용하여 동적으로 응답의 구조를 조정할 수 있습니다.
+
+### 2. **GraphQL을 통한 동적 응답**
+- **GraphQL**은 API 응답을 동적으로 처리하는 데 매우 유용한 도구입니다. 사용자는 요청할 데이터 필드를 직접 정의할 수 있으며, 서버는 그에 맞춰 데이터를 반환합니다.
+- REST API는 고정된 응답 구조를 가지고 있지만, GraphQL에서는 클라이언트가 요청할 필드들을 동적으로 지정할 수 있습니다.
+
+#### 예시 (GraphQL):
+```graphql
+query {
+  user(id: "123") {
+    name
+    email
+    posts {
+      title
+      content
+    }
+  }
+}
+```
+
+위의 GraphQL 쿼리는 사용자가 원하는 정보만 선택적으로 요청하는 방식입니다. 예를 들어 `name`, `email`, `posts`의 `title`과 `content`만 필요할 때 해당 필드들만 응답에 포함시킬 수 있습니다.
+
+### 3. **동적 필터링 기능 (Spring Data REST + QueryDSL)**
+- QueryDSL과 같은 라이브러리를 사용해 동적 쿼리를 생성하고, 그에 맞춘 응답을 동적으로 구성할 수 있습니다.
+- 조건에 맞게 데이터를 조회하고, 필요에 따라 필터링된 정보를 동적으로 생성하여 반환하는 방식입니다.
+
+#### 예시 (QueryDSL 동적 쿼리 + 동적 응답):
+```java
+public List<Map<String, Object>> getFilteredData(String name, Integer age) {
+    QUser user = QUser.user;
+    BooleanBuilder builder = new BooleanBuilder();
+
+    if (name != null) {
+        builder.and(user.name.eq(name));
+    }
+    if (age != null) {
+        builder.and(user.age.goe(age));
+    }
+
+    List<User> users = queryFactory.selectFrom(user)
+                                   .where(builder)
+                                   .fetch();
+
+    // 동적 응답 생성
+    List<Map<String, Object>> response = new ArrayList<>();
+    for (User userEntity : users) {
+        Map<String, Object> userMap = new HashMap<>();
+        userMap.put("id", userEntity.getId());
+        userMap.put("name", userEntity.getName());
+        if (age != null) {
+            userMap.put("age", userEntity.getAge());
+        }
+        response.add(userMap);
+    }
+
+    return response;
+}
+```
+
+### 4. **Spring's `@JsonView`로 조건에 따른 동적 필드 반환**
+- Spring에서 `@JsonView`를 사용하면 동일한 엔티티에 대해 다양한 뷰를 제공할 수 있습니다. 이 방법은 특정 조건에 따라 엔티티의 속성들이 동적으로 노출되도록 할 수 있습니다.
+
+#### 예시:
+```java
+public class User {
+    public interface BasicView {}
+    public interface DetailedView extends BasicView {}
+
+    @JsonView(BasicView.class)
+    private Long id;
+
+    @JsonView(BasicView.class)
+    private String name;
+
+    @JsonView(DetailedView.class)
+    private Integer age;
+
+    // getters and setters
+}
+
+@RestController
+public class UserController {
+
+    @GetMapping("/user")
+    @JsonView(User.BasicView.class)
+    public User getUserBasic() {
+        return new User(1L, "John", 30);
+    }
+
+    @GetMapping("/user-details")
+    @JsonView(User.DetailedView.class)
+    public User getUserDetailed() {
+        return new User(1L, "John", 30);
+    }
+}
+```
+- `@JsonView`를 사용하여, 엔티티의 필드 노출 여부를 동적으로 조정할 수 있습니다.
+
+### 결론
+동적 API 응답을 구현하는 방법은 다양하며, 요구 사항에 따라 적합한 방법을 선택할 수 있습니다. REST API에서는 `Map`, `JsonNode`와 같은 동적 구조를 사용하거나, `@JsonView`를 통해 엔티티의 노출 필드를 제어할 수 있습니다. 더 복잡한 시나리오나 클라이언트가 요청하는 데이터의 형식이 가변적인 경우에는 **GraphQL**을 고려할 수 있습니다.
+
+--------------------------
+
 타입 무관하게 QueryDSL을 활용하여 여러 데이터 타입을 처리하려면, 주로 제네릭 메서드를 사용하여 다양한 조건에 따라 동적 쿼리를 작성할 수 있습니다. 아래는 `String`, `Integer`, `Float`, `Double` 타입을 처리하는 예제입니다.
 
 ### 예시: 동적 쿼리 메서드
