@@ -205,6 +205,66 @@ public ResponseEntity<List<Map<String, Object>>> searchUsers(
 
 이 방식은 다수의 필드를 동적으로 처리할 때 매우 유용하며, 파라미터가 고정되어 있지 않은 API 설계에 적합합니다.
 
+
+네, 맞습니다! `GET` 대신 **`POST` 요청**을 사용하면 파라미터를 **HTTP 요청 본문(body)**으로 전송하여 URL에 파라미터가 노출되지 않도록 할 수 있습니다. 
+
+### 차이점:
+- **GET 요청**: URL 쿼리 스트링을 통해 파라미터를 전달합니다. 예를 들어, `GET /api/users/search?name=John&age=30`처럼 파라미터가 URL에 노출됩니다.
+- **POST 요청**: 파라미터가 요청 본문(body)에서 전송되기 때문에 URL에 노출되지 않고, 데이터를 더 안전하게 보낼 수 있습니다.
+
+### POST 요청으로 변경하기
+
+#### 1. **프론트엔드에서 POST 요청**:
+`POST` 요청을 사용할 때는 파라미터가 **Request Body**에 포함됩니다. 예를 들어, JSON 형식으로 파라미터를 보낼 수 있습니다.
+
+```bash
+POST /api/users/search
+Content-Type: application/json
+
+{
+  "name": "John",
+  "age": 30,
+  "status": "active"
+}
+```
+
+#### 2. **Controller에서 POST 요청 처리**:
+Controller에서 `@RequestBody`를 사용하여 본문 데이터를 받습니다. 이때 `Map<String, Object>`로 매핑하여 동적으로 파라미터를 처리할 수 있습니다.
+
+```java
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/search")
+    public ResponseEntity<List<Map<String, Object>>> searchUsers(
+            @RequestBody Map<String, Object> params) {
+
+        // POST 요청에서 받은 JSON 데이터를 자동으로 Map으로 매핑
+        System.out.println(params);
+        // 출력: {name=John, age=30, status=active}
+
+        // Service로 파라미터 전달 및 동적 처리
+        List<Map<String, Object>> response = userService.searchUsers(params);
+        
+        return ResponseEntity.ok(response);
+    }
+}
+```
+
+### 3. **`@RequestBody` 설명**:
+- **`@RequestBody`**는 HTTP 요청 본문에 있는 데이터를 Java 객체로 변환해줍니다.
+- JSON 데이터를 `Map<String, Object>`로 변환해서 컨트롤러로 전달합니다.
+
+### 요약:
+- **GET** 방식은 URL에 파라미터가 노출되므로, 파라미터가 많거나 민감한 데이터가 포함될 경우 부적합할 수 있습니다.
+- **POST** 방식은 파라미터를 HTTP 본문(body)에 담아 전송하기 때문에 보안적인 측면에서 더 안전하며, 요청 파라미터가 URL에 보이지 않게 됩니다.
+
+
+
 ---------------------
 
 동적으로 처리할 필드가 많을 때, QueryDSL에서 필요한 필드만 동적으로 쿼리에 추가하는 방법은 매우 중요합니다. 이를 효과적으로 처리하기 위한 방법 중 하나는 **동적 쿼리 생성**을 사용하는 것입니다. 프론트엔드에서 전달된 필드에 따라 조건을 동적으로 생성하고, QueryDSL의 `BooleanBuilder`나 `Predicate` 등을 활용하여 처리할 수 있습니다.
