@@ -1,4 +1,146 @@
 
+위의 예에서 `Map`을 사용하는 대신에 명확한 클래스를 생성하여 데이터를 처리하면 더 구조적이고 명확한 코드를 작성할 수 있습니다. 이를 통해 각 `deviceId` 그룹의 정보를 다루기 위해 `DeviceGroup`이라는 클래스를 정의하고, 해당 객체를 통해 중복된 `deviceId`를 처리할 수 있습니다.
+
+### 1. `DeviceGroup` 클래스 정의
+
+```java
+public class DeviceGroup {
+    private String deviceId;
+    private List<String> ids;
+    private List<Long> lastModifiedDates;
+
+    public DeviceGroup(String deviceId, List<String> ids, List<Long> lastModifiedDates) {
+        this.deviceId = deviceId;
+        this.ids = ids;
+        this.lastModifiedDates = lastModifiedDates;
+    }
+
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    public List<String> getIds() {
+        return ids;
+    }
+
+    public List<Long> getLastModifiedDates() {
+        return lastModifiedDates;
+    }
+}
+```
+
+### 2. `DeviceStorageService` 클래스에서 `DeviceGroup`을 사용
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.aggregation.MatchOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+public class DeviceStorageService {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public void removeOlderDuplicateDeviceIds() throws InterruptedException {
+        // 1. 시스템의 CPU 코어 수에 맞춰 스레드 풀 생성
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        ExecutorService executorService = Executors.newFixedThreadPool(availableProcessors);
+
+        // 2. Group by deviceId and push _id and lastModifiedDate to an array
+        GroupOperation groupOperation = Aggregation.group("deviceId")
+                .count().as("count")
+                .push("$_id").as("ids")
+                .push("$lastModifiedDate").as("lastModifiedDates");
+
+        // 3. Match count > 1 (find duplicates)
+        MatchOperation matchOperation = Aggregation.match(Criteria.where("count").gt(1));
+
+        // 4. Create the aggregation pipeline
+        Aggregation aggregation = Aggregation.newAggregation(groupOperation, matchOperation);
+
+        // 5. Execute the aggregation query to find duplicate documents
+        AggregationResults<DeviceGroup> results = mongoTemplate.aggregate(aggregation, "deviceStorage", DeviceGroup.class);
+        List<DeviceGroup> duplicateGroups = results.getMappedResults();
+
+        // 6. 각 DeviceGroup을 병렬 처리
+        for (DeviceGroup group : duplicateGroups) {
+            executorService.submit(() -> processDuplicateGroup(group));
+        }
+
+        // 7. 스레드 풀 종료 및 대기
+        executorService.shutdown();
+        executorService.awaitTermination(1, TimeUnit.HOURS);
+    }
+
+    private void processDuplicateGroup(DeviceGroup group) {
+        List<String> ids = group.getIds();
+        List<Long> lastModifiedDates = group.getLastModifiedDates();
+
+        // Pair IDs with their corresponding lastModifiedDates
+        String latestId = findLatestId(ids, lastModifiedDates);
+
+        // Remove the latest ID from the list (keeping it)
+        ids.remove(latestId);
+
+        // Update the latest document
+        Query latestQuery = new Query(Criteria.where("_id").is(latestId));
+        mongoTemplate.updateFirst(latestQuery, Update.update("latest", true), "deviceStorage");
+
+        // Delete all other (older) documents
+        for (String id : ids) {
+            Query deleteQuery = new Query(Criteria.where("_id").is(id));
+            mongoTemplate.remove(deleteQuery, "deviceStorage");
+        }
+    }
+
+    private String findLatestId(List<String> ids, List<Long> lastModifiedDates) {
+        // Find the ID with the most recent lastModifiedDate
+        long maxDate = Long.MIN_VALUE;
+        String latestId = null;
+
+        for (int i = 0; i < ids.size(); i++) {
+            if (lastModifiedDates.get(i) > maxDate) {
+                maxDate = lastModifiedDates.get(i);
+                latestId = ids.get(i);
+            }
+        }
+        return latestId;
+    }
+}
+```
+
+### 변경된 주요 사항:
+1. **`DeviceGroup` 클래스**:
+   - `deviceId`, `ids`(중복된 document의 `_id`), 그리고 `lastModifiedDates`를 보관하는 클래스를 정의했습니다.
+   - 데이터를 `Map` 대신 객체로 다룸으로써 코드가 더욱 직관적이고 구조화되었습니다.
+
+2. **`AggregationResults<DeviceGroup>`**:
+   - MongoDB Aggregation 결과를 `DeviceGroup` 객체로 매핑하여 처리했습니다.
+
+3. **`processDuplicateGroup(DeviceGroup group)`**:
+   - 각 중복 그룹(`DeviceGroup`)을 처리하는 메서드로, 최신 `lastModifiedDate`를 가진 문서만 남기고 나머지를 삭제하는 로직을 처리합니다.
+   
+4. **`findLatestId` 메서드**:
+   - `lastModifiedDate`가 가장 최근인 `id`를 찾아 반환하는 메서드를 추가했습니다.
+
+### 성능 향상 및 병렬 처리:
+- 병렬 처리를 통해 `deviceId` 중복 그룹을 빠르게 처리할 수 있으며, 각 그룹은 별도의 스레드에서 처리됩니다.
+- `DeviceGroup` 클래스를 사용함으로써 구조적으로 더 명확하게 데이터를 다루게 됩니다.
+
+-----------------------
+
 스레드 수를 자동으로 설정하려면, 시스템의 **CPU 코어 수**를 기반으로 동적으로 설정하는 방법이 일반적입니다. 이를 통해 시스템 자원을 효율적으로 활용할 수 있습니다. Java에서는 `Runtime.getRuntime().availableProcessors()` 메서드를 사용해 CPU 코어 수를 가져와 스레드 수를 설정할 수 있습니다.
 
 아래는 CPU 코어 수를 기준으로 스레드 풀을 자동으로 설정하는 방법입니다:
