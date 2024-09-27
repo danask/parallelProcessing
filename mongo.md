@@ -1,3 +1,133 @@
+중복된 `deviceId`를 가진 문서들 중에서 `lastModifiedDate`를 기준으로 최신 문서만 남기고, 나머지를 삭제하는 로직을 Spring의 `MongoTemplate`을 사용하여 구현할 수 있습니다.
+
+### MongoTemplate을 사용한 최신 문서만 남기고 나머지 삭제하는 로직:
+
+```java
+import org.bson.Document;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.MatchOperation;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import java.util.List;
+
+public class DeviceStorageService {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    public void removeOlderDuplicateDeviceIds() {
+        // 1. Group by deviceId and count occurrences, push _id and lastModifiedDate to an array
+        GroupOperation groupOperation = Aggregation.group("deviceId")
+                .count().as("count")
+                .push(new Document("_id", "$_id").append("lastModifiedDate", "$lastModifiedDate")).as("documents");
+
+        // 2. Match count > 1 (find duplicates)
+        MatchOperation matchOperation = Aggregation.match(Criteria.where("count").gt(1));
+
+        // 3. Create the aggregation pipeline
+        Aggregation aggregation = Aggregation.newAggregation(groupOperation, matchOperation);
+
+        // 4. Execute the aggregation query to find duplicate documents
+        AggregationResults<Document> results = mongoTemplate.aggregate(aggregation, "deviceStorage", Document.class);
+        List<Document> duplicateDocuments = results.getMappedResults();
+
+        // 5. Process each group of duplicates to find the latest and remove older versions
+        for (Document group : duplicateDocuments) {
+            List<Document> documents = (List<Document>) group.get("documents");
+
+            // Find the document with the latest lastModifiedDate
+            Document latestDocument = documents.stream()
+                    .max((d1, d2) -> ((Comparable) d1.get("lastModifiedDate")).compareTo(d2.get("lastModifiedDate")))
+                    .orElse(null);
+
+            if (latestDocument != null) {
+                // Keep the latest document, remove from list of documents to delete
+                documents.remove(latestDocument);
+
+                // Delete all older documents from MongoDB
+                for (Document doc : documents) {
+                    Query deleteQuery = new Query(Criteria.where("_id").is(doc.get("_id")));
+                    mongoTemplate.remove(deleteQuery, "deviceStorage");
+                }
+            }
+        }
+    }
+}
+```
+
+### 설명:
+1. **`GroupOperation`**: 
+   - `deviceId`로 문서를 그룹화하고, 각 그룹에 대해 중복 개수를 계산합니다 (`count`).
+   - 각 그룹 내에서 `_id`와 `lastModifiedDate` 필드를 배열로 저장합니다.
+   
+2. **`MatchOperation`**: 
+   - `count > 1`로 중복된 문서 그룹만 필터링합니다.
+   
+3. **중복된 문서 처리**:
+   - 각 그룹 내에서 `lastModifiedDate`가 가장 최신인 문서를 찾습니다.
+   - 최신 문서를 제외한 나머지 문서들은 `mongoTemplate.remove`를 통해 삭제합니다.
+
+### 결과:
+이 코드를 실행하면 중복된 `deviceId`를 가진 문서들 중에서 가장 최신의 `lastModifiedDate`를 가진 문서만 남고, 나머지는 삭제됩니다.
+
+--------------------------
+
+
+`deviceId` 필드가 중복되는 경우 해당 문서의 `id`(즉, `_id`)를 반환하려면 `aggregation`을 사용하여 먼저 중복된 `deviceId` 값을 그룹화한 다음, 해당 `deviceId` 값을 다시 사용하여 문서의 `_id` 필드를 추출할 수 있습니다.
+
+### 몽고 쿼리:
+
+```javascript
+db.deviceStorage.aggregate([
+  {
+    // deviceId 필드를 기준으로 그룹화하고, 중복 개수를 계산
+    $group: {
+      _id: "$deviceId",           // deviceId로 그룹화
+      count: { $sum: 1 },         // 각 deviceId의 중복 개수를 계산
+      ids: { $push: "$_id" }      // 각 그룹에 속하는 _id들을 배열로 저장
+    }
+  },
+  {
+    // count가 1보다 큰, 즉 중복된 deviceId만 필터링
+    $match: {
+      count: { $gt: 1 }
+    }
+  },
+  {
+    // ids 배열 내 모든 _id를 반환
+    $project: {
+      _id: 0,                     // deviceId는 반환하지 않음
+      documentIds: "$ids"         // 중복된 document들의 _id만 반환
+    }
+  }
+])
+```
+
+### 설명:
+1. **`$group`**: `deviceId` 필드를 기준으로 그룹화합니다. 각 `deviceId`에 대해 중복된 개수를 계산하고, 해당 그룹에 속하는 문서의 `_id`를 배열(`ids`)로 저장합니다.
+2. **`$match`**: `count`가 1보다 큰, 즉 중복된 `deviceId`에 대해서만 결과를 필터링합니다.
+3. **`$project`**: 반환되는 결과에서 `deviceId`는 제외하고, 중복된 문서들의 `_id` 배열(`documentIds`)만 반환합니다.
+
+### 결과:
+이 쿼리를 실행하면 중복된 `deviceId` 값을 가진 문서들의 `_id`를 배열로 반환합니다.
+
+```json
+{
+  "documentIds": [
+    ObjectId("5f50c31b1c9d440000a1b2c3"),
+    ObjectId("5f50c31b1c9d440000a1b2c4")
+  ]
+}
+```
+
+이와 같은 방법으로 중복된 `deviceId`를 가진 문서들의 `_id`만 추출할 수 있습니다.
+
+-------------------------
+
 몽고디비에서 `MEI` 필드 값이 중복된 경우 해당 필드와 중복 개수를 가져오는 쿼리를 작성하기 위해 `aggregation`을 사용할 수 있습니다. 이 경우 `group`과 `match`, 그리고 `count`를 사용하여 중복된 필드를 필터링하고 중복된 개수를 계산할 수 있습니다.
 
 아래는 중복된 `MEI` 필드와 해당 중복 횟수를 반환하는 몽고디비 쿼리입니다.
