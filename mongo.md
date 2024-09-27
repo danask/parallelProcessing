@@ -1,3 +1,221 @@
+
+스레드 수를 자동으로 설정하려면, 시스템의 **CPU 코어 수**를 기반으로 동적으로 설정하는 방법이 일반적입니다. 이를 통해 시스템 자원을 효율적으로 활용할 수 있습니다. Java에서는 `Runtime.getRuntime().availableProcessors()` 메서드를 사용해 CPU 코어 수를 가져와 스레드 수를 설정할 수 있습니다.
+
+아래는 CPU 코어 수를 기준으로 스레드 풀을 자동으로 설정하는 방법입니다:
+
+### 동적으로 스레드 풀 설정
+
+```java
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+public class DeviceStorageService {
+
+    public void removeOlderDuplicateDeviceIds() throws InterruptedException {
+        // 1. 시스템의 CPU 코어 수에 맞춰 스레드 풀 생성
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        ExecutorService executorService = Executors.newFixedThreadPool(availableProcessors);
+
+        // ... 중복 그룹을 찾아서 각 그룹을 병렬 처리하는 로직
+
+        // 2. 스레드 풀 종료 및 대기
+        executorService.shutdown();
+        executorService.awaitTermination(1, TimeUnit.HOURS);
+    }
+
+    private void processDuplicateGroup(Map group) {
+        // 중복 그룹 처리 로직 (위 코드에서 설명한 것과 동일)
+    }
+}
+```
+
+### 설명:
+1. **CPU 코어 수 기반 스레드 풀 생성**:
+   - `Runtime.getRuntime().availableProcessors()`는 현재 시스템에서 사용 가능한 프로세서(코어)의 수를 반환합니다. 일반적으로 코어 수가 많을수록 더 많은 스레드를 병렬로 실행할 수 있으므로, 이 값을 기준으로 스레드 풀을 생성하는 것이 합리적입니다.
+   - 예를 들어, 4개의 CPU 코어가 있다면 스레드 풀의 크기는 4로 설정됩니다.
+
+2. **스레드 풀 관리**:
+   - `executorService.shutdown()`은 스레드 풀을 종료시키고, 대기 중인 작업을 모두 완료한 후 종료됩니다.
+   - `awaitTermination()` 메서드는 지정한 시간 동안 스레드 풀의 종료를 기다립니다. 1시간 동안 모든 작업이 완료될 때까지 기다리도록 설정했습니다.
+
+### 고급 설정:
+만약 CPU 코어 수 외에 다른 기준으로 스레드 수를 동적으로 설정하고 싶다면, 작업량이나 메모리 사용량에 맞춰 조정할 수도 있습니다. 하지만 일반적으로 CPU 코어 수를 기반으로 스레드 풀을 설정하는 것이 가장 보편적이고 효율적입니다.
+
+이 방식은 시스템 리소스를 자동으로 감지하여 스레드 수를 설정하기 때문에, 다양한 환경에서 효율적으로 동작할 수 있습니다.
+
+----------------
+
+네, 위의 로직을 병렬 처리하도록 구현할 수 있습니다. 이를 통해 중복된 `deviceId`에 대해 최신 문서를 남기고 나머지를 삭제하는 작업을 여러 스레드에서 동시에 처리하여 성능을 향상시킬 수 있습니다.
+
+### 병렬 처리 방식:
+1. **배치를 나누어 각 배치를 병렬로 처리**: 중복된 문서를 여러 그룹으로 나누고, 각 그룹을 개별 스레드에서 병렬로 처리하도록 할 수 있습니다.
+2. **ExecutorService 사용**: Java의 `ExecutorService`를 이용해 스레드 풀에서 작업을 병렬로 실행할 수 있습니다.
+
+### 병렬 처리 코드 구현 예시
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.aggregation.GroupOperation;
+import org.springframework.data.mongodb.core.aggregation.MatchOperation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+public class DeviceStorageService {
+
+    @Autowired
+    private MongoTemplate mongoTemplate;
+
+    private static final int NUM_THREADS = 4; // 스레드 수 (필요에 맞게 조정)
+
+    public void removeOlderDuplicateDeviceIds() throws InterruptedException {
+        // 1. Group by deviceId and push _id and lastModifiedDate to an array
+        GroupOperation groupOperation = Aggregation.group("deviceId")
+                .count().as("count")
+                .push("$_id").as("ids")
+                .push("$lastModifiedDate").as("lastModifiedDates");
+
+        // 2. Match count > 1 (find duplicates)
+        MatchOperation matchOperation = Aggregation.match(Criteria.where("count").gt(1));
+
+        // 3. Create the aggregation pipeline
+        Aggregation aggregation = Aggregation.newAggregation(groupOperation, matchOperation);
+
+        // 4. Execute the aggregation query to find duplicate documents
+        AggregationResults<Map> results = mongoTemplate.aggregate(aggregation, "deviceStorage", Map.class);
+        List<Map> duplicateGroups = results.getMappedResults();
+
+        // 5. Parallel processing using ExecutorService
+        ExecutorService executorService = Executors.newFixedThreadPool(NUM_THREADS);
+
+        for (Map group : duplicateGroups) {
+            executorService.submit(() -> processDuplicateGroup(group));
+        }
+
+        // 6. Shut down the executor service and await termination
+        executorService.shutdown();
+        executorService.awaitTermination(1, TimeUnit.HOURS);
+    }
+
+    private void processDuplicateGroup(Map group) {
+        List<String> ids = (List<String>) group.get("ids");
+        List<Long> lastModifiedDates = (List<Long>) group.get("lastModifiedDates");
+
+        // Pair IDs with their corresponding lastModifiedDates
+        Map<String, Long> idToLastModifiedMap = ids.stream()
+                .collect(Collectors.toMap(id -> id, id -> lastModifiedDates.get(ids.indexOf(id))));
+
+        // Find the ID with the most recent lastModifiedDate
+        String latestId = idToLastModifiedMap.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .get().getKey();
+
+        // Remove the latest ID from the list (keeping it)
+        ids.remove(latestId);
+
+        // Update the latest document
+        Query latestQuery = new Query(Criteria.where("_id").is(latestId));
+        mongoTemplate.updateFirst(latestQuery, Update.update("latest", true), "deviceStorage");
+
+        // Delete all other (older) documents
+        for (String id : ids) {
+            Query deleteQuery = new Query(Criteria.where("_id").is(id));
+            mongoTemplate.remove(deleteQuery, "deviceStorage");
+        }
+    }
+}
+```
+
+### 주요 사항:
+1. **`ExecutorService` 사용**: `NUM_THREADS`만큼 스레드 풀을 생성하고, 각 중복 그룹을 스레드에서 병렬로 처리합니다. 이를 통해 중복된 문서를 처리하는 시간이 단축됩니다.
+   
+2. **`processDuplicateGroup` 메서드**: 각 중복 그룹을 받아 최신 문서만 `latest`로 업데이트하고, 나머지 문서는 삭제합니다. 이 작업은 스레드에서 병렬로 처리됩니다.
+
+3. **최대 대기 시간 설정**: `executorService.awaitTermination(1, TimeUnit.HOURS)`는 1시간 동안 모든 스레드가 완료되기를 기다립니다. 필요에 따라 시간을 조정할 수 있습니다.
+
+### 성능 개선 효과:
+- 병렬 처리를 통해 여러 중복된 문서를 동시에 처리하므로 작업 속도가 훨씬 빨라집니다.
+- 특히 대량의 데이터를 처리할 때, 이 방식이 큰 성능 향상을 가져올 수 있습니다.
+
+이 방식으로 병렬 처리를 적용하면 MongoDB의 쿼리 성능이 크게 향상될 것입니다.
+
+
+--------------------
+
+
+성능을 향상시키기 위해 다음 몇 가지 최적화 방법을 고려할 수 있습니다:
+
+### 1. **인덱스 최적화**
+   - 중복 검사를 위한 `deviceId`와 `lastModifiedDate` 필드에 인덱스를 생성하면 MongoDB에서 데이터를 검색하는 속도를 크게 높일 수 있습니다.
+   - 예를 들어, 복합 인덱스를 사용하여 두 필드를 동시에 인덱싱할 수 있습니다.
+
+   ```bash
+   db.deviceStorage.createIndex({ "deviceId": 1, "lastModifiedDate": -1 })
+   ```
+
+   - 이렇게 하면 `deviceId`별로 최신 문서를 찾는 쿼리가 훨씬 빨라집니다.
+
+### 2. **Aggregation 사용 시 Disk Use 허용**
+   - 큰 데이터셋에서 aggregation을 실행할 경우 메모리 제약으로 인해 성능 저하가 발생할 수 있습니다. 이를 방지하기 위해 `allowDiskUse(true)` 옵션을 추가하여 MongoDB가 디스크를 사용하여 aggregation을 수행하도록 할 수 있습니다.
+
+   ```java
+   Aggregation aggregation = Aggregation.newAggregation(groupOperation, matchOperation)
+       .withOptions(AggregationOptions.builder().allowDiskUse(true).build());
+   ```
+
+### 3. **Batch 처리**
+   - 중복된 문서가 많을 경우 한 번에 많은 삭제 작업을 처리하면 MongoDB의 성능이 저하될 수 있습니다. 이를 방지하기 위해 배치 처리를 사용하여 한 번에 적은 양의 문서를 처리하는 것이 좋습니다. 예를 들어, 중복된 문서를 여러 배치로 나누어 처리하는 방식입니다.
+
+### 4. **Bulk Write 최적화**
+   - MongoDB의 `Bulk Write`를 활용하여 여러 문서를 한 번에 업데이트하거나 삭제할 때, **unordered** 모드로 실행하면 성능을 더 향상시킬 수 있습니다. 이는 각 작업이 순차적으로 실행되지 않으므로 병렬로 처리되어 속도가 빨라집니다. 이미 unordered 모드를 사용 중이지만, bulk operations에 적절히 적용하고 있는지 재검토하는 것도 좋습니다.
+
+### 5. **Parallel Processing**
+   - 데이터를 여러 스레드로 나누어 병렬 처리를 통해 성능을 향상시킬 수 있습니다. Spring에서 `ExecutorService`를 사용하여 비동기 방식으로 여러 스레드에서 동시에 작업을 처리할 수 있습니다.
+   
+   ```java
+   ExecutorService executorService = Executors.newFixedThreadPool(NUM_THREADS);
+   for (List<Document> batch : batches) {
+       executorService.submit(() -> {
+           // 각 batch 별로 병렬로 삭제 처리
+           processBatch(batch);
+       });
+   }
+   executorService.shutdown();
+   executorService.awaitTermination(1, TimeUnit.HOURS);
+   ```
+
+### 6. **더 적은 필드 가져오기**
+   - Aggregation이나 MongoDB 쿼리에서 필요 없는 필드를 가져오지 않도록 필드를 제한합니다. 불필요한 데이터 전송을 줄이면 성능이 향상될 수 있습니다.
+
+   ```java
+   // 필요한 필드만 포함
+   Aggregation aggregation = Aggregation.newAggregation(
+       Aggregation.project("deviceId", "lastModifiedDate"),
+       groupOperation, matchOperation
+   );
+   ```
+
+### 7. **TTL (Time-To-Live) 인덱스 적용**
+   - 만약 일정 시간 이후 중복된 데이터가 의미가 없어진다면, MongoDB의 TTL 인덱스를 사용하여 오래된 데이터를 자동으로 삭제하도록 설정할 수 있습니다. 이를 통해 수동으로 데이터를 삭제하는 작업을 줄일 수 있습니다.
+
+### 종합적인 접근:
+- **인덱스 최적화**와 **배치 처리**는 특히 큰 데이터셋에서 성능 향상에 중요한 역할을 할 수 있습니다.
+- **Parallel Processing**은 처리 시간이 긴 경우 효과적이며, **Bulk Write**의 unordered 모드를 적절히 사용하는 것도 성능을 높이는 핵심 요소입니다.
+
+이러한 최적화 방법을 통해 MongoDB 작업의 성능을 더욱 향상시킬 수 있습니다.
+
+---------------------------
+
 중복된 `deviceId`를 가진 문서들 중에서 `lastModifiedDate`를 기준으로 최신 문서만 남기고, 나머지를 삭제하는 로직을 Spring의 `MongoTemplate`을 사용하여 구현할 수 있습니다.
 
 ### MongoTemplate을 사용한 최신 문서만 남기고 나머지 삭제하는 로직:
