@@ -1,3 +1,51 @@
+
+`Arrays.asList(obj1, obj2, obj3)`에서 `obj1.getType()`이 empty인 경우 해당 객체를 리스트에 넣지 않으려면 `Stream` API를 사용하여 필터링할 수 있습니다. `Stream`을 이용해 `null`이거나 비어 있는 객체를 제외하고 리스트를 생성할 수 있습니다.
+
+다음은 이를 구현하는 방법입니다:
+
+```java
+import java.util.Arrays;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+public class Main {
+    public static void main(String[] args) {
+        MyClass obj1 = new MyClass("");  // getType()이 empty
+        MyClass obj2 = new MyClass("Type2");
+        MyClass obj3 = new MyClass("Type3");
+
+        // Stream을 이용해 getType()이 empty가 아닌 경우만 리스트에 추가
+        List<MyClass> filteredList = Arrays.asList(obj1, obj2, obj3).stream()
+                .filter(obj -> obj.getType() != null && !obj.getType().isEmpty())
+                .collect(Collectors.toList());
+
+        // 결과 출력
+        filteredList.forEach(obj -> System.out.println(obj.getType()));
+    }
+}
+
+class MyClass {
+    private String type;
+
+    public MyClass(String type) {
+        this.type = type;
+    }
+
+    public String getType() {
+        return type;
+    }
+}
+```
+
+### 설명:
+- `filter()` 메서드를 사용하여 각 객체의 `getType()`이 `null`이거나 빈 문자열인 경우 해당 객체를 제외합니다.
+- `collect(Collectors.toList())`를 사용하여 필터링된 결과를 리스트로 반환합니다.
+
+이 방식은 `getType()`이 비어 있는 경우 리스트에 추가되지 않도록 하며, 유효한 객체들만 포함된 리스트를 생성합니다.
+
+-----------------------
+
 Java에서 객체 내부의 모든 값(필드 포함)을 얻으려면 리플렉션(Reflection)을 사용해야 합니다. 리플렉션은 프로그램 실행 중에 클래스의 정보를 분석하고 조작하는 데 사용되는 기술입니다. 객체의 필드 값을 가져오기 위해 다음 단계를 따를 수 있습니다.
 
 1. 클래스 정보 가져오기: 먼저 해당 객체의 클래스 정보를 가져와야 합니다. 객체를 통해 클래스 정보를 얻을 수 있습니다.
