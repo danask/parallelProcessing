@@ -1,4 +1,101 @@
 
+스프링에서 Redis CacheManager가 실패하거나 캐시 설정이 실패하더라도 애플리케이션이 계속 동작하게 하고, 캐시 없이 처리되도록 하려면 `Fallback CacheManager`를 설정할 수 있습니다. 이를 통해 Redis가 동작하지 않더라도 기본적으로 캐싱이 없는 모드로 돌아갈 수 있습니다.
+
+여기서는 Redis CacheManager가 실패할 때, 기본 `ConcurrentMapCacheManager` 같은 인메모리 캐시로 대체하는 방법을 사용해볼 수 있습니다.
+
+### 해결 방법
+
+1. **Fallback CacheManager 설정**: RedisCacheManager가 실패하면 기본적인 `ConcurrentMapCacheManager`를 사용할 수 있도록 설정합니다. 이로 인해 캐시가 실패하더라도 애플리케이션은 정상적으로 동작하게 됩니다.
+
+2. **캐시 설정에 예외 처리를 추가**: `RedisConnectionFactory`나 `RedisCacheManager`를 생성할 때 예외를 처리하고, 예외가 발생하면 다른 CacheManager로 대체하는 방식으로 구현할 수 있습니다.
+
+### 예시 코드
+
+```java
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.cache.redis.RedisCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Configuration
+public class CacheConfig {
+    private static final Logger logger = LoggerFactory.getLogger(CacheConfig.class);
+
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        try {
+            RedisCacheManager cacheManager = RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(RedisCacheConfiguration.defaultCacheConfig()
+                    .entryTtl(Duration.ofHours(1))
+                    .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                    .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()))
+                    .disableCachingNullValues())
+                .build();
+
+            logger.info("RedisCacheManager is configured and active.");
+            return cacheManager;
+        } catch (Exception e) {
+            logger.error("Failed to configure RedisCacheManager. Falling back to ConcurrentMapCacheManager.", e);
+            return new ConcurrentMapCacheManager(); // Fallback CacheManager
+        }
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        try {
+            template.setConnectionFactory(redisConnectionFactory);
+            template.setKeySerializer(new StringRedisSerializer());
+            template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+
+            logger.info("RedisTemplate is configured.");
+        } catch (Exception e) {
+            logger.error("Failed to configure RedisTemplate. It will not be used.", e);
+        }
+        return template;
+    }
+}
+```
+
+### 설명
+1. **RedisCacheManager 예외 처리**: `cacheManager` 메서드에서 `RedisCacheManager`를 생성할 때 예외 처리를 추가했습니다. Redis 관련 설정에 문제가 생기면 `ConcurrentMapCacheManager`로 대체하여 애플리케이션이 중단되지 않도록 합니다.
+
+2. **RedisTemplate 예외 처리**: `RedisTemplate`도 마찬가지로 Redis 연결이나 설정에 실패할 경우 로그를 남기고 넘어가며, Redis가 제대로 작동하지 않더라도 기본적인 애플리케이션 로직이 동작할 수 있도록 했습니다.
+
+### 추가 사항
+- **로깅**: RedisCacheManager 또는 RedisTemplate가 실패했을 때, 로깅을 통해 문제의 원인을 확인할 수 있습니다.
+- **프로파일 활용**: Redis 환경과 인메모리 환경을 프로파일로 나누어 관리할 수도 있습니다.
+
+### 테스트
+이를 유닛 테스트에서 검증하기 위해서는 Redis 서버가 실행되지 않은 상태에서도 테스트가 가능하도록 Redis 관련 빈들을 `Mock`으로 대체할 수 있습니다. Redis가 없을 때에도 애플리케이션이 정상적으로 동작하는지 테스트할 수 있습니다.
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+@ActiveProfiles("test") // test 프로파일에서는 Redis를 사용하지 않도록 설정
+public class CacheConfigTest {
+
+    @Autowired
+    private CacheManager cacheManager;
+
+    @Test
+    public void whenRedisFails_thenFallbackToConcurrentMapCacheManager() {
+        assertTrue(cacheManager instanceof ConcurrentMapCacheManager);
+    }
+}
+```
+
+이 코드를 사용하면 캐시 설정 실패 시에도 기본적인 `ConcurrentMapCacheManager`로 애플리케이션이 계속 동작할 수 있습니다.
+
+----------------------
+
 `NoUniqueBeanDefinitionException` 에러는 `CacheManager` 타입의 빈이 두 개 이상 정의되어 있을 때 발생합니다. 이를 해결하려면, `CacheManager` 빈 정의를 명확하게 설정하고, 하나의 `CacheManager`만을 사용하도록 해야 합니다.
 
 먼저, `CacheConfig` 클래스에서 각 `CacheManager` 빈을 명시적으로 정의합니다. 이렇게 하면 특정 프로파일이 활성화되었을 때에만 해당 `CacheManager`가 빈으로 등록되도록 설정할 수 있습니다.
