@@ -1,3 +1,133 @@
+Spring Boot에서 `CacheManager`가 잘 로드되었는지 확인하기 위해 디버그 로그를 설정하고, `CacheManager`가 생성될 때 로그를 찍어 확인할 수 있습니다. Spring 자체 로깅을 활용하거나, `SLF4J` 또는 `Log4j2` 같은 로깅 프레임워크를 사용해 캐시 설정 및 로딩 과정을 디버깅할 수 있습니다.
+
+아래는 디버그 로그를 출력할 수 있는 몇 가지 방법과 코드 예시입니다.
+
+### 1. **로깅 설정 추가 (application.properties)**
+
+Spring의 캐시 관련 로깅을 활성화하려면 `application.properties` 파일에 아래 설정을 추가하여 디버그 레벨의 로그를 출력하도록 설정할 수 있습니다.
+
+```properties
+# Cache 관련 로깅을 디버그 레벨로 설정
+logging.level.org.springframework.cache=DEBUG
+```
+
+위 설정을 추가하면 Spring에서 캐시 설정 및 `CacheManager` 빈이 로드될 때 발생하는 디버그 로그가 출력됩니다.
+
+### 2. **CacheManager 생성 시 커스텀 로그 추가**
+
+`CacheConfig` 클래스에서 `CacheManager`를 생성할 때 커스텀 로그를 추가하여 `CacheManager`가 잘 로드되었는지 확인할 수 있습니다. 
+
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
+import org.springframework.cache.redis.RedisCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+
+@Configuration
+public class CacheConfig {
+    
+    private static final Logger logger = LoggerFactory.getLogger(CacheConfig.class);
+
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        try {
+            RedisCacheManager cacheManager = RedisCacheManager.builder(redisConnectionFactory)
+                    .cacheDefaults(RedisCacheConfiguration.defaultCacheConfig())
+                    .build();
+            logger.debug("RedisCacheManager has been successfully loaded: {}", cacheManager);
+            return cacheManager;
+        } catch (Exception e) {
+            logger.error("Failed to load RedisCacheManager, falling back to ConcurrentMapCacheManager", e);
+            CacheManager fallbackCacheManager = new ConcurrentMapCacheManager();
+            logger.debug("Fallback ConcurrentMapCacheManager has been loaded: {}", fallbackCacheManager);
+            return fallbackCacheManager;
+        }
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        try {
+            template.setConnectionFactory(redisConnectionFactory);
+            logger.debug("RedisTemplate has been successfully created with connection factory: {}", redisConnectionFactory);
+        } catch (Exception e) {
+            logger.error("Failed to create RedisTemplate", e);
+        }
+        return template;
+    }
+}
+```
+
+### 3. **디버그 로그 출력 확인**
+
+위처럼 `logger.debug()` 메서드를 사용해 디버그 로그를 찍어두면, `CacheManager`가 잘 로드되었는지 애플리케이션 시작 시점에서 확인할 수 있습니다. RedisCacheManager 또는 ConcurrentMapCacheManager가 어떤 빈으로 로드되었는지 로그로 확인할 수 있습니다.
+
+**로그 출력 예시 (Redis가 성공적으로 로드된 경우):**
+
+```
+DEBUG CacheConfig: RedisCacheManager has been successfully loaded: RedisCacheManager@12345
+DEBUG CacheConfig: RedisTemplate has been successfully created with connection factory: LettuceConnectionFactory@6789
+```
+
+**로그 출력 예시 (Redis 실패, Fallback CacheManager 사용):**
+
+```
+ERROR CacheConfig: Failed to load RedisCacheManager, falling back to ConcurrentMapCacheManager
+DEBUG CacheConfig: Fallback ConcurrentMapCacheManager has been loaded: ConcurrentMapCacheManager@abcde
+```
+
+### 4. **Spring Context에서 CacheManager 확인**
+
+또한 `Spring Boot`의 `ApplicationContext`에서 `CacheManager` 빈이 잘 등록되었는지 확인할 수도 있습니다. `ApplicationListener`를 활용해서 스프링 부트 애플리케이션이 시작할 때 `CacheManager` 빈을 확인하고 로그를 출력할 수 있습니다.
+
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class CacheManagerChecker implements ApplicationListener<ApplicationReadyEvent> {
+
+    private static final Logger logger = LoggerFactory.getLogger(CacheManagerChecker.class);
+
+    private final CacheManager cacheManager;
+
+    public CacheManagerChecker(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent event) {
+        logger.debug("CacheManager has been initialized: {}", cacheManager);
+    }
+}
+```
+
+이 클래스는 애플리케이션이 완전히 시작된 후(`ApplicationReadyEvent` 발생 후)에 현재 애플리케이션에서 사용되는 `CacheManager`를 로그로 출력합니다.
+
+### 5. **JMX를 통한 모니터링**
+
+추가로 JMX(Java Management Extensions)를 활성화하여 애플리케이션이 사용하는 `CacheManager` 및 캐시 상태를 모니터링할 수도 있습니다. 이를 위해 `application.properties`에 다음 설정을 추가하세요:
+
+```properties
+spring.jmx.enabled=true
+```
+
+그 후 JConsole 또는 VisualVM 등의 JMX 모니터링 도구를 사용하여 캐시 상태를 실시간으로 확인할 수 있습니다.
+
+---
+
+이렇게 설정하면 `CacheManager`가 잘 로드되었는지 디버그 로그를 통해 확인할 수 있으며, 문제 발생 시 적절히 디버깅할 수 있습니다.
+
+----------------------------
 
 스프링에서 Redis CacheManager가 실패하거나 캐시 설정이 실패하더라도 애플리케이션이 계속 동작하게 하고, 캐시 없이 처리되도록 하려면 `Fallback CacheManager`를 설정할 수 있습니다. 이를 통해 Redis가 동작하지 않더라도 기본적으로 캐싱이 없는 모드로 돌아갈 수 있습니다.
 
