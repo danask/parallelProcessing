@@ -1,3 +1,43 @@
+예외 처리 부분을 함수로 분리하고 `CompletableFuture`의 `get()` 메서드를 더 간단하게 표현할 수 있습니다. `Optional`을 이용한 방법은 함수형 스타일을 유지하면서도 예외 처리를 함수로 분리하여 코드의 가독성을 높일 수 있습니다.
+
+### 1. 예외 처리 부분을 함수로 분리하기
+
+```java
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+
+public class Example {
+
+    public static void main(String[] args) {
+        CompletableFuture<String> completableFuture = ...;
+
+        // get()을 예외 처리와 함께 분리한 함수 사용
+        String result = Optional.ofNullable(completableFuture)
+                                .map(Example::safeGet)
+                                .orElse(null);
+    }
+
+    // 예외 처리를 포함한 CompletableFuture.get() 함수
+    private static <T> T safeGet(CompletableFuture<T> future) {
+        try {
+            return future.get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get result from CompletableFuture", e);
+        }
+    }
+}
+```
+
+### 2. 더 간단한 표현
+예외 처리 로직을 함수로 분리한 덕분에 `Optional`을 사용하는 코드가 더 간결해졌습니다. 이 방식은 함수형 스타일을 유지하면서도 예외 처리를 재사용할 수 있어 가독성 및 유지 보수성이 향상됩니다.
+
+- `safeGet` 메서드는 `CompletableFuture`의 `get()` 호출 시 발생할 수 있는 예외를 처리하는 역할을 합니다.
+- `Optional.ofNullable`을 사용하여 `CompletableFuture`가 `null`인 경우에도 안전하게 처리할 수 있습니다.
+
+이 방법은 코드의 간결성을 유지하면서도, 예외 처리를 명확하게 처리할 수 있게 도와줍니다.
+
+-----------------------------
+
 # Parallel Processing
 
 
