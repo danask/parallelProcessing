@@ -1,4 +1,377 @@
 
+만약 트랜잭션이 아닌, 3개의 Kafka 이벤트를 처리한 후 DB에 저장한 뒤 **3시간의 딜레이**를 주는 방식으로 후속 작업(예: 이메일 전송)을 하려면, 단순하게 일정 시간이 지난 후 작업을 트리거할 수 있는 방법이 필요합니다. 이 경우 트랜잭션이 아니라 시간 지연을 활용하는 방법이므로, 지연 후 작업을 처리하는 스케줄링 방식을 적용할 수 있습니다.
+
+### 방법: Spring에서 `@Scheduled` 및 `TaskExecutor` 사용
+
+Spring에서는 **스케줄러**와 **비동기 작업 처리** 기능을 활용해 시간 지연을 줄 수 있습니다.
+
+### 1. **간단한 딜레이 방식 사용**
+
+Spring의 `ScheduledExecutorService`를 사용하여 딜레이를 적용할 수 있습니다. DB 작업이 완료된 후에 딜레이를 주고 후속 작업(예: 이메일 전송)을 실행할 수 있습니다.
+
+#### 1.1. **딜레이 후 작업 실행 코드**
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.stereotype.Service;
+
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class DelayService {
+
+    @Autowired
+    private JavaMailSender mailSender;
+
+    // 스케줄러 설정
+    private final ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
+
+    public DelayService() {
+        taskScheduler.setPoolSize(1);
+        taskScheduler.initialize();
+    }
+
+    public void executeWithDelay(String kafkaMessage) {
+        // DB 작업 완료 후 지연을 줌
+        System.out.println("DB 작업 완료. 3시간 후 작업 실행...");
+
+        // 3시간(3 * 60 * 60 * 1000 밀리초) 딜레이 후 후속 작업 실행
+        ScheduledFuture<?> future = taskScheduler.schedule(() -> {
+            sendEmail("recipient@example.com", "Delayed Email", "This email is sent after a 3-hour delay.");
+        }, new java.util.Date(System.currentTimeMillis() + TimeUnit.HOURS.toMillis(3)));
+    }
+
+    private void sendEmail(String to, String subject, String text) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(to);
+        message.setSubject(subject);
+        message.setText(text);
+        mailSender.send(message);
+        System.out.println("이메일 전송 완료");
+    }
+}
+```
+
+#### 1.2. **Kafka 메시지 처리 후 딜레이 실행**
+
+Kafka 메시지를 처리하고 3시간 딜레이 후 작업을 실행하는 부분은 기존 Kafka 소비자 코드에서 `DelayService`를 호출하여 구현합니다.
+
+```java
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Service;
+
+@Service
+public class KafkaConsumerService {
+
+    @Autowired
+    private DelayService delayService;
+
+    @KafkaListener(topics = "your-kafka-topic", groupId = "your-group-id")
+    public void listen(String message) {
+        // Kafka 메시지 처리 후 지연 실행
+        delayService.executeWithDelay(message);
+    }
+}
+```
+
+### 2. **스케줄러로 딜레이 작업 처리**
+
+스프링의 **스케줄링 기능**을 활용하면 더 간단하게 작업을 예약할 수 있습니다. 예를 들어 `@Scheduled` 어노테이션을 활용해서 주기적으로 확인하거나, `Thread.sleep()`을 사용하는 방법도 있지만, 지연 시간이 길 경우 `TaskScheduler`처럼 비동기 처리로 작업을 관리하는 것이 좋습니다.
+
+### 3. **장점과 고려사항**
+
+- **장점**:
+  - 구현이 간단하며 트랜잭션에 의존하지 않고, DB 작업 완료 후 일정 시간 동안 딜레이를 줄 수 있습니다.
+  - 시스템의 부하를 줄이면서도 후속 작업을 예약할 수 있습니다.
+
+- **고려사항**:
+  - 딜레이 후 시스템이 종료되거나 문제가 생기면 후속 작업이 실행되지 않을 수 있습니다. 이러한 상황을 방지하려면 딜레이 상태를 추적하거나 복구 가능한 방식(예: 작업 큐)으로 설계하는 것이 필요할 수 있습니다.
+  - 3시간 딜레이가 길기 때문에 시스템 자원을 많이 사용하지 않도록 주의해야 합니다. 이를 위해서 지연 시간 동안 작업을 저장하고 다시 불러오는 로직을 사용할 수도 있습니다.
+
+### 요약
+
+이 방법은 트랜잭션이 완료된 후 3시간의 딜레이를 주어 후속 작업(예: 이메일 전송)을 수행하는 방식입니다. Spring의 `ThreadPoolTaskScheduler`를 사용하여 3시간 지연 후 작업을 처리할 수 있으며, 상대적으로 간단하게 구현할 수 있습니다.
+
+----------------------------
+
+
+MongoDB를 사용하여 트랜잭션이 완료된 후 이메일을 보내는 방법을 3번 방법(트랜잭션 관리)으로 자세히 설명하겠습니다. Kafka 이벤트를 처리하고 MongoDB에 데이터를 저장한 후, 트랜잭션이 성공적으로 완료되면 이메일을 보내는 작업을 진행하는 방식입니다.
+
+MongoDB에서 트랜잭션을 지원하는 것은 **replica set**이나 **sharded cluster**와 같이 트랜잭션이 가능한 환경이어야 합니다.
+
+### 1. **MongoDB 트랜잭션 관리**
+
+MongoDB에서는 트랜잭션을 통해 여러 문서의 상태를 원자적으로 처리할 수 있습니다. 트랜잭션이 성공적으로 완료된 후에 후속 작업(이메일 전송 등)을 실행할 수 있습니다.
+
+#### 의존성 추가 (`pom.xml`)
+
+MongoDB와 이메일 전송을 위한 의존성을 추가합니다.
+
+```xml
+<!-- MongoDB 의존성 -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-mongodb</artifactId>
+</dependency>
+
+<!-- JavaMail 의존성 (이메일 전송) -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-mail</artifactId>
+</dependency>
+```
+
+### 2. **MongoDB 트랜잭션 코드**
+
+Kafka 이벤트를 처리하면서 MongoDB 트랜잭션을 사용하는 코드입니다.
+
+```java
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoDatabase;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class TransactionService {
+
+    @Autowired
+    private MongoClient mongoClient;
+
+    @Autowired
+    private JavaMailSender mailSender;
+
+    private final String dbName = "yourDatabase";
+
+    @Transactional
+    public void processEventAndSendEmail(String kafkaMessage) {
+        try (ClientSession session = mongoClient.startSession()) {
+            session.startTransaction();
+
+            // MongoDB에 데이터 저장
+            MongoDatabase database = mongoClient.getDatabase(dbName);
+            // 예: Kafka 메시지 기반으로 처리한 데이터를 MongoDB에 저장
+            // 이 부분에 MongoDB 저장 로직 추가
+            saveToMongoDB(session, database, kafkaMessage);
+
+            // 트랜잭션 커밋
+            session.commitTransaction();
+
+            // 트랜잭션 성공 후 이메일 전송
+            sendEmail("recipient@example.com", "Kafka Event Processed", "The Kafka event has been processed and saved to the database.");
+        } catch (Exception e) {
+            // 트랜잭션 롤백
+            e.printStackTrace();
+        }
+    }
+
+    private void saveToMongoDB(ClientSession session, MongoDatabase database, String kafkaMessage) {
+        // MongoDB에 데이터를 트랜잭션으로 저장하는 로직 작성
+        // 예: database.getCollection("collectionName").insertOne(session, document);
+    }
+
+    private void sendEmail(String to, String subject, String text) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(to);
+        message.setSubject(subject);
+        message.setText(text);
+        mailSender.send(message);
+    }
+}
+```
+
+### 3. **Kafka 메시지 처리**
+
+이 서비스는 Kafka 이벤트를 처리한 후, MongoDB에 트랜잭션을 적용하여 데이터를 저장하고, 트랜잭션이 성공적으로 완료된 후에 이메일을 보내는 구조입니다.
+
+#### Kafka 메시지 소비 코드
+
+Spring Kafka를 사용하여 Kafka 메시지를 수신하고 `TransactionService`를 호출하는 코드를 작성합니다.
+
+```java
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Service;
+
+@Service
+public class KafkaConsumerService {
+
+    @Autowired
+    private TransactionService transactionService;
+
+    @KafkaListener(topics = "your-kafka-topic", groupId = "your-group-id")
+    public void listen(String message) {
+        // Kafka 메시지를 처리하고 트랜잭션 서비스 호출
+        transactionService.processEventAndSendEmail(message);
+    }
+}
+```
+
+### 4. **이메일 전송 설정**
+
+Spring Boot에서 이메일을 전송하기 위해 `application.properties` 또는 `application.yml` 파일에 이메일 전송 설정을 추가합니다.
+
+#### `application.properties` 예시:
+
+```properties
+spring.mail.host=smtp.your-email-provider.com
+spring.mail.port=587
+spring.mail.username=your-email@example.com
+spring.mail.password=your-email-password
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+```
+
+### 5. **전체 흐름**
+
+1. Kafka에서 이벤트 수신.
+2. MongoDB 트랜잭션 시작.
+3. 이벤트 처리 결과를 MongoDB에 저장.
+4. 트랜잭션 성공 시 `commit` 후 이메일 전송.
+5. 만약 실패할 경우, 트랜잭션을 롤백하고 에러를 처리.
+
+### 요약
+
+이 방식에서는 MongoDB 트랜잭션을 사용하여 데이터가 성공적으로 저장되면 이메일을 보내는 후속 작업을 할 수 있습니다. 트랜잭션이 성공적으로 커밋된 후에만 이메일이 전송되므로, 데이터가 정상적으로 처리된 후에만 후속 작업을 보장할 수 있습니다.
+
+
+-------------------------
+
+
+Kafka 이벤트를 받아 CSV 파일을 처리하고 DB에 넣은 후, 다음 작업을 진행하기 위해서는 "이전 작업이 완료되었는지"를 알 수 있는 방식이 필요합니다. 이를 위해서는 각 작업의 상태를 추적하고, 모든 작업이 완료되었을 때 후속 작업을 수행하는 방법을 설계해야 합니다.
+
+다음은 이를 처리하는 일반적인 방법들입니다:
+
+### 1. **상태 관리 (State Management)**
+작업의 진행 상태를 추적하여 모든 CSV 파일이 성공적으로 처리되었는지 확인할 수 있습니다. 이 상태 관리 방식에는 몇 가지 선택지가 있습니다.
+
+#### 1.1. **데이터베이스에서 상태 관리**
+각 CSV 파일의 처리가 완료될 때마다 처리 상태를 데이터베이스에 저장하고, 모든 파일이 성공적으로 처리되었을 때 후속 작업을 시작할 수 있습니다.
+
+예시:
+- 각 Kafka 메시지 처리에 대한 상태(성공/실패)를 기록하는 테이블을 만듭니다.
+- 모든 파일이 성공적으로 처리되면 후속 작업을 시작하는 트리거를 설정합니다.
+
+```sql
+CREATE TABLE file_processing_status (
+    id SERIAL PRIMARY KEY,
+    file_name VARCHAR(255),
+    status VARCHAR(50),  -- 상태: IN_PROGRESS, SUCCESS, FAILED 등
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Kafka 메시지 처리 완료 후 다음과 같이 상태 업데이트:
+```java
+public void updateStatus(String fileName, String status) {
+    String sql = "UPDATE file_processing_status SET status = ? WHERE file_name = ?";
+    jdbcTemplate.update(sql, status, fileName);
+}
+```
+
+모든 파일이 처리되었는지 확인하는 메소드:
+```java
+public boolean allFilesProcessed() {
+    String sql = "SELECT COUNT(*) FROM file_processing_status WHERE status != 'SUCCESS'";
+    int unprocessedFiles = jdbcTemplate.queryForObject(sql, Integer.class);
+    return unprocessedFiles == 0;
+}
+```
+
+모든 파일이 처리된 경우 후속 작업 시작:
+```java
+if (allFilesProcessed()) {
+    startNextProcess();
+}
+```
+
+#### 1.2. **Kafka에 상태 이벤트 전송**
+CSV 파일이 처리될 때마다 Kafka에 상태 업데이트 이벤트를 전송하여, 별도의 소비자가 이 이벤트를 구독하고 모든 파일이 완료되었는지 모니터링할 수 있습니다.
+
+예시:
+- 각 CSV 파일이 처리될 때 Kafka에 "처리 완료" 이벤트를 발행합니다.
+- 해당 이벤트를 수신한 소비자가 후속 작업을 시작합니다.
+
+```java
+public void sendCompletionEvent(String fileName) {
+    kafkaTemplate.send("file-processing-status", fileName + " processing complete");
+}
+```
+
+#### 1.3. **Redis를 사용한 상태 관리**
+Redis와 같은 인메모리 데이터 스토어를 사용하여 작업 상태를 추적할 수 있습니다. Redis에서 각 파일의 처리 상태를 추적하고, 모든 파일이 성공적으로 처리된 후 후속 작업을 시작합니다.
+
+```java
+// Redis에 상태 저장
+redisTemplate.opsForHash().put("file_status", fileName, "SUCCESS");
+
+// 모든 파일 처리 완료 여부 확인
+public boolean allFilesProcessed() {
+    Map<String, String> fileStatuses = redisTemplate.opsForHash().entries("file_status");
+    return fileStatuses.values().stream().allMatch(status -> status.equals("SUCCESS"));
+}
+```
+
+### 2. **워크플로우 오케스트레이션**
+작업이 여러 단계로 나누어지고 각 단계의 완료 여부에 따라 다음 단계로 넘어가야 할 때는 **워크플로우 오케스트레이터**(예: AWS Step Functions, Apache Airflow, 또는 Cadence)를 사용할 수 있습니다.
+
+- 각 CSV 파일 처리 완료 시 오케스트레이터에 작업 상태를 보고합니다.
+- 오케스트레이터가 모든 작업이 완료되었는지 확인하고 후속 작업을 실행합니다.
+
+#### 2.1. **Apache Airflow 사용**
+Apache Airflow는 다양한 작업을 DAG(Directed Acyclic Graph) 형태로 정의할 수 있으며, 작업 간의 의존성을 설정할 수 있습니다.
+
+```python
+from airflow import DAG
+from airflow.operators.python_operator import PythonOperator
+
+def process_csv_1():
+    # CSV 파일 1 처리
+    pass
+
+def process_csv_2():
+    # CSV 파일 2 처리
+    pass
+
+def process_csv_3():
+    # CSV 파일 3 처리
+    pass
+
+def after_all_processed():
+    # 모든 CSV 처리 후 실행할 작업
+    pass
+
+with DAG('csv_processing_dag', schedule_interval=None, start_date=datetime(2024, 10, 1)) as dag:
+    task1 = PythonOperator(task_id='process_csv_1', python_callable=process_csv_1)
+    task2 = PythonOperator(task_id='process_csv_2', python_callable=process_csv_2)
+    task3 = PythonOperator(task_id='process_csv_3', python_callable=process_csv_3)
+    final_task = PythonOperator(task_id='after_all_processed', python_callable=after_all_processed)
+
+    [task1, task2, task3] >> final_task  # 모든 작업이 완료된 후 final_task 실행
+```
+
+### 3. **트랜잭션 관리**
+만약 CSV 파일을 DB에 넣는 작업이 트랜잭션으로 이루어질 수 있다면, 트랜잭션이 완료될 때까지 후속 작업을 잠시 보류할 수 있습니다.
+
+- 트랜잭션이 커밋되면 후속 작업을 시작하는 방법으로 처리할 수 있습니다.
+
+### 요약
+
+1. **상태 관리**: 각 CSV 파일이 처리된 상태를 DB, Redis, 또는 Kafka를 통해 관리하고 모든 파일이 처리된 후 다음 작업을 수행.
+2. **워크플로우 오케스트레이션**: Apache Airflow나 AWS Step Functions 같은 오케스트레이터를 사용하여 각 작업의 완료 여부를 추적.
+3. **트랜잭션 관리**: 트랜잭션 완료 후 후속 작업을 수행.
+
+각 방식의 선택은 시스템의 복잡도와 요구사항에 따라 달라질 수 있습니다.
+
+-------------------------
+
 타임아웃을 길게 설정하더라도, **중간에 연결에 문제가 생겼다는 것을 기록**하거나 감지하는 방법은 여러 가지가 있습니다. 이를 통해 애플리케이션이 네트워크 장애나 연결 문제를 보다 빨리 감지하고 대응할 수 있게 할 수 있습니다. 여기 몇 가지 방법을 소개합니다:
 
 ### 1. **커넥션 풀의 `ConnectionTest` 설정**
