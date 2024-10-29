@@ -1,4 +1,66 @@
 
+
+해당 오류는 CSV 파일에서 인용 부호(`"`)로 감싸진 필드와 구분자(예: `,`) 사이에 올바르지 않은 문자가 있을 때 발생합니다. 일반적으로 CSV 파일에서 필드가 인용 부호로 감싸져 있을 경우, 구분자와 필드 내용 사이에 아무런 문자가 없어야 합니다. 만약 잘못된 문자가 존재하면 CSV 파싱 과정에서 에러가 발생하게 됩니다.
+
+### 해결 방법
+
+이 문제는 CSV 파일의 형식에 문제가 있거나, `CSVFormat`을 제대로 설정하지 않아서 발생할 수 있습니다. 다음은 문제를 해결할 수 있는 몇 가지 방법입니다.
+
+#### 1. **CSV 파일 내용 확인**
+   - 인용 부호로 감싸진 필드(`"필드 내용"`)와 구분자(`,`) 사이에 올바르지 않은 문자가 있는지 확인해야 합니다.
+   - 인용 부호 내에 구분자가 있는 경우, 이 구분자는 제대로 escape 처리되어야 합니다.
+
+#### 2. **`CSVFormat` 설정 수정**
+   - `CSVFormat`을 사용하여 파일에 맞는 올바른 구분자, 인용 문자, escape 문자 등을 설정해 줍니다.
+
+#### 3. **withIgnoreSurroundingSpaces() 옵션 사용**
+   - 구분자와 인용 부호 사이에 공백 문자가 있는 경우 이를 무시할 수 있습니다. `withIgnoreSurroundingSpaces()` 옵션을 설정해보세요.
+
+#### 4. **예시 코드**
+```java
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+
+import java.io.FileReader;
+import java.io.Reader;
+import java.nio.file.Paths;
+
+public class CSVParserExample {
+
+    public static void main(String[] args) {
+        try {
+            Reader reader = new FileReader(Paths.get("example.csv").toFile());
+
+            // CSVFormat 설정
+            CSVFormat csvFormat = CSVFormat.DEFAULT
+                    .withEscape(null)                      // Escape 문자 비활성화
+                    .withIgnoreSurroundingSpaces(true)     // 구분자 주위 공백 무시
+                    .withIgnoreEmptyLines(true);           // 빈 줄 무시
+
+            CSVParser csvParser = new CSVParser(reader, csvFormat);
+
+            for (CSVRecord record : csvParser) {
+                System.out.println(record);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### 주요 설정
+- `withIgnoreSurroundingSpaces(true)`: 구분자와 필드 사이에 있는 공백 문자를 무시합니다.
+- `withIgnoreEmptyLines(true)`: 빈 줄을 무시합니다.
+
+이 코드를 사용하면 공백이나 빈 줄로 인한 문제를 해결할 수 있으며, 만약 CSV 파일에 특별한 escape 문자가 있다면 이를 제대로 처리하기 위해 다른 옵션을 추가로 조정할 수도 있습니다.
+
+### 추가 확인
+만약 오류가 계속 발생한다면, CSV 파일에서 문제가 되는 부분을 확인해 그 부분이 올바르게 포맷되었는지 점검하는 것이 중요합니다.
+
+---------------------
 `Arrays.asList(obj1, obj2, obj3)`에서 `obj1.getType()`이 empty인 경우 해당 객체를 리스트에 넣지 않으려면 `Stream` API를 사용하여 필터링할 수 있습니다. `Stream`을 이용해 `null`이거나 비어 있는 객체를 제외하고 리스트를 생성할 수 있습니다.
 
 다음은 이를 구현하는 방법입니다:
