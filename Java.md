@@ -1,5 +1,78 @@
 
 
+CSV 파일의 한 줄에 `"abc", 1, "\"baba", "wer"`와 같은 데이터가 있을 경우, 문제는 `\"baba`처럼 인용 부호(`"`)가 제대로 escape 처리되지 않아서 발생합니다. 이 상황에서 Apache Commons CSV 파서가 `"` 문자를 인용 부호로 인식하고, 그 뒤의 내용을 제대로 파싱하지 못해 오류를 발생시키는 것입니다.
+
+### 해결 방법
+
+CSV에서 인용 부호(`"`) 자체가 데이터로 포함되어야 할 경우, 일반적으로 그 인용 부호는 두 개의 인용 부호로 escape 처리되어야 합니다. 예를 들어 `"baba"`를 `"\"baba"`로 표기할 때 CSV에서 유효한 형식은 `"\"\"baba"`로 표기해야 합니다.
+
+하지만 이 데이터가 파일에 이미 저장된 상태라면, CSV 파일을 수정하거나 파서를 수정하여 해결할 수 있습니다.
+
+### 1. **CSV 파일을 수정하는 방법**
+CSV 파일에서 인용 부호를 이중으로 처리하여 문제를 해결할 수 있습니다.
+
+#### 잘못된 데이터:
+```csv
+"abc", 1, "\"baba", "wer"
+```
+
+#### 올바른 형식:
+```csv
+"abc", 1, """baba", "wer"
+```
+
+즉, 인용 부호를 두 번(`""`) 입력해서 인용 부호가 데이터로 포함되도록 해야 합니다.
+
+### 2. **CSV 파서 설정 변경**
+파서를 통해서도 이 문제를 해결할 수 있습니다. 일반적인 CSV 파싱은 escape 문자로 인용 부호를 처리하는 방식이므로, 파서의 escape 문자를 적절히 설정하는 것이 중요합니다.
+
+#### 수정된 파서 코드:
+파서에 `withEscape()` 설정을 추가하여 인용 부호 escape 처리를 적절히 하도록 수정할 수 있습니다. 기본적으로 Apache Commons CSV는 `\`를 escape 문자로 사용하지만, 이를 통해 인용 부호의 escape를 처리할 수 있습니다.
+
+```java
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+
+import java.io.FileReader;
+import java.io.Reader;
+import java.nio.file.Paths;
+
+public class CSVParserExample {
+
+    public static void main(String[] args) {
+        try {
+            Reader reader = new FileReader(Paths.get("example.csv").toFile());
+
+            // CSVFormat 설정 - escape 문자를 \로 설정
+            CSVFormat csvFormat = CSVFormat.DEFAULT
+                    .withEscape('\\')                      // Escape 문자를 \로 설정
+                    .withQuote('"')                        // 인용 부호를 "로 설정
+                    .withIgnoreSurroundingSpaces(true)     // 공백 무시
+                    .withIgnoreEmptyLines(true);           // 빈 줄 무시
+
+            CSVParser csvParser = new CSVParser(reader, csvFormat);
+
+            for (CSVRecord record : csvParser) {
+                System.out.println(record);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+### 3. **예외 처리 방식**
+만약 파일에 많은 escape 처리가 필요한 경우, 직접 파일을 수정하는 것보다 예외를 적절히 처리하는 방식으로 접근하는 것이 좋을 수 있습니다. 그럴 때는 `CSVParser`가 처리할 수 없는 데이터를 커스텀 처리할 수도 있습니다.
+
+### 요약
+- **CSV 파일을 수정**하여 인용 부호를 이중으로(`""`) escape 처리하는 것이 표준 방식입니다.
+- **CSV 파서 설정**에서 escape 문자와 인용 부호 설정을 통해 문제를 해결할 수 있습니다.
+- **withEscape('\\')**를 통해 인용 부호를 escape 문자로 처리할 수 있습니다.
+
+
 해당 오류는 CSV 파일에서 인용 부호(`"`)로 감싸진 필드와 구분자(예: `,`) 사이에 올바르지 않은 문자가 있을 때 발생합니다. 일반적으로 CSV 파일에서 필드가 인용 부호로 감싸져 있을 경우, 구분자와 필드 내용 사이에 아무런 문자가 없어야 합니다. 만약 잘못된 문자가 존재하면 CSV 파싱 과정에서 에러가 발생하게 됩니다.
 
 ### 해결 방법
