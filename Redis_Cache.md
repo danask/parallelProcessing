@@ -1,3 +1,73 @@
+해당 오류는 `RedisTemplate<String, Boolean>` 빈이 정의되지 않았기 때문에 발생한 문제입니다. 해결하기 위해서는 해당 타입의 `RedisTemplate` 빈을 명시적으로 정의해야 합니다.
+
+### 해결 방법
+Redis 설정 클래스에 `RedisTemplate<String, Boolean>` 빈을 정의하세요. 예를 들어 아래와 같이 작성할 수 있습니다.
+
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericToStringSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+@Configuration
+public class RedisConfig {
+
+    @Bean
+    public RedisTemplate<String, Boolean> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Boolean> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());  // key 직렬화
+        template.setValueSerializer(new GenericToStringSerializer<>(Boolean.class));  // value 직렬화
+        return template;
+    }
+}
+```
+
+위 코드는 `String` 타입의 키와 `Boolean` 타입의 값을 가지는 `RedisTemplate`을 정의하는 설정입니다.
+
+### 추가로 확인할 사항
+1. **RedisConnectionFactory가 올바르게 설정되었는지 확인**: 만약 `RedisConnectionFactory`도 설정되지 않았다면, 이를 설정하는 코드도 필요합니다. 예를 들어 `LettuceConnectionFactory`를 사용하고 있다면 아래처럼 추가합니다.
+
+    ```java
+    import org.springframework.context.annotation.Bean;
+    import org.springframework.data.redis.connection.RedisConnectionFactory;
+    import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        return new LettuceConnectionFactory();
+    }
+    ```
+
+2. **의존성 확인**: `spring-boot-starter-data-redis` 의존성이 제대로 추가되어 있는지 확인하세요.
+
+    **Gradle**:
+    ```groovy
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    ```
+
+    **Maven**:
+    ```xml
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    ```
+
+### 추가 로그 확인 방법
+`application.properties`에 다음을 추가하여 더 자세한 디버그 정보를 확인할 수 있습니다.
+
+```properties
+logging.level.org.springframework=DEBUG
+```
+
+위 설정을 통해 스프링 부트가 `RedisTemplate` 관련 빈을 로드하는 과정에서 어떤 문제가 발생하는지 더 명확하게 확인할 수 있습니다.
+
+위 내용을 적용해도 문제가 지속된다면, 추가적인 로그나 코드를 제공해 주시면 더 구체적인 문제를 파악할 수 있도록 도와드리겠습니다.
+
+---------------------------
 
 오류 메시지 "Consider defining a bean of type 'org.springframework.data.redis.core.RedisTemplate' in your configuration"는 스프링에서 `RedisTemplate` 타입의 빈을 찾을 수 없다는 의미입니다. 이는 `RedisTemplate`을 자동으로 주입하기 위해 스프링이 필요한 설정을 찾지 못했기 때문에 발생합니다.
 
