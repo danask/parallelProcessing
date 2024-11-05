@@ -1,3 +1,120 @@
+Redis를 활용하여 파일 `a`, `b`, `c`의 데이터 임시 저장 상태를 관리하고, 세 파일 모두 저장된 경우 해당 상태를 Redis에서 삭제하는 로직을 구현할 수 있습니다. 이를 위해 RedisTemplate을 사용하여 Redis에 임시 데이터를 저장하고, 조건이 충족되면 데이터를 삭제하는 방식으로 처리합니다.
+
+### 구현 계획
+
+1. **파일 저장 상태를 Redis에 임시 저장**:
+   각 파일의 저장 상태를 키로 저장하여, 파일이 성공적으로 처리되면 상태 값을 `true`로 설정합니다.
+
+2. **모든 파일이 저장되었는지 확인**:
+   모든 파일의 상태가 `true`인 경우에만, Redis에서 해당 키들을 삭제합니다.
+
+3. **Redis Template을 활용한 로직**:
+   - `SET` 명령으로 파일 상태를 저장
+   - `GET` 명령으로 파일 상태 확인
+   - `DEL` 명령으로 모든 파일이 저장되면 상태값 삭제
+
+### 예시 코드 (Spring RedisTemplate 사용)
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class FileImportService {
+
+    @Autowired
+    private RedisTemplate<String, Boolean> redisTemplate;
+
+    private static final String FILE_A_STATUS_KEY = "file:a:status";
+    private static final String FILE_B_STATUS_KEY = "file:b:status";
+    private static final String FILE_C_STATUS_KEY = "file:c:status";
+    
+    // 파일 A 처리
+    public void saveFileAData() {
+        // 파일 A 데이터 저장 로직 (예: DB 저장 후)
+        boolean fileASaved = true; // 예시: 파일 저장 성공 여부
+        
+        // Redis에 파일 A 저장 상태 임시 저장
+        redisTemplate.opsForValue().set(FILE_A_STATUS_KEY, fileASaved, 1, TimeUnit.HOURS); // TTL 1시간
+        checkAllFilesAndClear();
+    }
+
+    // 파일 B 처리
+    public void saveFileBData() {
+        // 파일 B 데이터 저장 로직
+        boolean fileBSaved = true; // 예시: 파일 저장 성공 여부
+        
+        // Redis에 파일 B 저장 상태 임시 저장
+        redisTemplate.opsForValue().set(FILE_B_STATUS_KEY, fileBSaved, 1, TimeUnit.HOURS);
+        checkAllFilesAndClear();
+    }
+
+    // 파일 C 처리
+    public void saveFileCData() {
+        // 파일 C 데이터 저장 로직
+        boolean fileCSaved = true; // 예시: 파일 저장 성공 여부
+        
+        // Redis에 파일 C 저장 상태 임시 저장
+        redisTemplate.opsForValue().set(FILE_C_STATUS_KEY, fileCSaved, 1, TimeUnit.HOURS);
+        checkAllFilesAndClear();
+    }
+
+    // 모든 파일이 저장되었는지 확인하고, 완료된 경우 Redis 상태값 삭제
+    private void checkAllFilesAndClear() {
+        Boolean fileAStatus = redisTemplate.opsForValue().get(FILE_A_STATUS_KEY);
+        Boolean fileBStatus = redisTemplate.opsForValue().get(FILE_B_STATUS_KEY);
+        Boolean fileCStatus = redisTemplate.opsForValue().get(FILE_C_STATUS_KEY);
+
+        // 모든 파일이 저장되었는지 확인 (fileAStatus, fileBStatus, fileCStatus 모두 true 인지 확인)
+        if (Boolean.TRUE.equals(fileAStatus) && Boolean.TRUE.equals(fileBStatus) && Boolean.TRUE.equals(fileCStatus)) {
+            // 세 가지 상태가 모두 true 이면 Redis에서 상태값 삭제
+            redisTemplate.delete(FILE_A_STATUS_KEY);
+            redisTemplate.delete(FILE_B_STATUS_KEY);
+            redisTemplate.delete(FILE_C_STATUS_KEY);
+            
+            // 추가 작업: 파일이 모두 저장되었을 때 수행할 작업
+            System.out.println("All files are saved, clearing temporary statuses.");
+        }
+    }
+}
+```
+
+### 로직 설명
+
+1. **파일 상태 저장**:
+   - `saveFileAData()`, `saveFileBData()`, `saveFileCData()` 메서드는 각각 파일을 처리한 후 그 파일의 상태를 Redis에 저장합니다.
+   - `opsForValue().set(key, value, timeout, timeUnit)`를 사용하여 Redis에 파일 상태를 저장하고 TTL(Time-to-Live)을 설정합니다 (1시간).
+
+2. **모든 파일이 저장되었는지 확인**:
+   - `checkAllFilesAndClear()` 메서드는 Redis에서 각 파일의 상태 값을 읽어와서(`opsForValue().get(key)`), 모든 파일이 저장되었는지 확인합니다.
+   - 세 파일 모두 `true`일 경우, Redis에 저장된 파일 상태 데이터를 삭제합니다 (`redisTemplate.delete()`).
+
+3. **상태 초기화**:
+   - 세 파일이 모두 저장되면 Redis에서 상태값이 삭제되므로, 나중에 다시 파일을 처리할 때 상태가 남아 있지 않도록 합니다.
+
+### 예외 처리 및 확장 가능성
+
+1. **TTL(Time-to-Live)**:
+   - 임시 저장된 파일 상태는 일정 시간이 지나면 자동으로 삭제됩니다. 여기서는 1시간으로 설정했지만, 필요에 따라 변경할 수 있습니다.
+
+2. **확장 가능성**:
+   - 필요하다면 더 많은 파일을 처리하거나, 상태값을 추가하는 방식으로 확장할 수 있습니다. 예를 들어, 파일 외에 다른 데이터를 임시 저장하고 처리하는 방식으로 적용 가능합니다.
+
+3. **에러 처리**:
+   - 파일 저장 중 예외 상황이 발생하면 `false` 값을 Redis에 저장하여 실패한 상태를 추적할 수 있습니다.
+
+### Redis 구조
+
+- **Key**: `file:a:status`, `file:b:status`, `file:c:status` (각 파일의 저장 상태)
+- **Value**: 파일 저장 성공 여부 (`true` 또는 `false`)
+
+이렇게 하면 각 파일의 상태를 Redis에서 관리하고, 조건이 충족되면 해당 상태를 자동으로 삭제하여 효율적으로 데이터를 처리할 수 있습니다.
+
+-----------------------------
+
 Spring Boot에서 `CacheManager`가 잘 로드되었는지 확인하기 위해 디버그 로그를 설정하고, `CacheManager`가 생성될 때 로그를 찍어 확인할 수 있습니다. Spring 자체 로깅을 활용하거나, `SLF4J` 또는 `Log4j2` 같은 로깅 프레임워크를 사용해 캐시 설정 및 로딩 과정을 디버깅할 수 있습니다.
 
 아래는 디버그 로그를 출력할 수 있는 몇 가지 방법과 코드 예시입니다.
