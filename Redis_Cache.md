@@ -1,3 +1,53 @@
+
+오류 메시지 "Consider defining a bean of type 'org.springframework.data.redis.core.RedisTemplate' in your configuration"는 스프링에서 `RedisTemplate` 타입의 빈을 찾을 수 없다는 의미입니다. 이는 `RedisTemplate`을 자동으로 주입하기 위해 스프링이 필요한 설정을 찾지 못했기 때문에 발생합니다.
+
+이 문제를 해결하려면 스프링 설정 파일에 `RedisTemplate` 빈을 정의해야 합니다.
+
+### 1. `RedisTemplate` 빈을 설정 파일에 추가
+
+아래와 같이 `RedisTemplate` 빈을 스프링 설정 클래스에 정의할 수 있습니다:
+
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+@Configuration
+public class RedisConfig {
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+
+        // 키에 String 직렬화 사용
+        template.setKeySerializer(new StringRedisSerializer());
+
+        // 값에 JSON 직렬화 사용
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+
+        // 해시 키와 해시 값에 동일한 직렬화 사용
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+
+        return template;
+    }
+}
+```
+
+### 설명:
+
+- **RedisConnectionFactory**: Redis와의 연결을 관리하는 `RedisConnectionFactory`는 보통 이미 설정되어 있어야 하며, 이를 `RedisTemplate`이 사용합니다.
+- **RedisTemplate**: Redis에 데이터를 쉽게 저장하고 불러오기 위한 템플릿 클래스입니다.
+- **StringRedisSerializer**: 키에 문자열을 직렬화할 때 사용됩니다.
+- **GenericJackson2JsonRedisSerializer**: 값을 JSON 형식으로 직렬화할 때 사용됩니다.
+
+이와 같이 설정을 하면 스프링에서 `RedisTemplate` 빈을 찾을 수 있게 되어 오류가 해결됩니다.
+-----------------------
+
 Redis를 활용하여 파일 `a`, `b`, `c`의 데이터 임시 저장 상태를 관리하고, 세 파일 모두 저장된 경우 해당 상태를 Redis에서 삭제하는 로직을 구현할 수 있습니다. 이를 위해 RedisTemplate을 사용하여 Redis에 임시 데이터를 저장하고, 조건이 충족되면 데이터를 삭제하는 방식으로 처리합니다.
 
 ### 구현 계획
