@@ -1,3 +1,100 @@
+
+Redis에 데이터를 `redisTemplate.opsForValue().set()`을 사용해 저장하려고 했는데, 저장이 되지 않는 이유는 여러 가지가 있을 수 있습니다. 여기서는 그 원인들을 하나씩 점검하는 방법을 알려드리겠습니다.
+
+### 1. Redis 서버가 제대로 동작하는지 확인
+
+- Redis 서버가 제대로 동작하고 있는지 확인하는 것이 우선입니다.
+- Redis 서버가 실행 중인지, 정상적으로 연결이 되어 있는지 확인하세요. 예를 들어, Redis CLI를 사용해 직접 Redis에 접근해 키를 조회해볼 수 있습니다.
+
+```bash
+redis-cli
+> keys *
+```
+
+만약 Redis 서버가 제대로 동작하지 않거나, 연결 문제로 인해 데이터를 저장하지 못하는 경우가 있을 수 있습니다.
+
+### 2. `RedisTemplate` 설정 문제
+
+- `RedisTemplate`이 제대로 설정되지 않으면 데이터가 Redis에 저장되지 않을 수 있습니다. 예를 들어, `keySerializer`, `valueSerializer`가 잘못 설정되면 직렬화 문제가 발생할 수 있습니다.
+- 아래와 같이 `RedisTemplate`에 대한 설정을 다시 확인해 보세요.
+
+```java
+@Bean
+public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+    RedisTemplate<String, Object> template = new RedisTemplate<>();
+    template.setConnectionFactory(redisConnectionFactory);
+    template.setKeySerializer(new StringRedisSerializer());
+    template.setValueSerializer(new GenericJackson2JsonRedisSerializer()); // value 직렬화 방식
+    return template;
+}
+```
+
+이 설정을 통해, 키는 문자열로, 값은 JSON 형식으로 직렬화되며 Redis에 저장됩니다.
+
+### 3. TTL 설정 확인
+
+- TTL(Time to Live)을 설정했는데 데이터가 바로 사라지는 경우가 있을 수 있습니다. `redisTemplate.opsForValue().set()` 메서드에 설정한 TTL 값이 의도한 대로 설정되었는지 확인하세요.
+
+```java
+redisTemplate.opsForValue().set(FILE_A_STATUS_KEY, fileASaved, 1, TimeUnit.HOURS); // TTL 1시간 
+```
+
+- 만약 `1시간` 설정 후 즉시 데이터를 조회하면 값이 없는지 확인해야 합니다. 만약 즉시 사라지거나 Redis TTL이 너무 짧게 설정되었으면 문제가 발생할 수 있습니다.
+
+### 4. Key Collision 문제
+
+- Redis에서 `FILE_A_STATUS_KEY`와 같은 키로 이미 다른 데이터가 저장되어 있는지 확인해 보세요. 키가 충돌하고 다른 데이터가 덮어씌워지지 않는 상황일 수 있습니다.
+
+```java
+String existingValue = redisTemplate.opsForValue().get(FILE_A_STATUS_KEY);
+System.out.println("Existing Value: " + existingValue);
+```
+
+### 5. 다른 캐시 메서드는 동작하지만 `redisTemplate` 메서드는 동작하지 않는 경우
+
+- Redis에 데이터를 캐싱하기 위해 `@Cacheable`, `@CachePut`, `@CacheEvict` 같은 캐시 어노테이션을 사용한 경우에, `RedisTemplate`을 사용하는 메서드와 충돌하거나 잘못된 설정이 있을 수 있습니다.
+- 캐시 메커니즘과 RedisTemplate이 동시에 사용되면 의도하지 않은 상황이 발생할 수 있으므로 캐시 전략과 `redisTemplate`의 사용 범위를 구분하는 것이 좋습니다.
+
+### 6. 로그 확인 및 디버그
+
+- Spring 로그를 확인하여 어떤 이유로 저장이 실패했는지 확인할 수 있습니다.
+- `logging.level.org.springframework=DEBUG` 설정을 통해 자세한 로그를 남길 수 있으며, Redis와 관련된 문제가 있는지 확인해 보세요.
+
+```properties
+logging.level.org.springframework.data.redis=DEBUG
+```
+
+이 설정을 통해 Redis 관련 모든 동작을 디버깅할 수 있는 로그가 남겨집니다.
+
+### 7. Redis Persistence 설정 확인
+
+- 만약 Redis에서 특정 조건에서 데이터를 잃어버리는 경우가 발생하면 Redis의 데이터 지속성(persistence) 설정이 잘못되어 있을 수 있습니다. Redis의 설정 파일 `redis.conf`에서 `appendonly` 설정이 되어 있는지 확인해보세요.
+  
+```bash
+appendonly yes
+```
+
+### 8. Redis 권한 설정 확인
+
+- Redis에 데이터를 저장할 때, Redis의 권한 설정으로 인해 데이터가 저장되지 않는 경우도 있을 수 있습니다. Redis에 접근하는 유저나 인증 정보를 확인하세요.
+
+### 9. Redis에 값이 정상적으로 저장되었는지 직접 확인
+
+Redis CLI를 이용해 키가 잘 저장되었는지 확인할 수 있습니다.
+
+```bash
+redis-cli
+> get FILE_A_STATUS_KEY
+```
+
+이 명령을 통해 Redis에 값이 정상적으로 저장되었는지 확인할 수 있습니다.
+
+### 결론
+
+위에 나열된 항목들을 하나씩 점검해보시고, 특히 `RedisTemplate`의 설정 문제 및 Redis 서버 상태를 우선적으로 확인하는 것이 좋습니다. 각 단계에서 디버깅을 하면서 원인을 추적할 수 있습니다.
+
+--------------------------
+
 해당 오류는 `RedisTemplate<String, Boolean>` 빈이 정의되지 않았기 때문에 발생한 문제입니다. 해결하기 위해서는 해당 타입의 `RedisTemplate` 빈을 명시적으로 정의해야 합니다.
 
 ### 해결 방법
