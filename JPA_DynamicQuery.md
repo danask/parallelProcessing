@@ -1,3 +1,742 @@
+QueryDSL을 사용하여 동적으로 입력을 받아 **PostgreSQL**과 **MongoDB**에서 각각 쿼리를 생성하고, 두 데이터베이스의 결과를 합치는 예제는 여러 단계를 거칩니다. 여기서는 **Maven 설정**, **QueryDSL 설정**, **PostgreSQL 및 MongoDB에 대한 QueryDSL 설정** 그리고 **동적 쿼리 처리 및 조인 예제**를 다룹니다.
+
+---
+
+### **1. Maven 설정**
+
+우선, **Maven** 프로젝트에서 필요한 의존성을 추가합니다.
+
+#### **Maven 의존성 (pom.xml)**
+
+```xml
+<dependencies>
+    <!-- Spring Data JPA for PostgreSQL -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- PostgreSQL Driver -->
+    <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+
+    <!-- Spring Data MongoDB -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-mongodb</artifactId>
+    </dependency>
+
+    <!-- QueryDSL JPA Support -->
+    <dependency>
+        <groupId>com.querydsl</groupId>
+        <artifactId>querydsl-jpa</artifactId>
+    </dependency>
+
+    <!-- QueryDSL MongoDB Support -->
+    <dependency>
+        <groupId>com.querydsl</groupId>
+        <artifactId>querydsl-mongodb</artifactId>
+    </dependency>
+
+    <!-- Annotation Processor for QueryDSL -->
+    <dependency>
+        <groupId>com.querydsl</groupId>
+        <artifactId>querydsl-apt</artifactId>
+        <scope>provided</scope>
+    </dependency>
+
+    <!-- Lombok (for getter/setter simplification) -->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <scope>provided</scope>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>com.mysema.maven</groupId>
+            <artifactId>apt-maven-plugin</artifactId>
+            <version>1.1.3</version>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>process</goal>
+                    </goals>
+                    <configuration>
+                        <outputDirectory>target/generated-sources/java</outputDirectory>
+                        <processor>com.querydsl.apt.jpa.JPAAnnotationProcessor</processor>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+---
+
+### **2. PostgreSQL 및 MongoDB 설정**
+
+#### **PostgreSQL 설정**
+
+`application.yml` 또는 `application.properties` 파일에서 PostgreSQL 설정을 정의합니다.
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydb
+    username: myuser
+    password: mypassword
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+```
+
+#### **MongoDB 설정**
+
+MongoDB 설정도 동일하게 정의합니다.
+
+```yaml
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/mydb
+```
+
+---
+
+### **3. QueryDSL로 PostgreSQL 및 MongoDB 엔티티 설정**
+
+#### **PostgreSQL 엔티티**
+
+```java
+@Entity
+@Table(name = "orders")
+@Getter
+@Setter
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String orderId;
+    private String product;
+    private Double amount;
+    private LocalDate orderDate;
+}
+```
+
+#### **MongoDB 엔티티**
+
+```java
+@Document(collection = "devices")
+@Getter
+@Setter
+public class Device {
+    @Id
+    private String id;
+
+    private String deviceId;
+    private String status;
+    private LocalDateTime lastUpdated;
+}
+```
+
+---
+
+### **4. Repository 설정**
+
+#### **PostgreSQL용 QueryDSL Repository**
+
+```java
+public interface OrderRepository extends JpaRepository<Order, Long>, QuerydslPredicateExecutor<Order> {
+}
+```
+
+#### **MongoDB용 QueryDSL Repository**
+
+```java
+public interface DeviceRepository extends MongoRepository<Device, String>, QuerydslPredicateExecutor<Device> {
+}
+```
+
+---
+
+### **5. 동적 쿼리 처리**
+
+이제 동적으로 입력된 필드에 따라 PostgreSQL과 MongoDB에 각각 쿼리를 보내고, 그 결과를 합치는 작업을 진행합니다.
+
+#### **동적 입력을 처리하는 서비스**
+
+```java
+@Service
+public class QueryService {
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private DeviceRepository deviceRepository;
+
+    public List<Map<String, Object>> fetchDynamicData(Map<String, Object> params) {
+        // 1. PostgreSQL에서 동적 쿼리 생성
+        QOrder qOrder = QOrder.order;
+        BooleanBuilder orderBuilder = new BooleanBuilder();
+
+        if (params.containsKey("orderId")) {
+            orderBuilder.and(qOrder.orderId.eq((String) params.get("orderId")));
+        }
+        if (params.containsKey("product")) {
+            orderBuilder.and(qOrder.product.eq((String) params.get("product")));
+        }
+
+        List<Order> orders = (List<Order>) orderRepository.findAll(orderBuilder);
+
+        // 2. MongoDB에서 동적 쿼리 생성
+        QDevice qDevice = QDevice.device;
+        BooleanBuilder deviceBuilder = new BooleanBuilder();
+
+        if (params.containsKey("deviceId")) {
+            deviceBuilder.and(qDevice.deviceId.eq((String) params.get("deviceId")));
+        }
+        if (params.containsKey("status")) {
+            deviceBuilder.and(qDevice.status.eq((String) params.get("status")));
+        }
+
+        List<Device> devices = (List<Device>) deviceRepository.findAll(deviceBuilder);
+
+        // 3. 결과 병합
+        List<Map<String, Object>> result = new ArrayList<>();
+
+        for (Order order : orders) {
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("orderId", order.getOrderId());
+            resultMap.put("product", order.getProduct());
+            resultMap.put("amount", order.getAmount());
+
+            // MongoDB에서 orderId와 매칭되는 deviceId가 있으면 병합
+            devices.stream()
+                .filter(device -> device.getDeviceId().equals(order.getOrderId()))
+                .findFirst()
+                .ifPresent(device -> resultMap.put("deviceStatus", device.getStatus()));
+
+            result.add(resultMap);
+        }
+
+        return result;
+    }
+}
+```
+
+---
+
+### **6. Controller 설정**
+
+#### **Post 요청을 통해 동적 쿼리 요청**
+
+```java
+@RestController
+@RequestMapping("/api/query")
+public class QueryController {
+
+    @Autowired
+    private QueryService queryService;
+
+    @PostMapping("/dynamic")
+    public ResponseEntity<List<Map<String, Object>>> getDynamicData(@RequestBody Map<String, Object> params) {
+        List<Map<String, Object>> result = queryService.fetchDynamicData(params);
+        return ResponseEntity.ok(result);
+    }
+}
+```
+
+---
+
+### **7. 예시 동적 요청**
+
+이제 프론트엔드나 Postman 등을 통해 POST 요청을 보낼 수 있습니다. 동적으로 입력된 필드에 따라 각각 PostgreSQL과 MongoDB 쿼리가 처리됩니다.
+
+```json
+POST /api/query/dynamic
+{
+    "orderId": "ORD12345",
+    "status": "active"
+}
+```
+
+### **응답 예시**
+
+```json
+[
+  {
+    "orderId": "ORD12345",
+    "product": "Laptop",
+    "amount": 1200.50,
+    "deviceStatus": "active"
+  }
+]
+```
+
+---
+
+### **결론**
+
+위 구조에서는 **PostgreSQL**과 **MongoDB** 각각에서 동적 쿼리를 처리하고, 그 결과를 합쳐서 응답합니다. 이 구조를 통해 다양한 데이터 소스에서 데이터를 동적으로 처리할 수 있으며, 추가적으로 **QueryDSL**을 사용해 간결하고 유연하게 쿼리를 생성할 수 있습니다.
+
+---------
+
+### **Maven 셋업 및 QueryDSL 설정**
+
+우선, **Spring Boot** 프로젝트에서 QueryDSL을 사용하기 위해서는 필요한 의존성을 **Maven** `pom.xml`에 추가합니다.
+
+#### **Maven 설정 (pom.xml)**
+
+```xml
+<dependencies>
+    <!-- Spring Data JPA for PostgreSQL -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- PostgreSQL Driver -->
+    <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+
+    <!-- QueryDSL JPA Support -->
+    <dependency>
+        <groupId>com.querydsl</groupId>
+        <artifactId>querydsl-jpa</artifactId>
+    </dependency>
+
+    <!-- Annotation Processor for QueryDSL -->
+    <dependency>
+        <groupId>com.querydsl</groupId>
+        <artifactId>querydsl-apt</artifactId>
+        <scope>provided</scope>
+    </dependency>
+
+    <!-- Lombok for simplifying getters and setters -->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <scope>provided</scope>
+    </dependency>
+</dependencies>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>com.mysema.maven</groupId>
+            <artifactId>apt-maven-plugin</artifactId>
+            <version>1.1.3</version>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>process</goal>
+                    </goals>
+                    <configuration>
+                        <outputDirectory>target/generated-sources/java</outputDirectory>
+                        <processor>com.querydsl.apt.jpa.JPAAnnotationProcessor</processor>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins>
+</build>
+```
+
+---
+
+### **PostgreSQL 엔티티 설정**
+
+다음으로, **PostgreSQL** 테이블과 매핑되는 엔티티를 정의하고, 필드를 기본/상세(Basic/Detail) 구분으로 처리할 수 있도록 **@JsonView**를 활용합니다.
+
+#### **엔티티 클래스**
+
+```java
+import com.fasterxml.jackson.annotation.JsonView;
+import lombok.Getter;
+import lombok.Setter;
+
+import javax.persistence.*;
+
+@Entity
+@Getter
+@Setter
+public class User {
+
+    // 인터페이스 정의
+    public interface BasicView {}
+    public interface DetailView extends BasicView {}
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @JsonView(BasicView.class)
+    private String username;
+
+    @JsonView(DetailView.class)
+    private String email;
+
+    @JsonView(DetailView.class)
+    private String address;
+
+    @JsonView(BasicView.class)
+    private Integer age;
+}
+```
+
+여기서 **BasicView**와 **DetailView**를 활용하여, 클라이언트 요청에 따라 응답을 다르게 구성할 수 있습니다.
+
+---
+
+### **QueryDSL 기반 동적 쿼리 처리**
+
+#### **QueryDSL Repository**
+
+`JpaRepository`와 `QuerydslPredicateExecutor`를 활용하여 QueryDSL 기능을 제공하는 저장소(repository)를 설정합니다.
+
+```java
+public interface UserRepository extends JpaRepository<User, Long>, QuerydslPredicateExecutor<User> {
+}
+```
+
+#### **동적 쿼리 처리 서비스**
+
+클라이언트로부터 받은 동적 입력을 기반으로 QueryDSL을 사용해 필터링 쿼리를 생성합니다. 예를 들어, 사용자가 어떤 필드를 요청할지 모르기 때문에 동적으로 처리해야 합니다.
+
+```java
+import com.querydsl.core.BooleanBuilder;
+import com.querydsl.core.types.Predicate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    public List<User> getDynamicUsers(Map<String, Object> params) {
+        QUser qUser = QUser.user;
+        BooleanBuilder builder = new BooleanBuilder();
+
+        // 동적으로 입력된 필드에 따라 조건을 추가
+        if (params.containsKey("username")) {
+            builder.and(qUser.username.eq((String) params.get("username")));
+        }
+        if (params.containsKey("email")) {
+            builder.and(qUser.email.eq((String) params.get("email")));
+        }
+        if (params.containsKey("age")) {
+            builder.and(qUser.age.eq((Integer) params.get("age")));
+        }
+
+        return (List<User>) userRepository.findAll(builder);
+    }
+}
+```
+
+위 코드에서는 `params`라는 맵을 이용해 동적 조건을 설정합니다. 예를 들어 `username`, `email`, `age` 값이 클라이언트로부터 전달되면 이에 맞는 조건을 **QueryDSL**을 이용해 동적으로 추가합니다.
+
+---
+
+### **Controller 설정 및 동적 응답 처리**
+
+클라이언트로부터 POST 요청을 받아, 입력된 조건에 맞는 필드를 필터링하고, 필드를 `@JsonView`로 처리해 동적 응답을 제공합니다.
+
+#### **Controller**
+
+```java
+import com.fasterxml.jackson.annotation.JsonView;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/filter")
+    @JsonView(User.BasicView.class) // 기본 뷰
+    public ResponseEntity<List<User>> filterUsers(@RequestBody Map<String, Object> params,
+                                                  @RequestParam(required = false) String viewType) {
+        List<User> users = userService.getDynamicUsers(params);
+
+        // 'viewType'에 따라 JSON 응답을 Basic 또는 Detail로 처리
+        if ("detail".equals(viewType)) {
+            return ResponseEntity.ok().body(users);
+        }
+
+        // 기본 응답 (BasicView)
+        return ResponseEntity.ok().body(users);
+    }
+}
+```
+
+#### **동적 응답 처리**
+
+- `@JsonView` 어노테이션을 사용하여, 요청에 따라 BasicView 또는 DetailView로 응답을 전환합니다.
+- 클라이언트가 요청 시 `viewType=detail` 파라미터를 전달하면 **DetailView**를 적용하고, 그렇지 않으면 기본적으로 **BasicView**로 응답합니다.
+
+---
+
+### **Postman 요청 예시**
+
+#### **요청 예시 1: BasicView 요청**
+
+```json
+POST /api/users/filter?viewType=basic
+{
+    "username": "john",
+    "age": 30
+}
+```
+
+#### **응답 예시 1: BasicView**
+
+```json
+[
+  {
+    "id": 1,
+    "username": "john",
+    "age": 30
+  }
+]
+```
+
+#### **요청 예시 2: DetailView 요청**
+
+```json
+POST /api/users/filter?viewType=detail
+{
+    "username": "john",
+    "age": 30
+}
+```
+
+#### **응답 예시 2: DetailView**
+
+```json
+[
+  {
+    "id": 1,
+    "username": "john",
+    "email": "john@example.com",
+    "address": "123 Street",
+    "age": 30
+  }
+]
+```
+
+---
+
+### **결론**
+
+위 예제에서는 **동적 필드 입력**을 받아 **QueryDSL**을 이용해 쿼리를 생성하고, **`@JsonView`**를 통해 요청에 맞는 필드만 선택적으로 반환하는 방식을 다루었습니다. **QueryDSL**을 활용하면 동적 쿼리 처리가 훨씬 더 유연하고 관리하기 쉬워집니다.
+
+
+
+`@JsonView` 대신 단순하게 클래스를 사용해서 동적 응답을 처리할 수도 있습니다. 이 방법에서는 여러 DTO(Data Transfer Object) 클래스를 정의하여, 필요한 필드만 포함한 클래스를 클라이언트에게 응답하는 방식입니다.
+
+예를 들어, **Basic**과 **Detail**의 두 가지 응답 형태를 지원하려면, 각각의 DTO 클래스를 정의하고 서비스 계층에서 필요한 필드에 맞춰 객체를 매핑해 반환하는 방식입니다.
+
+### **DTO 클래스 정의**
+
+#### **BasicUserDTO**
+
+```java
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class BasicUserDTO {
+    private Long id;
+    private String username;
+    private Integer age;
+
+    public BasicUserDTO(Long id, String username, Integer age) {
+        this.id = id;
+        this.username = username;
+        this.age = age;
+    }
+}
+```
+
+#### **DetailUserDTO**
+
+```java
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+public class DetailUserDTO extends BasicUserDTO {
+    private String email;
+    private String address;
+
+    public DetailUserDTO(Long id, String username, Integer age, String email, String address) {
+        super(id, username, age);
+        this.email = email;
+        this.address = address;
+    }
+}
+```
+
+---
+
+### **서비스 계층에서 동적 응답 처리**
+
+`viewType` 값에 따라, **BasicUserDTO** 또는 **DetailUserDTO**를 반환하도록 서비스 계층을 작성할 수 있습니다.
+
+```java
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+public class UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    public List<Object> getDynamicUsers(Map<String, Object> params, String viewType) {
+        QUser qUser = QUser.user;
+        BooleanBuilder builder = new BooleanBuilder();
+
+        if (params.containsKey("username")) {
+            builder.and(qUser.username.eq((String) params.get("username")));
+        }
+        if (params.containsKey("age")) {
+            builder.and(qUser.age.eq((Integer) params.get("age")));
+        }
+
+        List<User> users = (List<User>) userRepository.findAll(builder);
+
+        // viewType에 따라 응답을 다르게 처리
+        if ("detail".equals(viewType)) {
+            return users.stream()
+                        .map(user -> new DetailUserDTO(user.getId(), user.getUsername(), user.getAge(), user.getEmail(), user.getAddress()))
+                        .collect(Collectors.toList());
+        } else {
+            return users.stream()
+                        .map(user -> new BasicUserDTO(user.getId(), user.getUsername(), user.getAge()))
+                        .collect(Collectors.toList());
+        }
+    }
+}
+```
+
+### **Controller**
+
+`viewType`에 따라, **BasicUserDTO** 또는 **DetailUserDTO**를 선택하여 반환하는 Controller입니다.
+
+```java
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/filter")
+    public ResponseEntity<List<Object>> filterUsers(@RequestBody Map<String, Object> params,
+                                                    @RequestParam(required = false) String viewType) {
+        List<Object> users = userService.getDynamicUsers(params, viewType);
+        return ResponseEntity.ok(users);
+    }
+}
+```
+
+### **Postman 요청 및 응답**
+
+#### **요청 예시 1: BasicUserDTO 반환 요청**
+
+```json
+POST /api/users/filter?viewType=basic
+{
+    "username": "john",
+    "age": 30
+}
+```
+
+#### **응답 예시 1: BasicUserDTO**
+
+```json
+[
+  {
+    "id": 1,
+    "username": "john",
+    "age": 30
+  }
+]
+```
+
+#### **요청 예시 2: DetailUserDTO 반환 요청**
+
+```json
+POST /api/users/filter?viewType=detail
+{
+    "username": "john",
+    "age": 30
+}
+```
+
+#### **응답 예시 2: DetailUserDTO**
+
+```json
+[
+  {
+    "id": 1,
+    "username": "john",
+    "age": 30,
+    "email": "john@example.com",
+    "address": "123 Street"
+  }
+]
+```
+
+---
+
+### **결론**
+
+이 방식에서는 `@JsonView` 대신 DTO 클래스를 통해 각각의 응답을 처리합니다. DTO를 사용하면 응답 구조를 명시적으로 정의할 수 있으며, 더 많은 제어권을 갖게 됩니다. 하지만 `@JsonView`는 하나의 엔티티 클래스를 통해 여러 응답 형태를 처리할 수 있어 간결성을 제공합니다. 선택은 프로젝트의 복잡도와 요구 사항에 따라 달라집니다.
+
+- **장점**: DTO는 각 응답에 맞춰 명확한 구조를 제공합니다.
+- **단점**: DTO 클래스가 많아질 수 있으며, 응답 형태가 많아질수록 관리가 어려워질 수 있습니다.
+
+----------------------------
+
 시맨틱 레이어는 원본 데이터 소스(ClickHouse, MongoDB 등)에서 나온 데이터를 추상화해 프론트엔드나 다른 시스템이 쉽게 접근할 수 있도록 하는 계층입니다. **Cube.js** 같은 시맨틱 레이어 도구를 사용하면 데이터 모델링을 관리하고, 다양한 데이터 소스의 데이터를 통합하여 빠르게 쿼리할 수 있습니다.
 
 ### **Cube.js 설정 및 사용 예시**
