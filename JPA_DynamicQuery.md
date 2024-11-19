@@ -11,6 +11,94 @@ Spring Boot에서 **GraphQL 스키마 정의**는 일반적으로 `.graphqls` �
 
 ---
 
+#### **Frontend Structure**
+The frontend sends GraphQL queries to fetch data based on user input.
+
+**Dependencies**:
+```bash
+npm install @apollo/client graphql recharts
+```
+
+**GraphQL Query**
+```graphql
+query GetGraphData($input: GraphFilterInput!) {
+  getGraphData(filters: $input) {
+    xAxis
+    yAxis {
+      fieldName
+      values
+    }
+  }
+}
+```
+
+**React Component**
+```jsx
+import React, { useState } from "react";
+import { useQuery, gql } from "@apollo/client";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+
+const GET_GRAPH_DATA = gql`
+  query GetGraphData($input: GraphFilterInput!) {
+    getGraphData(filters: $input) {
+      xAxis
+      yAxis {
+        fieldName
+        values
+      }
+    }
+  }
+`;
+
+const GraphComponent = () => {
+  const [filters, setFilters] = useState({
+    appName: "MyApp",
+    measures: ["appName"],
+    dimensions: ["backgroundTime", "foregroundTime"],
+    customerId: "customer1",
+    groupId: "group1",
+    dateRange: "last7",
+    startDate: null,
+    endDate: null,
+    appUID: "app123",
+  });
+
+  const { data, loading, error } = useQuery(GET_GRAPH_DATA, {
+    variables: { input: filters },
+  });
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error.message}</p>;
+
+  const formattedData = data.getGraphData.xAxis.map((x, index) => {
+    const obj = { xAxis: x };
+    data.getGraphData.yAxis.forEach((y) => {
+      obj[y.fieldName] = y.values[index];
+    });
+    return obj;
+  });
+
+  return (
+    <LineChart width={800} height={400} data={formattedData}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="xAxis" />
+      <YAxis />
+      <Tooltip />
+      {filters.dimensions.map((dim) => (
+        <Line key={dim} type="monotone" dataKey={dim} stroke="#8884d8" />
+      ))}
+    </LineChart>
+  );
+};
+
+export default GraphComponent;
+```
+
+---
+
+### **2. Backend: GraphQL + QueryDSL + @JsonView**
+
+
 ### **1. GraphQL 스키마 파일 구성**
 
 GraphQL 스키마 파일은 `.graphqls` 확장자를 사용하며, 일반적으로 프로젝트 내의 `src/main/resources/graphql` 디렉토리에 저장됩니다.
@@ -187,93 +275,6 @@ GraphQL 스키마를 파일 형태로 관리하면 다음 장점이 있습니다
 
 `.graphqls` 파일의 사용은 특히 대규모 프로젝트에서 확장성과 협업 효율성을 크게 향상시킵니다.
 
-
-#### **Frontend Structure**
-The frontend sends GraphQL queries to fetch data based on user input.
-
-**Dependencies**:
-```bash
-npm install @apollo/client graphql recharts
-```
-
-**GraphQL Query**
-```graphql
-query GetGraphData($input: GraphFilterInput!) {
-  getGraphData(filters: $input) {
-    xAxis
-    yAxis {
-      fieldName
-      values
-    }
-  }
-}
-```
-
-**React Component**
-```jsx
-import React, { useState } from "react";
-import { useQuery, gql } from "@apollo/client";
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-
-const GET_GRAPH_DATA = gql`
-  query GetGraphData($input: GraphFilterInput!) {
-    getGraphData(filters: $input) {
-      xAxis
-      yAxis {
-        fieldName
-        values
-      }
-    }
-  }
-`;
-
-const GraphComponent = () => {
-  const [filters, setFilters] = useState({
-    appName: "MyApp",
-    measures: ["appName"],
-    dimensions: ["backgroundTime", "foregroundTime"],
-    customerId: "customer1",
-    groupId: "group1",
-    dateRange: "last7",
-    startDate: null,
-    endDate: null,
-    appUID: "app123",
-  });
-
-  const { data, loading, error } = useQuery(GET_GRAPH_DATA, {
-    variables: { input: filters },
-  });
-
-  if (loading) return <p>Loading...</p>;
-  if (error) return <p>Error: {error.message}</p>;
-
-  const formattedData = data.getGraphData.xAxis.map((x, index) => {
-    const obj = { xAxis: x };
-    data.getGraphData.yAxis.forEach((y) => {
-      obj[y.fieldName] = y.values[index];
-    });
-    return obj;
-  });
-
-  return (
-    <LineChart width={800} height={400} data={formattedData}>
-      <CartesianGrid strokeDasharray="3 3" />
-      <XAxis dataKey="xAxis" />
-      <YAxis />
-      <Tooltip />
-      {filters.dimensions.map((dim) => (
-        <Line key={dim} type="monotone" dataKey={dim} stroke="#8884d8" />
-      ))}
-    </LineChart>
-  );
-};
-
-export default GraphComponent;
-```
-
----
-
-### **2. Backend: GraphQL + QueryDSL + @JsonView**
 
 #### **Schema Definition (`schema.graphqls`)**
 ```graphql
