@@ -1,4 +1,267 @@
 
+### **GraphQL + QueryDSL 기반의 Spring Boot 구현**
+
+---
+
+#### **FE Request Example**
+
+프론트엔드에서 요청을 보내는 내용은 다음과 같습니다:
+
+```graphql
+query {
+    getGraphData(
+        filters: { 
+            graphType: "line", 
+            period: "last_30_days", 
+            customer: "CustomerA", 
+            xAxis: "date", 
+            yAxis: ["backgroundTime", "batteryConsumption"], 
+            appName: "AppA"
+        }
+    ) {
+        xAxis
+        yAxis {
+            fieldName
+            values
+        }
+    }
+}
+```
+
+---
+
+### **BE (Spring Boot) Implementation**
+
+---
+
+#### **1. GraphQL 스키마 정의**
+GraphQL 스키마는 다음과 같이 정의합니다:
+
+```graphql
+type Query {
+    getGraphData(filters: GraphFilterInput!): GraphDataResult
+}
+
+input GraphFilterInput {
+    graphType: String!
+    period: String!
+    customer: String!
+    xAxis: String!
+    yAxis: [String!]!
+    appName: String!
+}
+
+type GraphDataResult {
+    xAxis: [String!]!
+    yAxis: [FieldResult!]!
+}
+
+type FieldResult {
+    fieldName: String!
+    values: [Float!]!
+}
+```
+
+---
+
+#### **2. Spring Boot QueryDSL 기반 리졸버**
+
+**GraphQL 리졸버**를 생성하여 요청을 처리합니다.
+
+##### **GraphQL Resolver**
+```java
+@Component
+public class GraphDataResolver implements GraphQLQueryResolver {
+
+    private final GraphDataService graphDataService;
+
+    public GraphDataResolver(GraphDataService graphDataService) {
+        this.graphDataService = graphDataService;
+    }
+
+    public GraphDataResult getGraphData(GraphFilterInput filters) {
+        return graphDataService.fetchGraphData(filters);
+    }
+}
+```
+
+---
+
+##### **GraphDataService**
+```java
+@Service
+public class GraphDataService {
+
+    private final JPAQueryFactory queryFactory;
+
+    public GraphDataService(JPAQueryFactory queryFactory) {
+        this.queryFactory = queryFactory;
+    }
+
+    public GraphDataResult fetchGraphData(GraphFilterInput filters) {
+        QDailyData dailyData = QDailyData.dailyData;
+
+        // Query for X-Axis (e.g., date)
+        List<String> xAxis = queryFactory
+                .select(dailyData.date.stringValue())
+                .from(dailyData)
+                .where(
+                    dailyData.appName.eq(filters.getAppName()),
+                    dailyData.customer.eq(filters.getCustomer()),
+                    dailyData.date.between(
+                        calculateStartDate(filters.getPeriod()), 
+                        LocalDate.now()
+                    )
+                )
+                .fetch();
+
+        // Query for Y-Axis (selected fields)
+        List<FieldResult> yAxis = filters.getYAxis().stream()
+                .map(field -> {
+                    NumberPath<Float> fieldPath = getFieldPath(dailyData, field);
+                    List<Float> values = queryFactory
+                            .select(fieldPath)
+                            .from(dailyData)
+                            .where(
+                                dailyData.appName.eq(filters.getAppName()),
+                                dailyData.customer.eq(filters.getCustomer()),
+                                dailyData.date.between(
+                                    calculateStartDate(filters.getPeriod()), 
+                                    LocalDate.now()
+                                )
+                            )
+                            .fetch();
+                    return new FieldResult(field, values);
+                })
+                .collect(Collectors.toList());
+
+        return new GraphDataResult(xAxis, yAxis);
+    }
+
+    private LocalDate calculateStartDate(String period) {
+        return LocalDate.now().minusDays("last_30_days".equals(period) ? 30 : 7);
+    }
+
+    private NumberPath<Float> getFieldPath(QDailyData dailyData, String fieldName) {
+        switch (fieldName) {
+            case "backgroundTime":
+                return dailyData.backgroundTime;
+            case "batteryConsumption":
+                return dailyData.batteryConsumption;
+            case "deviceCount":
+                return dailyData.deviceCount;
+            case "avgRAMUsage":
+                return dailyData.avgRAMUsage;
+            case "screenTime":
+                return dailyData.screenTime;
+            default:
+                throw new IllegalArgumentException("Invalid field: " + fieldName);
+        }
+    }
+}
+```
+
+---
+
+##### **GraphQL DTOs**
+```java
+@Data
+@AllArgsConstructor
+public class GraphDataResult {
+    private List<String> xAxis;
+    private List<FieldResult> yAxis;
+}
+
+@Data
+@AllArgsConstructor
+public class FieldResult {
+    private String fieldName;
+    private List<Float> values;
+}
+```
+
+##### **QueryDSL 엔터티**
+```java
+@Entity
+public class DailyData {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private LocalDate date;
+    private String appName;
+    private String customer;
+    private Float backgroundTime;
+    private Float batteryConsumption;
+    private Float deviceCount;
+    private Float avgRAMUsage;
+    private Float screenTime;
+}
+```
+
+---
+
+### **FE Implementation**
+
+프론트엔드는 **React.js**로 구현하며, `Apollo Client`를 사용해 GraphQL 요청을 보냅니다.
+
+```javascript
+import { useQuery, gql } from "@apollo/client";
+
+const GET_GRAPH_DATA = gql`
+  query GetGraphData($filters: GraphFilterInput!) {
+    getGraphData(filters: $filters) {
+      xAxis
+      yAxis {
+        fieldName
+        values
+      }
+    }
+  }
+`;
+
+const GraphComponent = ({ filters }) => {
+  const { loading, error, data } = useQuery(GET_GRAPH_DATA, {
+    variables: { filters },
+  });
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error.message}</p>;
+
+  const { xAxis, yAxis } = data.getGraphData;
+
+  return (
+    <div>
+      <h2>Graph</h2>
+      {/* Render graph using xAxis and yAxis */}
+    </div>
+  );
+};
+
+export default GraphComponent;
+```
+
+---
+
+### **Django Implementation**
+
+Django를 사용하면 GraphQL은 `Graphene-Django`, 동적 쿼리는 ORM과 Raw SQL 조합으로 구현할 수 있습니다. QueryDSL 대신 Django ORM의 `Q` 객체를 사용합니다.
+
+#### **장단점 비교**
+| Framework            | Pros                                                                 | Cons                                                                 |
+|----------------------|----------------------------------------------------------------------|----------------------------------------------------------------------|
+| **Spring Boot**      | 강력한 QueryDSL 지원, 캐싱과 연계가 용이, 높은 성능                    | 설정 복잡성, Java 기반이라 초반 개발 속도가 느림                      |
+| **Django**           | 직관적인 ORM, 빠른 초기 개발 속도, Python의 높은 생산성               | QueryDSL에 비해 복잡한 동적 쿼리 처리, Java보다 낮은 성능              |
+
+---
+
+### **결론**
+- **데이터 처리량**이 많고 성능이 중요한 경우 → **Spring Boot + QueryDSL**.
+- 개발 생산성과 빠른 MVP 구축이 중요한 경우 → **Django + Graphene-Django**.
+- GraphQL의 장점은 두 프레임워크에서 모두 활용 가능하며, QueryDSL은 고급 쿼리 생성을 위해 Spring Boot와 더 잘 어울립니다.
+
+--------------------------
+
 GraphQL과 QueryDSL을 함께 사용하는 것은 매우 유용한 접근 방식입니다. 특히, GraphQL은 클라이언트가 필요한 데이터만 선택적으로 요청할 수 있는 기능을 제공하며, QueryDSL은 동적 쿼리를 생성하여 효율적인 데이터베이스 접근을 가능하게 합니다. 두 기술을 결합하면 클라이언트 요청에 따라 동적으로 쿼리를 생성하고 데이터를 반환하는 유연한 API를 만들 수 있습니다.
 
 ---
