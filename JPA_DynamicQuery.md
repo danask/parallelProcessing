@@ -1,42 +1,27 @@
 
 ### **GraphQL + QueryDSL 기반의 Spring Boot 구현**
 
+### Full Implementation Based on Your Requirements
+
 ---
 
-#### **FE Request Example**
+### **1. Frontend: GraphQL + React**
 
-프론트엔드에서 요청을 보내는 내용은 다음과 같습니다:
+Spring Boot에서 **GraphQL 스키마 정의**는 일반적으로 `.graphqls` 파일을 사용하여 정의합니다. 이 파일을 `src/main/resources` 디렉토리 안에 위치시키며, 스키마를 자동으로 로드하고 사용할 수 있게 설정합니다. 아래는 구체적인 과정과 구성 방법입니다.
 
-```graphql
-query {
-    getGraphData(
-        filters: { 
-            graphType: "line", 
-            period: "last_30_days", 
-            customer: "CustomerA", 
-            xAxis: "date", 
-            yAxis: ["backgroundTime", "batteryConsumption"], 
-            appName: "AppA"
-        }
-    ) {
-        xAxis
-        yAxis {
-            fieldName
-            values
-        }
-    }
-}
+---
+
+### **1. GraphQL 스키마 파일 구성**
+
+GraphQL 스키마 파일은 `.graphqls` 확장자를 사용하며, 일반적으로 프로젝트 내의 `src/main/resources/graphql` 디렉토리에 저장됩니다.
+
+**디렉토리 구조**
+```
+src/main/resources/graphql
+    ├── schema.graphqls
 ```
 
----
-
-### **BE (Spring Boot) Implementation**
-
----
-
-#### **1. GraphQL 스키마 정의**
-GraphQL 스키마는 다음과 같이 정의합니다:
-
+**`schema.graphqls` 파일 내용 예제**
 ```graphql
 type Query {
     getGraphData(filters: GraphFilterInput!): GraphDataResult
@@ -64,11 +49,37 @@ type FieldResult {
 
 ---
 
-#### **2. Spring Boot QueryDSL 기반 리졸버**
+### **2. Spring Boot 설정**
 
-**GraphQL 리졸버**를 생성하여 요청을 처리합니다.
+Spring Boot에서 GraphQL 스키마를 자동으로 로드하려면 **GraphQL Java Tools** 라이브러리를 사용합니다. Maven 또는 Gradle을 사용해 의존성을 추가합니다.
 
-##### **GraphQL Resolver**
+**Maven 의존성**
+```xml
+<dependency>
+    <groupId>com.graphql-java-kickstart</groupId>
+    <artifactId>graphql-spring-boot-starter</artifactId>
+    <version>12.1.0</version>
+</dependency>
+<dependency>
+    <groupId>com.graphql-java-kickstart</groupId>
+    <artifactId>graphiql-spring-boot-starter</artifactId>
+    <version>12.1.0</version>
+</dependency>
+```
+
+**Gradle 의존성**
+```groovy
+implementation 'com.graphql-java-kickstart:graphql-spring-boot-starter:12.1.0'
+implementation 'com.graphql-java-kickstart:graphiql-spring-boot-starter:12.1.0'
+```
+
+---
+
+### **3. GraphQL 리졸버 구현**
+
+GraphQL에서 정의한 스키마의 `Query` 또는 `Mutation`을 처리하기 위해 리졸버를 구현합니다. 
+
+**리졸버 클래스 예제**
 ```java
 @Component
 public class GraphDataResolver implements GraphQLQueryResolver {
@@ -87,83 +98,24 @@ public class GraphDataResolver implements GraphQLQueryResolver {
 
 ---
 
-##### **GraphDataService**
+### **4. DTO 클래스 정의**
+
+GraphQL의 스키마와 1:1 매핑되는 DTO 클래스를 정의합니다. 예를 들어 `GraphFilterInput`, `GraphDataResult`, `FieldResult` 등을 구현합니다.
+
+**GraphFilterInput**
 ```java
-@Service
-public class GraphDataService {
-
-    private final JPAQueryFactory queryFactory;
-
-    public GraphDataService(JPAQueryFactory queryFactory) {
-        this.queryFactory = queryFactory;
-    }
-
-    public GraphDataResult fetchGraphData(GraphFilterInput filters) {
-        QDailyData dailyData = QDailyData.dailyData;
-
-        // Query for X-Axis (e.g., date)
-        List<String> xAxis = queryFactory
-                .select(dailyData.date.stringValue())
-                .from(dailyData)
-                .where(
-                    dailyData.appName.eq(filters.getAppName()),
-                    dailyData.customer.eq(filters.getCustomer()),
-                    dailyData.date.between(
-                        calculateStartDate(filters.getPeriod()), 
-                        LocalDate.now()
-                    )
-                )
-                .fetch();
-
-        // Query for Y-Axis (selected fields)
-        List<FieldResult> yAxis = filters.getYAxis().stream()
-                .map(field -> {
-                    NumberPath<Float> fieldPath = getFieldPath(dailyData, field);
-                    List<Float> values = queryFactory
-                            .select(fieldPath)
-                            .from(dailyData)
-                            .where(
-                                dailyData.appName.eq(filters.getAppName()),
-                                dailyData.customer.eq(filters.getCustomer()),
-                                dailyData.date.between(
-                                    calculateStartDate(filters.getPeriod()), 
-                                    LocalDate.now()
-                                )
-                            )
-                            .fetch();
-                    return new FieldResult(field, values);
-                })
-                .collect(Collectors.toList());
-
-        return new GraphDataResult(xAxis, yAxis);
-    }
-
-    private LocalDate calculateStartDate(String period) {
-        return LocalDate.now().minusDays("last_30_days".equals(period) ? 30 : 7);
-    }
-
-    private NumberPath<Float> getFieldPath(QDailyData dailyData, String fieldName) {
-        switch (fieldName) {
-            case "backgroundTime":
-                return dailyData.backgroundTime;
-            case "batteryConsumption":
-                return dailyData.batteryConsumption;
-            case "deviceCount":
-                return dailyData.deviceCount;
-            case "avgRAMUsage":
-                return dailyData.avgRAMUsage;
-            case "screenTime":
-                return dailyData.screenTime;
-            default:
-                throw new IllegalArgumentException("Invalid field: " + fieldName);
-        }
-    }
+@Data
+public class GraphFilterInput {
+    private String graphType;
+    private String period;
+    private String customer;
+    private String xAxis;
+    private List<String> yAxis;
+    private String appName;
 }
 ```
 
----
-
-##### **GraphQL DTOs**
+**GraphDataResult**
 ```java
 @Data
 @AllArgsConstructor
@@ -171,7 +123,10 @@ public class GraphDataResult {
     private List<String> xAxis;
     private List<FieldResult> yAxis;
 }
+```
 
+**FieldResult**
+```java
 @Data
 @AllArgsConstructor
 public class FieldResult {
@@ -180,37 +135,89 @@ public class FieldResult {
 }
 ```
 
-##### **QueryDSL 엔터티**
-```java
-@Entity
-public class DailyData {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+---
 
-    private LocalDate date;
-    private String appName;
-    private String customer;
-    private Float backgroundTime;
-    private Float batteryConsumption;
-    private Float deviceCount;
-    private Float avgRAMUsage;
-    private Float screenTime;
+### **5. 테스트 및 실행**
+
+GraphQL 요청을 테스트하려면 **GraphiQL** 또는 **Postman**을 사용할 수 있습니다.
+
+#### **GraphiQL 인터페이스**
+`http://localhost:8080/graphiql`에 접속하면 다음과 같은 인터페이스에서 테스트할 수 있습니다.
+
+**Query 예제**
+```graphql
+query {
+    getGraphData(filters: {
+        graphType: "line",
+        period: "last_30_days",
+        customer: "CustomerA",
+        xAxis: "date",
+        yAxis: ["backgroundTime", "batteryConsumption"],
+        appName: "AppA"
+    }) {
+        xAxis
+        yAxis {
+            fieldName
+            values
+        }
+    }
 }
 ```
 
 ---
 
-### **FE Implementation**
+### **6. `.graphqls` 파일 동작 방식**
 
-프론트엔드는 **React.js**로 구현하며, `Apollo Client`를 사용해 GraphQL 요청을 보냅니다.
+1. **자동 로드:** 
+   - Spring Boot가 시작될 때 `resources/graphql` 디렉토리에 있는 모든 `.graphqls` 파일을 자동으로 로드합니다.
+   - 로드된 스키마는 라이브러리에 의해 처리되어 애플리케이션의 GraphQL API를 정의합니다.
 
-```javascript
+2. **파일 관리의 장점:**
+   - 별도의 `.graphqls` 파일을 사용하면 스키마와 로직을 분리하여 유지보수성과 가독성을 높입니다.
+   - 팀 간 협업에서 프론트엔드와 백엔드 개발자들이 명확히 API를 정의하고 사용할 수 있습니다.
+
+---
+
+### **참고**
+
+GraphQL 스키마를 파일 형태로 관리하면 다음 장점이 있습니다:
+- **표준화된 API 문서 역할**을 수행합니다.
+- GraphQL 스키마와 백엔드 로직이 분리되므로 **관리와 테스트가 용이**합니다.
+- `@QueryMapping` 같은 코드 기반 스키마 정의와 달리 **시각적으로 구조를 파악하기 쉬움**.
+
+`.graphqls` 파일의 사용은 특히 대규모 프로젝트에서 확장성과 협업 효율성을 크게 향상시킵니다.
+
+
+#### **Frontend Structure**
+The frontend sends GraphQL queries to fetch data based on user input.
+
+**Dependencies**:
+```bash
+npm install @apollo/client graphql recharts
+```
+
+**GraphQL Query**
+```graphql
+query GetGraphData($input: GraphFilterInput!) {
+  getGraphData(filters: $input) {
+    xAxis
+    yAxis {
+      fieldName
+      values
+    }
+  }
+}
+```
+
+**React Component**
+```jsx
+import React, { useState } from "react";
 import { useQuery, gql } from "@apollo/client";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 const GET_GRAPH_DATA = gql`
-  query GetGraphData($filters: GraphFilterInput!) {
-    getGraphData(filters: $filters) {
+  query GetGraphData($input: GraphFilterInput!) {
+    getGraphData(filters: $input) {
       xAxis
       yAxis {
         fieldName
@@ -220,26 +227,409 @@ const GET_GRAPH_DATA = gql`
   }
 `;
 
-const GraphComponent = ({ filters }) => {
-  const { loading, error, data } = useQuery(GET_GRAPH_DATA, {
-    variables: { filters },
+const GraphComponent = () => {
+  const [filters, setFilters] = useState({
+    appName: "MyApp",
+    measures: ["appName"],
+    dimensions: ["backgroundTime", "foregroundTime"],
+    customerId: "customer1",
+    groupId: "group1",
+    dateRange: "last7",
+    startDate: null,
+    endDate: null,
+    appUID: "app123",
+  });
+
+  const { data, loading, error } = useQuery(GET_GRAPH_DATA, {
+    variables: { input: filters },
   });
 
   if (loading) return <p>Loading...</p>;
   if (error) return <p>Error: {error.message}</p>;
 
-  const { xAxis, yAxis } = data.getGraphData;
+  const formattedData = data.getGraphData.xAxis.map((x, index) => {
+    const obj = { xAxis: x };
+    data.getGraphData.yAxis.forEach((y) => {
+      obj[y.fieldName] = y.values[index];
+    });
+    return obj;
+  });
 
   return (
-    <div>
-      <h2>Graph</h2>
-      {/* Render graph using xAxis and yAxis */}
-    </div>
+    <LineChart width={800} height={400} data={formattedData}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="xAxis" />
+      <YAxis />
+      <Tooltip />
+      {filters.dimensions.map((dim) => (
+        <Line key={dim} type="monotone" dataKey={dim} stroke="#8884d8" />
+      ))}
+    </LineChart>
   );
 };
 
 export default GraphComponent;
 ```
+
+---
+
+### **2. Backend: GraphQL + QueryDSL + @JsonView**
+
+#### **Schema Definition (`schema.graphqls`)**
+```graphql
+type Query {
+  getGraphData(filters: GraphFilterInput!): GraphDataResult
+}
+
+input GraphFilterInput {
+  appName: String!
+  measures: [String!]!
+  dimensions: [String!]!
+  customerId: String!
+  groupId: String!
+  dateRange: String
+  startDate: String
+  endDate: String
+  appUID: String!
+}
+
+type GraphDataResult {
+  xAxis: [String!]!
+  yAxis: [FieldResult!]!
+}
+
+type FieldResult {
+  fieldName: String!
+  values: [Float!]!
+}
+```
+
+---
+
+#### **DTO Classes**
+
+**`GraphFilterInput`**
+```java
+@Data
+public class GraphFilterInput {
+    private String appName;
+    private List<String> measures;
+    private List<String> dimensions;
+    private String customerId;
+    private String groupId;
+    private String dateRange;
+    private LocalDate startDate;
+    private LocalDate endDate;
+    private String appUID;
+}
+```
+
+**`GraphDataResult`**
+```java
+@Data
+@AllArgsConstructor
+public class GraphDataResult {
+    private List<String> xAxis;
+    private List<FieldResult> yAxis;
+}
+```
+
+**`FieldResult`**
+```java
+@Data
+@AllArgsConstructor
+public class FieldResult {
+    private String fieldName;
+    private List<Float> values;
+}
+```
+
+---
+
+#### **Resolver Class**
+
+**`GraphDataResolver`**
+```java
+@Component
+public class GraphDataResolver implements GraphQLQueryResolver {
+
+    private final GraphDataService graphDataService;
+
+    public GraphDataResolver(GraphDataService graphDataService) {
+        this.graphDataService = graphDataService;
+    }
+
+    public GraphDataResult getGraphData(GraphFilterInput filters) {
+        return graphDataService.fetchGraphData(filters);
+    }
+}
+```
+
+---
+
+#### **Service Class**
+
+**`GraphDataService`**
+```java
+@Service
+public class GraphDataService {
+
+    @Autowired
+    private EntityManager entityManager;
+
+    public GraphDataResult fetchGraphData(GraphFilterInput filters) {
+        JPAQueryFactory queryFactory = new JPAQueryFactory(entityManager);
+
+        // Dynamic query building
+        QAppData appData = QAppData.appData;
+
+        BooleanBuilder whereClause = new BooleanBuilder();
+        whereClause.and(appData.appName.eq(filters.getAppName()))
+                   .and(appData.customerId.eq(filters.getCustomerId()))
+                   .and(appData.groupId.eq(filters.getGroupId()));
+
+        if (filters.getDateRange() != null) {
+            whereClause.and(appData.date.between(LocalDate.now().minusDays(getDays(filters.getDateRange())), LocalDate.now()));
+        } else if (filters.getStartDate() != null && filters.getEndDate() != null) {
+            whereClause.and(appData.date.between(filters.getStartDate(), filters.getEndDate()));
+        }
+
+        List<String> xAxis = queryFactory.select(appData.date.stringValue()).distinct()
+                                         .from(appData)
+                                         .where(whereClause)
+                                         .fetch();
+
+        List<FieldResult> yAxis = filters.getDimensions().stream()
+                                         .map(dim -> new FieldResult(dim, queryFactory.select(appData.getField(dim))
+                                                                                     .from(appData)
+                                                                                     .where(whereClause)
+                                                                                     .fetch()))
+                                         .collect(Collectors.toList());
+
+        return new GraphDataResult(xAxis, yAxis);
+    }
+
+    private int getDays(String dateRange) {
+        return switch (dateRange) {
+            case "last7" -> 7;
+            case "last60" -> 60;
+            default -> 1;
+        };
+    }
+}
+```
+
+---
+
+#### **Postgres Table Example**
+
+```sql
+CREATE TABLE app_data (
+    id SERIAL PRIMARY KEY,
+    app_name VARCHAR(255),
+    customer_id VARCHAR(255),
+    group_id VARCHAR(255),
+    app_uid VARCHAR(255),
+    date DATE,
+    background_time FLOAT,
+    foreground_time FLOAT,
+    battery_consumption FLOAT,
+    device_count INT,
+    avg_ram_usage FLOAT,
+    screen_time FLOAT
+);
+```
+
+---
+
+### **3. Database: PostgreSQL**
+
+- **Storage**: Optimized for OLAP workloads using indices and materialized views.
+- **Indices**: 
+```sql
+CREATE INDEX idx_date ON app_data(date);
+CREATE INDEX idx_customer_group ON app_data(customer_id, group_id);
+```
+
+---
+
+`@JsonView`는 주로 **API 응답 시 데이터의 특정 필드를 필터링**하여 클라이언트에게 제공하기 위해 사용됩니다. 이를 통해 클라이언트의 요청에 따라 반환할 데이터의 범위를 제어할 수 있습니다. 
+
+하지만 데이터 조회(예: DB에서 데이터 가져오기)와는 관계가 없으며, 주로 직렬화/역직렬화 시 작동합니다.
+
+---
+
+### **`@JsonView`의 사용 사례**
+
+1. **API 응답 시 데이터 필터링**  
+   - 클라이언트 요청에 따라 반환할 데이터의 범위를 지정합니다.  
+   - API 응답에서 필요한 데이터만 직렬화하여 전송.
+
+2. **클라이언트 요청 데이터 필터링**  
+   - JSON 역직렬화 시에도 사용할 수 있습니다. 특정 뷰에 따라 요청 데이터를 제한합니다.
+
+---
+
+### **`@JsonView` 적용 예제**
+
+#### **DTO 클래스**
+
+```java
+public class AppDataResponse {
+    public interface SummaryView {}
+    public interface DetailedView extends SummaryView {}
+
+    @JsonView(SummaryView.class)
+    private String appName;
+
+    @JsonView(SummaryView.class)
+    private String customerId;
+
+    @JsonView(SummaryView.class)
+    private String groupId;
+
+    @JsonView(DetailedView.class)
+    private Float backgroundTime;
+
+    @JsonView(DetailedView.class)
+    private Float foregroundTime;
+
+    @JsonView(DetailedView.class)
+    private Float batteryConsumption;
+
+    @JsonView(DetailedView.class)
+    private Integer deviceCount;
+
+    @JsonView(DetailedView.class)
+    private Float avgRAMUsage;
+
+    @JsonView(DetailedView.class)
+    private Float screenTime;
+
+    // Getters and Setters
+}
+```
+
+---
+
+#### **Controller**
+
+```java
+@RestController
+@RequestMapping("/api")
+public class AppDataController {
+
+    @Autowired
+    private AppDataService appDataService;
+
+    @JsonView(AppDataResponse.SummaryView.class) // Summary 데이터만 반환
+    @GetMapping("/summary")
+    public List<AppDataResponse> getSummaryData(@RequestParam String customerId, @RequestParam String dateRange) {
+        return appDataService.getSummaryData(customerId, dateRange);
+    }
+
+    @JsonView(AppDataResponse.DetailedView.class) // Detailed 데이터 반환
+    @GetMapping("/details")
+    public List<AppDataResponse> getDetailedData(@RequestParam String customerId, @RequestParam String dateRange) {
+        return appDataService.getDetailedData(customerId, dateRange);
+    }
+}
+```
+
+---
+
+#### **서비스에서 `@JsonView` 사용 관련 고려사항**
+
+1. **DB 데이터 조회**  
+   - `@JsonView`는 DB에서 데이터를 가져올 때는 영향을 미치지 않습니다.  
+   - DB 쿼리 자체를 동적으로 변경하려면 **QueryDSL** 같은 기술을 활용해야 합니다.
+
+2. **API 응답 시 필터링**  
+   - 컨트롤러에서 조회된 데이터를 `@JsonView`를 이용해 응답할 때만 특정 필드를 필터링합니다.
+
+---
+
+### **`@JsonView`를 API 요청 데이터에도 사용할 수 있나요?**
+
+네, **클라이언트 요청에서 JSON 역직렬화**에도 사용할 수 있습니다. 예를 들어, 클라이언트가 요청 데이터를 보낼 때 특정 필드만 허용하려면 아래처럼 사용할 수 있습니다.
+
+#### **클라이언트 요청에 `@JsonView` 사용**
+
+```java
+@RestController
+@RequestMapping("/api")
+public class AppDataController {
+
+    @PostMapping("/create")
+    public ResponseEntity<String> createAppData(
+        @JsonView(AppDataResponse.SummaryView.class) @RequestBody AppDataResponse request
+    ) {
+        // Summary 필드만 역직렬화되어 처리됨
+        appDataService.save(request);
+        return ResponseEntity.ok("Data saved successfully!");
+    }
+}
+```
+
+---
+
+### **DB에서 데이터 조회 시 `@JsonView`의 한계**
+
+`@JsonView`는 **DB 쿼리 단계에서 작동하지 않습니다**.  
+즉, DB에서 데이터를 가져올 때 필요한 필드만 가져오는 최적화를 위해서는 QueryDSL과 같은 도구를 사용해야 합니다.
+
+#### **QueryDSL과 함께 사용**
+
+```java
+@Service
+public class AppDataService {
+
+    @Autowired
+    private EntityManager entityManager;
+
+    public List<AppDataResponse> getSummaryData(String customerId, String dateRange) {
+        JPAQueryFactory queryFactory = new JPAQueryFactory(entityManager);
+        QAppData appData = QAppData.appData;
+
+        List<Tuple> result = queryFactory
+                .select(appData.appName, appData.customerId, appData.groupId)
+                .from(appData)
+                .where(appData.customerId.eq(customerId)
+                        .and(appData.date.between(getStartDate(dateRange), LocalDate.now())))
+                .fetch();
+
+        return result.stream()
+                .map(tuple -> new AppDataResponse(
+                        tuple.get(appData.appName),
+                        tuple.get(appData.customerId),
+                        tuple.get(appData.groupId),
+                        null, null, null, null, null, null // Summary fields only
+                ))
+                .collect(Collectors.toList());
+    }
+
+    private LocalDate getStartDate(String dateRange) {
+        switch (dateRange) {
+            case "last7":
+                return LocalDate.now().minusDays(7);
+            case "last30":
+                return LocalDate.now().minusDays(30);
+            default:
+                return LocalDate.now().minusDays(1);
+        }
+    }
+}
+```
+
+---
+
+### **결론**
+
+1. `@JsonView`는 **직렬화/역직렬화**에 사용하며, 클라이언트에 반환하거나 클라이언트 요청을 제한할 때 활용합니다.
+2. **DB 데이터 조회 시**:
+   - 필요한 필드만 가져오려면 QueryDSL, JPQL 등을 사용.
+   - `@JsonView`는 DB 데이터 필터링 대신 응답 데이터 필터링에 적합.
+3. **API 응답과 요청 모두**에서 사용 가능하지만, DB 데이터 최적화를 위해 별도의 도구를 병행해야 합니다.
 
 ---
 
@@ -259,6 +649,14 @@ Django를 사용하면 GraphQL은 `Graphene-Django`, 동적 쿼리는 ORM과 Raw
 - **데이터 처리량**이 많고 성능이 중요한 경우 → **Spring Boot + QueryDSL**.
 - 개발 생산성과 빠른 MVP 구축이 중요한 경우 → **Django + Graphene-Django**.
 - GraphQL의 장점은 두 프레임워크에서 모두 활용 가능하며, QueryDSL은 고급 쿼리 생성을 위해 Spring Boot와 더 잘 어울립니다.
+
+If implemented in Django:
+
+Django's ORM is less flexible than QueryDSL for dynamic queries, especially in a deeply nested context.
+Django GraphQL libraries like graphene-django are robust but require additional boilerplate.
+Django might be less performant with Redshift due to its sync database approach, while Spring Boot with QueryDSL provides better query optimization.
+For robust, stable, and extendible systems, Spring Boot with QueryDSL is more suitable for large-scale OLAP-based applications. Django could still be a valid choice for simpler implementations.
+
 
 --------------------------
 
