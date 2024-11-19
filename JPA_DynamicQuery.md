@@ -7,8 +7,6 @@
 
 ### **1. Frontend: GraphQL + React**
 
-Spring Boot에서 **GraphQL 스키마 정의**는 일반적으로 `.graphqls` 파일을 사용하여 정의합니다. 이 파일을 `src/main/resources` 디렉토리 안에 위치시키며, 스키마를 자동으로 로드하고 사용할 수 있게 설정합니다. 아래는 구체적인 과정과 구성 방법입니다.
-
 ---
 
 #### **Frontend Structure**
@@ -100,6 +98,8 @@ export default GraphComponent;
 
 
 ### **1. GraphQL 스키마 파일 구성**
+
+Spring Boot에서 **GraphQL 스키마 정의**는 일반적으로 `.graphqls` 파일을 사용하여 정의합니다. 이 파일을 `src/main/resources` 디렉토리 안에 위치시키며, 스키마를 자동으로 로드하고 사용할 수 있게 설정합니다. 아래는 구체적인 과정과 구성 방법입니다.
 
 GraphQL 스키마 파일은 `.graphqls` 확장자를 사용하며, 일반적으로 프로젝트 내의 `src/main/resources/graphql` 디렉토리에 저장됩니다.
 
