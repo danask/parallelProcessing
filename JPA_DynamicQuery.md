@@ -1,4 +1,7 @@
 
+
+https://medium.com/codex/benchmarking-django-vs-spring-boot-a-comparative-study-e233dcb047c2
+
 ### **Spring Boot와 Django 방식의 차이**
 
 | Feature                      | **Spring Boot**                                                   | **Django**                                                     |
