@@ -1,3 +1,132 @@
+Spring Boot API에서 **Cube.js**에 연결하여 데이터를 쿼리하고 사용할 수 있습니다. Cube.js는 데이터를 제공하기 위해 **REST API** 또는 **GraphQL API**를 지원하므로, Spring Boot 애플리케이션에서 이를 쉽게 통합할 수 있습니다.
+
+---
+
+### **Spring Boot와 Cube.js 통합의 주요 단계**
+
+#### 1. **Cube.js API 설정**
+Cube.js는 데이터 쿼리를 위해 REST 및 GraphQL API를 제공합니다. 먼저 Cube.js 프로젝트를 설정하고 원하는 데이터 소스와 연결해야 합니다.
+
+1. **Cube.js 설치**:
+   - Cube.js 프로젝트를 생성하고, 데이터 소스를 연결합니다. (예: ClickHouse, PostgreSQL 등)
+   ```bash
+   npm install -g cubejs-cli
+   cubejs create cube-project -d postgres
+   cd cube-project
+   npm start
+   ```
+2. **Schema 정의**:
+   - Cube.js에서 필요한 데이터 모델을 정의합니다. 예를 들어, `orders` 테이블에 대한 스키마:
+   ```javascript
+   cube(`Orders`, {
+     sql: `SELECT * FROM orders`,
+     measures: {
+       count: {
+         type: `count`,
+       },
+       totalAmount: {
+         sql: `amount`,
+         type: `sum`,
+       },
+     },
+     dimensions: {
+       id: {
+         sql: `id`,
+         type: `string`,
+         primaryKey: true,
+       },
+       createdAt: {
+         sql: `created_at`,
+         type: `time`,
+       },
+     },
+   });
+   ```
+3. **Cube.js 서버 실행**:
+   - Cube.js 서버가 실행 중이어야 REST/GraphQL API로 요청할 수 있습니다.
+
+#### 2. **Spring Boot 프로젝트 설정**
+
+1. **Spring Boot 프로젝트 생성**:
+   - Spring Initializr를 사용하여 Spring Boot 프로젝트를 생성합니다. `Spring Web`과 `Spring Boot Starter RestTemplate`를 추가합니다.
+
+2. **API 호출을 위한 RestTemplate 추가**:
+   Cube.js REST API를 호출하기 위해 Spring Boot에서 `RestTemplate` 또는 `WebClient`를 사용할 수 있습니다.
+
+3. **Cube.js API 요청 클래스 작성**:
+   Cube.js REST API를 호출하여 데이터를 가져옵니다.
+   ```java
+   @Service
+   public class CubeService {
+
+       private final RestTemplate restTemplate;
+
+       public CubeService(RestTemplateBuilder restTemplateBuilder) {
+           this.restTemplate = restTemplateBuilder.build();
+       }
+
+       public String fetchOrders() {
+           String url = "http://localhost:4000/cubejs-api/v1/load";
+           HttpHeaders headers = new HttpHeaders();
+           headers.set("Authorization", "YOUR_CUBEJS_API_TOKEN");
+           headers.setContentType(MediaType.APPLICATION_JSON);
+
+           // 쿼리 작성
+           String query = "{ \"measures\": [\"Orders.count\"], \"dimensions\": [\"Orders.createdAt\"] }";
+           HttpEntity<String> request = new HttpEntity<>(query, headers);
+
+           ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+           return response.getBody();
+       }
+   }
+   ```
+
+4. **Controller 작성**:
+   API를 통해 데이터를 제공하는 Spring Boot 엔드포인트를 작성합니다.
+   ```java
+   @RestController
+   @RequestMapping("/api/orders")
+   public class OrderController {
+
+       private final CubeService cubeService;
+
+       public OrderController(CubeService cubeService) {
+           this.cubeService = cubeService;
+       }
+
+       @GetMapping
+       public ResponseEntity<String> getOrders() {
+           String data = cubeService.fetchOrders();
+           return ResponseEntity.ok(data);
+       }
+   }
+   ```
+
+#### 3. **테스트 및 실행**
+1. Cube.js 서버를 실행한 상태에서 Spring Boot 애플리케이션을 실행합니다.
+2. 브라우저에서 `http://localhost:8080/api/orders`를 호출하여 Cube.js 데이터를 확인합니다.
+
+---
+
+### **Spring Boot와 Cube.js 통합의 장점**
+1. **Dynamic Query Generation**:
+   - Cube.js에서 데이터를 정의하고 원하는 데이터 모델에 맞게 동적 쿼리를 생성할 수 있습니다.
+2. **Centralized Semantic Logic**:
+   - 데이터 처리 로직을 Cube.js에 정의하므로 Spring Boot에서는 API 호출만 처리하면 됩니다.
+3. **Caching & Aggregation**:
+   - Cube.js는 쿼리 성능 최적화를 위해 Pre-Aggregation과 캐싱을 제공합니다.
+4. **유연성**:
+   - Cube.js API를 호출하여 다양한 데이터 소스를 쉽게 통합할 수 있습니다.
+
+---
+
+### **결론**
+Spring Boot API에서 Cube.js와 통합하려면 **REST API** 또는 **GraphQL API**를 통해 데이터를 요청하는 방식으로 구현하면 됩니다. Cube.js는 데이터 처리와 성능 최적화(예: 캐싱, 집계)를 담당하고, Spring Boot는 이를 비즈니스 로직 및 사용자와의 상호작용 레이어로 활용할 수 있습니다. 
+
+이 구조는 데이터 분석 서비스나 대시보드 백엔드 개발에 적합합니다.
+
+---
+
 **Cube**는 **Semantic Database**라기보다는 **Semantic Layer**를 제공하는 **데이터 분석 플랫폼**입니다. 두 개념은 관련이 있지만, 역할과 목적이 다릅니다. Cube는 데이터를 시맨틱하게 표현하고, 비즈니스 논리에 맞는 데이터 액세스를 단순화하고 표준화하는 데 중점을 둡니다.
 
 ---
