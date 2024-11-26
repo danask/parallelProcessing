@@ -1,4 +1,145 @@
 
+Spring Boot에서 **`@Range`** 또는 **`@PositiveOrZero`** 애노테이션을 사용해 API 응답에서 요청값을 검증하고, 잘못된 값일 경우 40x 에러를 반환하는 방법은 아래와 같습니다. 이를 위해 Spring의 **`@Validated`**와 **`@ExceptionHandler`**를 조합해 사용하면 됩니다.
+
+### 주요 개념
+
+1. **`@Validated`**: 클래스 또는 메서드에서 유효성 검사를 활성화합니다.
+2. **`@Range` 또는 @PositiveOrZero**: 값의 범위를 제한하거나 음수를 방지하는 데 사용합니다.
+3. **Controller Advice**: 유효성 검사 실패 시 사용자 정의 에러 응답을 생성하기 위해 활용합니다.
+
+---
+
+### 예제 코드
+
+#### 1. 요청 객체에서 유효성 검사를 정의
+`@Range`와 `@PositiveOrZero`를 사용해 유효성 검사를 설정합니다.
+
+```java
+import lombok.Data;
+import org.hibernate.validator.constraints.Range;
+
+import jakarta.validation.constraints.PositiveOrZero;
+
+@Data
+public class SampleRequest {
+
+    @Range(min = 1, max = 100, message = "Value must be between 1 and 100.")
+    private int rangeValue;
+
+    @PositiveOrZero(message = "Value must be zero or positive.")
+    private int positiveOrZeroValue;
+}
+```
+
+---
+
+#### 2. 컨트롤러에서 요청 처리 및 검증 활성화
+컨트롤러 메서드에서 **`@Valid`** 또는 **`@Validated`**를 사용하여 유효성 검사를 활성화합니다.
+
+```java
+import jakarta.validation.Valid;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api")
+@Validated
+public class SampleController {
+
+    @PostMapping("/validate")
+    public String validateRequest(@RequestBody @Valid SampleRequest request) {
+        return "Request is valid!";
+    }
+}
+```
+
+---
+
+#### 3. 예외를 처리하여 40x 응답 반환
+유효성 검사 실패 시 발생하는 **`MethodArgumentNotValidException`** 또는 **`ConstraintViolationException`**을 처리하여 사용자 정의 응답을 반환합니다.
+
+```java
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@ControllerAdvice
+public class ValidationExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(error ->
+            errors.put(error.getField(), error.getDefaultMessage())
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+    }
+}
+```
+
+---
+
+### 실행 흐름
+1. 클라이언트가 **유효하지 않은 값**을 요청하면:
+    - Spring Validation이 이를 감지.
+    - 예외 (`MethodArgumentNotValidException`)가 발생.
+2. `@ControllerAdvice`가 이 예외를 처리:
+    - 400 Bad Request 응답 생성.
+    - 유효성 검사의 오류 메시지 포함.
+
+---
+
+### 테스트
+
+#### 유효한 요청:
+```json
+POST /api/validate
+Content-Type: application/json
+
+{
+    "rangeValue": 50,
+    "positiveOrZeroValue": 0
+}
+```
+**응답:**
+```json
+200 OK
+{
+    "message": "Request is valid!"
+}
+```
+
+#### 잘못된 요청:
+```json
+POST /api/validate
+Content-Type: application/json
+
+{
+    "rangeValue": 150,
+    "positiveOrZeroValue": -1
+}
+```
+**응답:**
+```json
+400 Bad Request
+{
+    "rangeValue": "Value must be between 1 and 100.",
+    "positiveOrZeroValue": "Value must be zero or positive."
+}
+```
+
+---
+
+### 추가 설정
+만약, 특정 포맷의 응답(JSON 표준 형식 등)을 요구하거나 글로벌 로깅 처리가 필요하면, **`ControllerAdvice`** 내부 로직을 확장하거나 **`HandlerInterceptor`**를 사용하여 유효성 검사 실패 시의 로깅 및 응답 구조를 추가적으로 커스터마이징할 수 있습니다.
+
+-------------------
+
 만약 트랜잭션이 아닌, 3개의 Kafka 이벤트를 처리한 후 DB에 저장한 뒤 **3시간의 딜레이**를 주는 방식으로 후속 작업(예: 이메일 전송)을 하려면, 단순하게 일정 시간이 지난 후 작업을 트리거할 수 있는 방법이 필요합니다. 이 경우 트랜잭션이 아니라 시간 지연을 활용하는 방법이므로, 지연 후 작업을 처리하는 스케줄링 방식을 적용할 수 있습니다.
 
 ### 방법: Spring에서 `@Scheduled` 및 `TaskExecutor` 사용
