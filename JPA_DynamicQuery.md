@@ -1,5 +1,252 @@
 
 
+QueryDSL과 Cube.js의 시맨틱 모델을 병행하여 쿼리를 처리하려면 **쿼리의 성격과 필요성에 따라 작업을 구분**해야 합니다. 이를 위해 다음과 같은 기준과 설계를 사용할 수 있습니다:
+
+---
+
+### 쿼리 구분 기준
+1. **Cube.js 사용 시점 (시맨틱 레이어 활용)**
+   - **복잡한 집계**가 필요한 경우 (예: 특정 필드의 합계, 평균, 최소/최대값 등).
+   - **성능 최적화**가 필요한 반복적인 요청.
+   - 이미 정의된 **미리 계산된 데이터 모델**을 활용해야 하는 경우.
+
+2. **QueryDSL 사용 시점 (원시 데이터 활용)**
+   - **세부 조건 필터링**이 필요한 경우 (예: 비표준적이거나 매우 유동적인 조건).
+   - Cube.js의 모델링 범위를 벗어난 **정밀한 제어**가 필요한 경우.
+   - 실시간 데이터나 **최신 데이터**를 조회해야 하는 경우.
+
+---
+
+### 구현 방법
+
+#### 1. 쿼리 경로 선택 로직
+백엔드에서 클라이언트 요청을 분석하여 적절한 처리 경로를 선택:
+```java
+public List<MetricsData> getMetrics(
+        String customerId,
+        String groupId,
+        LocalDate startDate,
+        LocalDate endDate,
+        List<String> measures,
+        List<String> dimensions) {
+    
+    if (useCube(measures, dimensions)) {
+        return cubeService.fetchAggregatedData(customerId, groupId, startDate, endDate, measures, dimensions);
+    } else {
+        return queryDSLService.fetchRawData(customerId, groupId, startDate, endDate, measures, dimensions);
+    }
+}
+
+private boolean useCube(List<String> measures, List<String> dimensions) {
+    // Cube.js에서 지원하는 측정치와 차원을 미리 정의
+    Set<String> cubeSupportedMeasures = Set.of("backgroundTime", "foregroundTime", "batteryConsumption", "deviceCount", "avgRAMUsage", "screenTime");
+    Set<String> cubeSupportedDimensions = Set.of("appName", "appEvent", "appVersion", "customerId", "groupId", "date");
+
+    return measures.stream().allMatch(cubeSupportedMeasures::contains) &&
+           dimensions.stream().allMatch(cubeSupportedDimensions::contains);
+}
+```
+
+---
+
+#### 2. Cube.js 호출 처리
+Cube.js에서 데이터를 가져오기:
+```java
+public List<MetricsData> fetchAggregatedData(String customerId, String groupId, LocalDate startDate, LocalDate endDate, List<String> measures, List<String> dimensions) {
+    String query = buildCubeQuery(customerId, groupId, startDate, endDate, measures, dimensions);
+    CubeJsResponse response = cubeJsClient.executeQuery(query);
+    return mapCubeResponse(response);
+}
+
+private String buildCubeQuery(String customerId, String groupId, LocalDate startDate, LocalDate endDate, List<String> measures, List<String> dimensions) {
+    // GraphQL 스타일의 Cube.js 쿼리 생성
+    String measureString = measures.stream().map(m -> String.format("\"%s\"", m)).collect(Collectors.joining(","));
+    String dimensionString = dimensions.stream().map(d -> String.format("\"%s\"", d)).collect(Collectors.joining(","));
+    
+    return String.format("""
+        {
+            "measures": [%s],
+            "dimensions": [%s],
+            "filters": [
+                {"dimension": "customerId", "operator": "equals", "values": ["%s"]},
+                {"dimension": "groupId", "operator": "equals", "values": ["%s"]},
+                {"dimension": "date", "operator": "between", "values": ["%s", "%s"]}
+            ]
+        }
+    """, measureString, dimensionString, customerId, groupId, startDate.toString(), endDate.toString());
+}
+```
+
+---
+
+#### 3. QueryDSL 처리
+QueryDSL을 사용한 동적 쿼리:
+```java
+public List<MetricsData> fetchRawData(String customerId, String groupId, LocalDate startDate, LocalDate endDate, List<String> measures, List<String> dimensions) {
+    JPAQuery<MetricsData> query = new JPAQuery<>(entityManager);
+    QMetricsData metrics = QMetricsData.metricsData;
+
+    BooleanBuilder whereClause = new BooleanBuilder()
+            .and(metrics.customerId.eq(customerId))
+            .and(metrics.groupId.eq(groupId))
+            .and(metrics.date.between(startDate, endDate));
+
+    return query.select(buildProjection(metrics, measures, dimensions))
+            .from(metrics)
+            .where(whereClause)
+            .fetch();
+}
+
+private Expression<MetricsData> buildProjection(QMetricsData metrics, List<String> measures, List<String> dimensions) {
+    List<Expression<?>> fields = new ArrayList<>();
+    dimensions.forEach(dimension -> fields.add(metrics.get(dimension)));
+    measures.forEach(measure -> fields.add(metrics.get(measure)));
+    return Projections.bean(MetricsData.class, fields.toArray(new Expression[0]));
+}
+```
+
+---
+
+### 장점 및 요약
+1. **유연성**: Cube.js와 QueryDSL은 각각의 강점을 살려 성능과 기능을 최적화합니다.
+2. **확장성**: Cube.js의 시맨틱 모델을 통해 집계 작업을 효율적으로 관리하며, QueryDSL을 활용해 고도로 맞춤화된 쿼리를 생성할 수 있습니다.
+3. **자동화**: 클라이언트의 요청 구조에 따라 처리 경로를 자동으로 선택해 개발자 부담을 줄입니다.
+4. **캐싱 및 성능**: Cube.js의 데이터 캐싱 및 QueryDSL의 실시간 쿼리를 조합하여 다양한 사용 사례에 대응할 수 있습니다.
+
+
+### QueryDSL and Cube.js Semantic Model Integration: Query Differentiation and Implementation
+
+If you aim to handle queries dynamically while using **QueryDSL** for raw data and **Cube.js** for aggregated data in a Spring Boot backend, here’s how to distinguish and process queries effectively.
+
+---
+
+### Query Differentiation Criteria
+
+1. **When to Use Cube.js (Semantic Layer)**:
+   - For **complex aggregations** like sums, averages, min/max, or predefined KPIs.
+   - To leverage **pre-modeled and cached** data for performance gains.
+   - When working with reusable **semantic models** or metadata definitions.
+
+2. **When to Use QueryDSL**:
+   - For **fine-grained, ad-hoc filtering** that is not feasible or performant in Cube.js.
+   - For real-time access to the **latest data** not yet aggregated or cached.
+   - For handling **custom queries** or fields that aren’t modeled in Cube.js.
+
+---
+
+### Implementation
+
+#### 1. Query Routing Logic in Backend
+A unified service layer can dynamically decide the query path based on input parameters.
+
+```java
+public List<MetricsData> getMetrics(
+        String customerId,
+        String groupId,
+        LocalDate startDate,
+        LocalDate endDate,
+        List<String> measures,
+        List<String> dimensions) {
+    
+    if (useCube(measures, dimensions)) {
+        return cubeService.fetchAggregatedData(customerId, groupId, startDate, endDate, measures, dimensions);
+    } else {
+        return queryDSLService.fetchRawData(customerId, groupId, startDate, endDate, measures, dimensions);
+    }
+}
+
+private boolean useCube(List<String> measures, List<String> dimensions) {
+    Set<String> cubeSupportedMeasures = Set.of("backgroundTime", "foregroundTime", "batteryConsumption", "deviceCount", "avgRAMUsage", "screenTime");
+    Set<String> cubeSupportedDimensions = Set.of("appName", "appEvent", "appVersion", "customerId", "groupId", "date");
+
+    return measures.stream().allMatch(cubeSupportedMeasures::contains) &&
+           dimensions.stream().allMatch(cubeSupportedDimensions::contains);
+}
+```
+
+---
+
+#### 2. Cube.js Query Implementation
+Cube.js handles high-level aggregation and can generate efficient queries for the specified measures and dimensions.
+
+```java
+public List<MetricsData> fetchAggregatedData(String customerId, String groupId, LocalDate startDate, LocalDate endDate, List<String> measures, List<String> dimensions) {
+    String query = buildCubeQuery(customerId, groupId, startDate, endDate, measures, dimensions);
+    CubeJsResponse response = cubeJsClient.executeQuery(query);
+    return mapCubeResponse(response);
+}
+
+private String buildCubeQuery(String customerId, String groupId, LocalDate startDate, LocalDate endDate, List<String> measures, List<String> dimensions) {
+    String measureString = measures.stream().map(m -> String.format("\"%s\"", m)).collect(Collectors.joining(","));
+    String dimensionString = dimensions.stream().map(d -> String.format("\"%s\"", d)).collect(Collectors.joining(","));
+    
+    return String.format("""
+        {
+            "measures": [%s],
+            "dimensions": [%s],
+            "filters": [
+                {"dimension": "customerId", "operator": "equals", "values": ["%s"]},
+                {"dimension": "groupId", "operator": "equals", "values": ["%s"]},
+                {"dimension": "date", "operator": "between", "values": ["%s", "%s"]}
+            ]
+        }
+    """, measureString, dimensionString, customerId, groupId, startDate.toString(), endDate.toString());
+}
+```
+
+---
+
+#### 3. QueryDSL Implementation
+QueryDSL is utilized for more granular control, offering custom filtering and projections.
+
+```java
+public List<MetricsData> fetchRawData(String customerId, String groupId, LocalDate startDate, LocalDate endDate, List<String> measures, List<String> dimensions) {
+    JPAQuery<MetricsData> query = new JPAQuery<>(entityManager);
+    QMetricsData metrics = QMetricsData.metricsData;
+
+    BooleanBuilder whereClause = new BooleanBuilder()
+            .and(metrics.customerId.eq(customerId))
+            .and(metrics.groupId.eq(groupId))
+            .and(metrics.date.between(startDate, endDate));
+
+    return query.select(buildProjection(metrics, measures, dimensions))
+            .from(metrics)
+            .where(whereClause)
+            .fetch();
+}
+
+private Expression<MetricsData> buildProjection(QMetricsData metrics, List<String> measures, List<String> dimensions) {
+    List<Expression<?>> fields = new ArrayList<>();
+    dimensions.forEach(dimension -> fields.add(metrics.get(dimension)));
+    measures.forEach(measure -> fields.add(metrics.get(measure)));
+    return Projections.bean(MetricsData.class, fields.toArray(new Expression[0]));
+}
+```
+
+---
+
+### Advantages of Combined Approach
+1. **Performance Optimization**:
+   - Use Cube.js for caching and pre-aggregated queries.
+   - Use QueryDSL for real-time and highly specific queries.
+
+2. **Scalability**:
+   - Cube.js handles complex queries at scale with caching and precomputations.
+   - QueryDSL can be scaled horizontally for raw data queries.
+
+3. **Flexibility**:
+   - Both tools complement each other to handle a wide range of query use cases.
+
+4. **Consistency**:
+   - The routing logic ensures that queries are directed appropriately without redundancy.
+
+--- 
+
+
+
+
+----------------------------
+
 https://medium.com/codex/benchmarking-django-vs-spring-boot-a-comparative-study-e233dcb047c2
 
 ### **Spring Boot와 Django 방식의 차이**
