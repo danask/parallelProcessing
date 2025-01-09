@@ -1,4 +1,237 @@
 
+다음은 위 조건을 충족하는 방식으로 Spring Boot 기반의 **GraphQL + QueryDSL + Metadata Layer** 설계를 구체화한 예제입니다.  
+
+---
+
+### **아키텍처 설명**
+
+1. **Frontend**: React와 GraphQL을 사용하여 사용자 요청 생성.
+   - 사용자가 원하는 `measures`, `dimensions`, `filters`를 지정해 요청.
+   - 예: `backgroundTime`과 `deviceCount`를 `y축`, `appName`을 `x축`으로 설정, 날짜 범위 필터 추가.
+
+2. **Backend**: Spring Boot에서 GraphQL과 QueryDSL을 결합.
+   - GraphQL로 요청 처리.
+   - Metadata Layer를 기반으로 필드 및 조인 규칙 매핑.
+   - QueryDSL로 동적 쿼리를 생성 및 실행.
+
+3. **Database**: Postgres를 데이터 저장소로 사용.
+
+---
+
+### **1. Metadata Layer 정의**
+
+#### **1-1. Metadata Configuration**
+`dimensions`, `measures`, `joins` 정보를 정의:
+```java
+public class MetaDataConfig {
+    public static final Map<String, ColumnInfo> DIMENSIONS = Map.of(
+        "appName", new ColumnInfo("app_table", "name"),
+        "appEvent", new ColumnInfo("event_table", "event_name"),
+        "appVersion", new ColumnInfo("version_table", "version_name")
+    );
+
+    public static final Map<String, MeasureInfo> MEASURES = Map.of(
+        "backgroundTime", new MeasureInfo("usage_table", "background_time", "SUM"),
+        "foregroundTime", new MeasureInfo("usage_table", "foreground_time", "SUM"),
+        "batteryConsumption", new MeasureInfo("device_table", "battery_usage", "SUM"),
+        "deviceCount", new MeasureInfo("device_table", "device_id", "COUNT"),
+        "avgRAMUsage", new MeasureInfo("system_table", "ram_usage", "AVG"),
+        "screenTime", new MeasureInfo("usage_table", "screen_time", "SUM")
+    );
+
+    public static final List<JoinInfo> JOINS = List.of(
+        new JoinInfo("app_table", "usage_table", "app_table.id = usage_table.app_id"),
+        new JoinInfo("usage_table", "device_table", "usage_table.device_id = device_table.id"),
+        new JoinInfo("usage_table", "event_table", "usage_table.event_id = event_table.id"),
+        new JoinInfo("usage_table", "version_table", "usage_table.version_id = version_table.id"),
+        new JoinInfo("usage_table", "system_table", "usage_table.system_id = system_table.id")
+    );
+}
+```
+
+---
+
+### **2. GraphQL Schema**
+
+#### **2-1. Schema 정의**
+GraphQL 스키마 파일 `schema.graphqls`:
+```graphql
+type Query {
+    getGraphData(
+        measures: [String!]!,
+        dimensions: [String!]!,
+        filters: FilterInput
+    ): [GraphData]
+}
+
+input FilterInput {
+    customerId: String
+    groupId: String
+    dateRange: String
+    startDate: String
+    endDate: String
+    appUID: String
+}
+
+type GraphData {
+    xAxis: String
+    yAxis: [MeasureData]
+}
+
+type MeasureData {
+    name: String
+    value: Float
+}
+```
+
+---
+
+### **3. Backend 구현**
+
+#### **3-1. GraphQL Controller**
+GraphQL 요청 처리:
+```java
+@RestController
+public class GraphQLController {
+
+    @Autowired
+    private DynamicQueryService queryService;
+
+    @QueryMapping
+    public List<GraphData> getGraphData(
+        @Argument List<String> measures,
+        @Argument List<String> dimensions,
+        @Argument FilterInput filters
+    ) {
+        return queryService.executeQuery(measures, dimensions, filters);
+    }
+}
+```
+
+---
+
+#### **3-2. Query Service**
+동적 쿼리 생성 로직:
+```java
+@Service
+public class DynamicQueryService {
+
+    @Autowired
+    private JPAQueryFactory queryFactory;
+
+    public List<GraphData> executeQuery(List<String> measures, List<String> dimensions, FilterInput filters) {
+        // Initialize tables
+        QAppTable appTable = QAppTable.appTable;
+        QUsageTable usageTable = QUsageTable.usageTable;
+        QDeviceTable deviceTable = QDeviceTable.deviceTable;
+
+        // Select dimensions and measures
+        List<Expression<?>> selectFields = new ArrayList<>();
+        dimensions.forEach(dimension -> {
+            ColumnInfo columnInfo = MetaDataConfig.DIMENSIONS.get(dimension);
+            selectFields.add(new PathBuilder<>(Object.class, columnInfo.getTable()).get(columnInfo.getColumn()));
+        });
+        measures.forEach(measure -> {
+            MeasureInfo measureInfo = MetaDataConfig.MEASURES.get(measure);
+            if ("SUM".equals(measureInfo.getAggregation())) {
+                selectFields.add(new PathBuilder<>(Object.class, measureInfo.getTable()).get(measureInfo.getColumn()).sum());
+            } else if ("COUNT".equals(measureInfo.getAggregation())) {
+                selectFields.add(new PathBuilder<>(Object.class, measureInfo.getTable()).get(measureInfo.getColumn()).count());
+            }
+        });
+
+        // Build query
+        JPAQuery<Tuple> query = queryFactory.select(selectFields.toArray(new Expression<?>[0]))
+            .from(appTable)
+            .join(usageTable).on(appTable.id.eq(usageTable.appId))
+            .join(deviceTable).on(usageTable.deviceId.eq(deviceTable.id));
+
+        // Add filters
+        if (filters.getCustomerId() != null) {
+            query.where(appTable.customerId.eq(filters.getCustomerId()));
+        }
+        if (filters.getDateRange() != null) {
+            // Implement date range logic
+        }
+
+        // Execute query
+        List<Tuple> results = query.fetch();
+
+        // Map results to GraphData
+        return results.stream().map(tuple -> {
+            GraphData data = new GraphData();
+            data.setXAxis(tuple.get(0, String.class));  // X-axis field
+            data.setYAxis(
+                measures.stream().map(measure -> new MeasureData(measure, tuple.get(measureIndex, Double.class)))
+                        .collect(Collectors.toList())
+            );
+            return data;
+        }).collect(Collectors.toList());
+    }
+}
+```
+
+---
+
+### **4. React Frontend**
+
+React를 이용해 GraphQL 요청 생성:
+```javascript
+import { useQuery } from '@apollo/client';
+import { gql } from 'apollo-boost';
+
+const GET_GRAPH_DATA = gql`
+  query GetGraphData($measures: [String!]!, $dimensions: [String!]!, $filters: FilterInput) {
+    getGraphData(measures: $measures, dimensions: $dimensions, filters: $filters) {
+      xAxis
+      yAxis {
+        name
+        value
+      }
+    }
+  }
+`;
+
+function GraphComponent() {
+  const { data, loading, error } = useQuery(GET_GRAPH_DATA, {
+    variables: {
+      measures: ["foregroundTime", "deviceCount"],
+      dimensions: ["appName"],
+      filters: { customerId: "123", dateRange: "last7" }
+    }
+  });
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error.message}</p>;
+
+  return (
+    <div>
+      {data.getGraphData.map((item, idx) => (
+        <div key={idx}>
+          <h3>{item.xAxis}</h3>
+          {item.yAxis.map((measure, midx) => (
+            <p key={midx}>{measure.name}: {measure.value}</p>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default GraphComponent;
+```
+
+---
+
+### **장점**
+1. **유연성**: QueryDSL과 Metadata Layer로 동적 쿼리 생성 가능.
+2. **확장성**: 새로운 Dimension/Measure 추가 시 메타데이터만 수정.
+3. **프론트엔드 통합**: GraphQL로 쉽게 데이터 요청/구성.
+
+### **결론**
+이 설계는 다양한 BI 요구사항에 적합하며, 확장 가능하고 성능 최적화가 용이합니다.
+
+-----
 
 QueryDSL과 Cube.js의 시맨틱 모델을 병행하여 쿼리를 처리하려면 **쿼리의 성격과 필요성에 따라 작업을 구분**해야 합니다. 이를 위해 다음과 같은 기준과 설계를 사용할 수 있습니다:
 
