@@ -221,6 +221,75 @@ function GraphComponent() {
 export default GraphComponent;
 ```
 
+최종적으로 생성된 SQL 쿼리는 입력된 `dimensions`, `measures`, 그리고 `filters`에 따라 동적으로 구성됩니다. 앞선 예제를 기반으로 SQL 쿼리를 생성하면 다음과 같은 형태로 결과가 나옵니다.
+
+---
+
+### **입력 값**
+- **Dimensions**: `["appName"]` (x축)
+- **Measures**: `["foregroundTime", "deviceCount"]` (y축)
+- **Filters**: 
+  - `customerId = '123'`
+  - `dateRange = 'last7'` (오늘로부터 지난 7일간의 데이터)
+
+---
+
+### **생성된 SQL**
+```sql
+SELECT 
+    app_table.name AS appName, 
+    SUM(usage_table.foreground_time) AS foregroundTime, 
+    COUNT(device_table.device_id) AS deviceCount
+FROM 
+    app_table
+JOIN 
+    usage_table ON app_table.id = usage_table.app_id
+JOIN 
+    device_table ON usage_table.device_id = device_table.id
+WHERE 
+    app_table.customer_id = '123' 
+    AND usage_table.date >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY 
+    app_table.name
+ORDER BY 
+    app_table.name;
+```
+
+---
+
+### **쿼리 구성 요소**
+1. **SELECT**: 
+   - `Dimensions`에 따라 그룹화된 필드를 가져옴 (`app_table.name` → `appName`).
+   - `Measures`에 따라 계산된 값 (`SUM`과 `COUNT` 사용).
+
+2. **FROM / JOIN**:
+   - Metadata Layer에서 정의된 조인 정보를 활용해 필요한 테이블 연결:
+     - `app_table`, `usage_table`, `device_table`.
+
+3. **WHERE**:
+   - 사용자가 입력한 `filters`를 기반으로 조건 추가:
+     - `customerId` 필터.
+     - 날짜 필터 (`last7` → 오늘 기준 지난 7일간).
+
+4. **GROUP BY**:
+   - `Dimensions`에 따라 그룹화.
+
+5. **ORDER BY**:
+   - 결과를 `appName` 기준으로 정렬.
+
+---
+
+### **추가 동작**
+- **Dynamic Query**: 
+  QueryDSL이 입력된 `dimensions`, `measures`, 그리고 `filters`를 기반으로 위와 같은 SQL을 동적으로 생성.
+  
+- **Extensibility**: 
+  새로운 필드 추가 시, Metadata Layer에만 추가 정보를 등록하면 쿼리 생성 가능.
+
+---
+
+이 구조는 QueryDSL과 Metadata Layer를 이용해 복잡한 BI 요구사항을 만족하는 동시에, 유지보수가 용이하도록 설계되었습니다.
+
 ---
 
 ### **장점**
