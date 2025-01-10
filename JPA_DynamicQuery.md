@@ -1,4 +1,7 @@
 
+
+https://github.com/arifng/spring-jpa-querydsl/blob/master/src/main/java/com/arifng/jpaquerydsl/SpringJpaQuerydslApplication.java 
+
 `resolveJoins` 메서드에서 동적 조인 처리 시 테이블 수와 스키마가 달라지는 문제를 해결하려면 아래와 같은 전략을 사용할 수 있습니다. 
 
 ### **1. 메타데이터 기반 동적 처리**
