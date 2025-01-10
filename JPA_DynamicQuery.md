@@ -285,6 +285,96 @@ public class JoinMetadata {
 
 ---
 
+QueryDSL에서 `QueryFactory`를 사용하는 경우, Spring 환경에서는 `QueryFactory`를 Autowire하기 위해 추가 설정이 필요합니다. 일반적으로 `JPAQueryFactory`를 빈으로 등록하는 설정을 만들어야 합니다. 이를 설정하지 않으면 `@Autowired`로 주입할 수 없다는 오류가 발생할 수 있습니다.
+
+---
+
+### **Spring Boot에서 QueryFactory 설정**
+`JPAQueryFactory`를 Spring 컨텍스트에 빈으로 등록하는 설정 클래스는 다음과 같습니다:
+
+#### **Configuration 클래스**
+```java
+import com.querydsl.jpa.impl.JPAQueryFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
+@Configuration
+public class QuerydslConfig {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory() {
+        return new JPAQueryFactory(entityManager);
+    }
+}
+```
+
+---
+
+### **필요한 설정**
+1. **`EntityManager` 주입:**
+   - QueryDSL은 Hibernate와 JPA의 `EntityManager`를 사용하여 쿼리를 실행합니다. 
+   - 위 설정에서는 `@PersistenceContext`를 통해 EntityManager를 주입받아 `JPAQueryFactory`에 전달합니다.
+
+2. **`@Bean` 등록:**
+   - `JPAQueryFactory`를 빈으로 등록해 Spring 컨텍스트에서 관리하도록 합니다.
+
+3. **주입 방법:**
+   - `@Autowired` 또는 생성자 주입 방식으로 사용 가능합니다.
+   - 예:
+     ```java
+     @Service
+     public class MyService {
+         private final JPAQueryFactory queryFactory;
+
+         public MyService(JPAQueryFactory queryFactory) {
+             this.queryFactory = queryFactory;
+         }
+
+         public void someMethod() {
+             // QueryDSL로 쿼리 작성
+         }
+     }
+     ```
+
+---
+
+### **QueryDSL Factory 빈 없이 사용하는 방법**
+만약 `JPAQueryFactory`를 빈으로 등록하지 않고 사용하고 싶다면, 각 서비스나 리포지토리 클래스에서 `EntityManager`를 직접 주입받아 사용할 수도 있습니다. 그러나 이는 재사용성이 낮고 유지보수가 어려우므로 권장되지 않습니다.
+
+```java
+@Service
+public class MyService {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public void someMethod() {
+        JPAQueryFactory queryFactory = new JPAQueryFactory(entityManager);
+        // QueryDSL 쿼리 실행
+    }
+}
+```
+
+---
+
+### **왜 빈으로 등록해야 할까?**
+1. **재사용성:**
+   - 여러 서비스에서 `JPAQueryFactory`를 공유할 수 있습니다.
+2. **테스트 용이성:**
+   - `JPAQueryFactory`를 빈으로 주입받으면, 테스트 시 모킹(mocking)이 간편해집니다.
+3. **Spring 관리:**
+   - 빈 등록을 통해 라이프사이클을 Spring이 관리하도록 할 수 있습니다.
+
+---
+
+위와 같이 설정하면 `QueryFactory`를 Autowire로 주입받아 사용할 수 있습니다.
+
+
 ### **2. 메타데이터를 기반으로 QueryDSL 생성**
 메타데이터를 읽어 동적으로 QueryDSL 쿼리를 생성합니다.
 
