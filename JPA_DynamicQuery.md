@@ -1,5 +1,127 @@
 
+`resolveJoins` 메서드에서 동적 조인 처리 시 테이블 수와 스키마가 달라지는 문제를 해결하려면 아래와 같은 전략을 사용할 수 있습니다. 
 
+### **1. 메타데이터 기반 동적 처리**
+- **테이블 갯수와 스키마**를 메타데이터 객체에 저장.
+- `JoinInfo` 객체에 테이블 간 관계 및 조인 조건을 정의.
+
+#### **JoinInfo 클래스**
+```java
+public class JoinInfo {
+    private QTable leftTable;
+    private QTable rightTable;
+    private String joinType; // "INNER", "LEFT", "RIGHT"
+    private Predicate condition;
+
+    // Constructor, getters, and setters
+}
+```
+
+#### **QTable 인터페이스**
+테이블 스키마를 동적으로 처리할 수 있도록 `QTable`을 인터페이스로 추상화하고 이를 구현한 각 `Q` 클래스를 생성합니다.
+```java
+public interface QTable {
+    EntityPathBase<?> getEntity();
+}
+```
+
+예를 들어, `QAppTable`을 구현:
+```java
+public class QAppTable implements QTable {
+    public static final QAppTable appTable = new QAppTable();
+    private QAppTable() {}
+
+    public final StringPath appName = createString("appName");
+    public final StringPath customerId = createString("customerId");
+
+    @Override
+    public EntityPathBase<?> getEntity() {
+        return appTable;
+    }
+}
+```
+
+---
+
+### **2. resolveJoins 메서드 구현**
+`resolveJoins`는 입력된 테이블, 조건, 조인 타입에 따라 동적으로 쿼리를 생성합니다.
+
+```java
+public static JPAQuery<?> resolveJoins(JPAQuery<?> query, List<JoinInfo> joins, QTable... tables) {
+    for (JoinInfo join : joins) {
+        EntityPathBase<?> leftEntity = join.getLeftTable().getEntity();
+        EntityPathBase<?> rightEntity = join.getRightTable().getEntity();
+
+        switch (join.getJoinType().toUpperCase()) {
+            case "INNER":
+                query = query.innerJoin(rightEntity).on(join.getCondition());
+                break;
+            case "LEFT":
+                query = query.leftJoin(rightEntity).on(join.getCondition());
+                break;
+            case "RIGHT":
+                query = query.rightJoin(rightEntity).on(join.getCondition());
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid join type: " + join.getJoinType());
+        }
+    }
+    return query;
+}
+```
+
+---
+
+### **3. 예제: 여러 테이블 조인**
+#### **메타데이터 기반 조인 정의**
+```java
+List<JoinInfo> joinInfos = new ArrayList<>();
+joinInfos.add(new JoinInfo(
+    QAppTable.appTable,
+    QCustomerTable.customerTable,
+    "INNER",
+    QAppTable.appTable.customerId.eq(QCustomerTable.customerTable.id)
+));
+joinInfos.add(new JoinInfo(
+    QCustomerTable.customerTable,
+    QOrderTable.orderTable,
+    "LEFT",
+    QCustomerTable.customerTable.id.eq(QOrderTable.orderTable.customerId)
+));
+```
+
+#### **JPAQuery에서 조인 적용**
+```java
+JPAQuery<?> query = new JPAQuery<>(entityManager);
+query = resolveJoins(query, joinInfos, QAppTable.appTable, QCustomerTable.customerTable, QOrderTable.orderTable);
+
+List<Tuple> result = query.select(
+        QAppTable.appTable.appName,
+        QCustomerTable.customerTable.customerName,
+        QOrderTable.orderTable.orderId
+    )
+    .from(QAppTable.appTable)
+    .fetch();
+```
+
+---
+
+### **4. 스키마 차이에 따른 처리**
+스키마가 다른 경우 테이블 별로 별도의 네임스페이스를 활용하거나 동적 SQL을 생성하는 방식을 사용할 수 있습니다.
+- 스키마 이름을 메타데이터에 저장하고 `resolveJoins`에서 `@Table(schema = "schemaName")` 정보를 활용.
+
+---
+
+### **5. 생성된 SQL 확인**
+QueryDSL은 쿼리를 실행하기 전에 SQL을 출력할 수 있습니다:
+```java
+String sql = query.toString();
+System.out.println(sql);
+```
+
+---
+
+이 방식으로 동적 테이블과 조인을 처리하면 테이블 스키마와 관계 정의를 분리할 수 있어 유지보수성과 확장성이 크게 향상됩니다.
 
 -------------------
 
