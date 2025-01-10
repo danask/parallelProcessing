@@ -1,6 +1,8 @@
 
 
 
+-------------------
+
 동적으로 여러 테이블에서 데이터를 가져와 자동으로 조인을 처리하는 기능은 가능하며, 이를 구현하려면 **메타데이터 기반 조인 로직**을 사용하는 것이 효과적입니다. 메타데이터에 각 필드가 속한 테이블과 조인 조건을 정의하여, 입력된 `dimensions` 및 `measures`에 따라 필요한 테이블과 조인 로직을 동적으로 생성하도록 할 수 있습니다.
 
 ---
@@ -147,7 +149,100 @@ for (Tuple result : results) {
     System.out.println("App: " + result.get("appName") + ", Background Time: " + result.get("bgTime") + ", Battery: " + result.get("battery"));
 }
 ```
+JPAQuery 또는 QueryDSL을 사용해 생성된 SQL 쿼리를 확인하려면 다음과 같은 방법을 사용하면 됩니다.
 
+---
+
+### **1. QueryDSL에서 SQL 확인**
+QueryDSL은 생성된 SQL을 로그로 출력하거나 직접 추출할 수 있는 메서드를 제공합니다.
+
+#### **로그 출력 설정**
+Spring Boot 프로젝트에서 `application.properties`나 `application.yml`에 다음 설정을 추가합니다:
+
+**`application.properties`**
+```properties
+spring.jpa.properties.hibernate.show_sql=true
+spring.jpa.properties.hibernate.format_sql=true
+```
+
+이 설정을 통해 JPA가 실행하는 쿼리가 로그로 출력됩니다. 
+
+#### **`toString()`으로 SQL 확인**
+QueryDSL에서 SQL 확인을 위해 `toString()`을 호출할 수도 있습니다:
+
+```java
+JPQLQuery<?> query = queryFactory.select(qApp.appName, qUsage.backgroundTime, qDevice.batteryConsumption)
+    .from(qApp)
+    .join(qUsage).on(qApp.customerId.eq(qUsage.customerId))
+    .join(qDevice).on(qUsage.deviceId.eq(qDevice.deviceId));
+
+// 생성된 JPQL/SQL 확인
+System.out.println(query.toString());
+```
+
+---
+
+### **2. Hibernate 인터셉터 활용**
+Hibernate의 `StatementInspector` 인터페이스를 구현하여 실행 전에 쿼리를 확인할 수 있습니다.
+
+**`CustomStatementInspector` 클래스**
+```java
+public class CustomStatementInspector implements StatementInspector {
+    @Override
+    public String inspect(String sql) {
+        System.out.println("Generated SQL: " + sql);
+        return sql;
+    }
+}
+```
+
+**Hibernate 설정에 등록**
+```properties
+spring.jpa.properties.hibernate.session_factory.statement_inspector=com.example.CustomStatementInspector
+```
+
+---
+
+### **3. QueryDSL 전용 메서드**
+`JPAQuery` 객체에서 `fetch()`나 `fetchOne()` 대신 SQL만 확인하고 싶다면, `createQuery()`로 쿼리를 빌드만 할 수 있습니다:
+
+```java
+JPQLQuery<?> query = queryFactory
+    .select(qApp.appName, qUsage.backgroundTime, qDevice.batteryConsumption)
+    .from(qApp)
+    .join(qUsage).on(qApp.customerId.eq(qUsage.customerId))
+    .join(qDevice).on(qUsage.deviceId.eq(qDevice.deviceId));
+
+// 쿼리를 빌드
+TypedQuery<?> builtQuery = query.createQuery();
+System.out.println(builtQuery.unwrap(org.hibernate.query.Query.class).getQueryString());
+```
+
+---
+
+### **4. SQL 디버깅 툴 활용**
+Spring Boot에서 실행 중인 SQL을 실시간으로 보기 위해 [P6Spy](https://github.com/p6spy/p6spy) 라이브러리를 사용할 수도 있습니다.
+
+**P6Spy 설정 예시**
+1. `pom.xml`에 의존성 추가:
+   ```xml
+   <dependency>
+       <groupId>p6spy</groupId>
+       <artifactId>p6spy</artifactId>
+       <version>3.9.1</version>
+   </dependency>
+   ```
+
+2. `application.properties` 설정:
+   ```properties
+   spring.datasource.url=jdbc:p6spy:mysql://localhost:3306/mydb
+   ```
+
+3. SQL 로그 출력 확인.
+
+---
+
+이와 같은 방법을 통해 QueryDSL로 생성된 쿼리를 확인하고, 디버깅에 사용할 수 있습니다.
 ---
 
 ### **장점**
