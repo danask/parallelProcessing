@@ -1,5 +1,102 @@
 
 
+
+`pom.xml`에 필요한 의존성을 추가했다고 하더라도, **특정 설정이나 동작을 구현**하기 위해 추가적인 `@Configuration` 설정이 필요할 수 있습니다. 이는 의존성만으로는 런타임에서 자동으로 동작을 수행하도록 설정되지 않기 때문입니다.
+
+### **필요한 추가 설정이 필요한 이유**
+1. **의존성만으로는 Bean이 자동 생성되지 않는 경우**
+   - `JPAQueryFactory`와 같은 객체는 Spring이 기본적으로 관리하는 Bean이 아니기 때문에 명시적으로 설정해야 합니다.
+   - 예: `@PersistenceContext`를 사용해 `EntityManager`를 주입하고 이를 기반으로 `JPAQueryFactory` Bean을 생성.
+
+2. **자동 설정이 비활성화된 경우**
+   - Spring Boot Starter가 제공하는 기본 자동 설정이 제대로 동작하지 않는 경우, 명시적으로 구성 파일을 만들어야 합니다.
+   - 예: Spring Data JPA가 활성화되었는지 확인(`@EnableJpaRepositories`).
+
+3. **커스터마이징이 필요한 경우**
+   - 기본 동작을 변경하거나 특정 요구사항(예: 특정 Bean 이름, 프로파일별 설정 등)에 따라 동작을 조정하려면 설정 파일이 필요합니다.
+   - 예: 특정 데이터 소스를 다르게 설정하거나 다중 데이터 소스를 사용하는 경우.
+
+---
+
+### **QueryDSL 설정 예제**
+#### `pom.xml`
+```xml
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-jpa</artifactId>
+    <version>5.0.0</version>
+</dependency>
+<dependency>
+    <groupId>javax.annotation</groupId>
+    <artifactId>javax.annotation-api</artifactId>
+    <version>1.3.2</version>
+</dependency>
+<plugin>
+    <groupId>com.mysema.maven</groupId>
+    <artifactId>apt-maven-plugin</artifactId>
+    <version>1.1.3</version>
+    <executions>
+        <execution>
+            <goals>
+                <goal>process</goal>
+            </goals>
+            <configuration>
+                <outputDirectory>target/generated-sources</outputDirectory>
+                <processor>com.querydsl.apt.jpa.JPAAnnotationProcessor</processor>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+#### **Spring Configuration**
+`JPAQueryFactory`를 사용하는 경우, 아래와 같이 Bean으로 등록해야 합니다.
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory() {
+        return new JPAQueryFactory(entityManager);
+    }
+}
+```
+
+#### **자동 설정 확인**
+Spring Boot의 자동 설정이 정상적으로 동작하는지 확인하려면 다음을 점검해야 합니다.
+1. `application.properties` 또는 `application.yml`에 JPA 관련 기본 설정이 포함되어야 합니다:
+   ```properties
+   spring.jpa.show-sql=true
+   spring.jpa.hibernate.ddl-auto=update
+   spring.datasource.url=jdbc:postgresql://localhost:5432/mydb
+   spring.datasource.username=myuser
+   spring.datasource.password=mypassword
+   ```
+
+2. `@SpringBootApplication` 클래스에 `@EnableJpaRepositories`가 포함되어 있어야 합니다:
+   ```java
+   @SpringBootApplication
+   @EnableJpaRepositories
+   public class Application {
+       public static void main(String[] args) {
+           SpringApplication.run(Application.class, args);
+       }
+   }
+   ```
+
+---
+
+### **자동 설정과 커스터마이징의 조화**
+- **자동 설정이 동작하지 않는 경우**: Spring Boot Starter의 의존성이 누락되었거나, 자동 설정을 명시적으로 비활성화했을 가능성이 있습니다.
+- **직접 구성해야 하는 경우**: 기본 Bean 정의가 프로젝트 요구사항에 맞지 않는 경우 `@Configuration`을 이용해 커스터마이징이 필요합니다.
+
+### **Spring Boot와 QueryDSL의 조합: Best Practice**
+- 프로젝트 초기 단계에서는 기본 자동 설정과 표준 `@Configuration` 클래스를 사용합니다.
+- 점진적으로 `QueryDSL`과 같은 동적 쿼리 기능을 추가하면서 필요한 설정만 추가해 복잡도를 관리합니다.
+
 https://github.com/arifng/spring-jpa-querydsl/blob/master/src/main/java/com/arifng/jpaquerydsl/SpringJpaQuerydslApplication.java 
 
 `resolveJoins` 메서드에서 동적 조인 처리 시 테이블 수와 스키마가 달라지는 문제를 해결하려면 아래와 같은 전략을 사용할 수 있습니다. 
