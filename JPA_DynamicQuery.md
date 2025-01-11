@@ -223,6 +223,138 @@ System.out.println(sql);
 
 이 방식으로 동적 테이블과 조인을 처리하면 테이블 스키마와 관계 정의를 분리할 수 있어 유지보수성과 확장성이 크게 향상됩니다.
 
+
+`EntityManager`가 `cannot resolve`라는 오류를 표시한다면, 문제는 주로 다음과 같은 원인 중 하나일 수 있습니다. 아래 해결 방법을 하나씩 확인해보세요.
+
+---
+
+### 1. **JPA 의존성이 누락됨**
+   `EntityManager`는 JPA의 일부이므로 프로젝트에 JPA 관련 의존성이 추가되어야 합니다.
+
+   #### 확인할 점
+   `pom.xml`에 JPA 의존성이 포함되어 있는지 확인하세요.
+   ```xml
+   <dependencies>
+       <dependency>
+           <groupId>org.springframework.boot</groupId>
+           <artifactId>spring-boot-starter-data-jpa</artifactId>
+       </dependency>
+       <!-- 데이터베이스 드라이버도 필요 -->
+       <dependency>
+           <groupId>org.postgresql</groupId>
+           <artifactId>postgresql</artifactId>
+       </dependency>
+   </dependencies>
+   ```
+
+   #### 해결
+   의존성이 누락된 경우 위 코드를 추가한 뒤, Maven의 `Reload Project`를 수행하세요.
+
+---
+
+### 2. **JPA 설정이 올바르게 되어 있지 않음**
+   `EntityManager`는 JPA가 활성화된 상태에서만 주입됩니다. JPA가 설정되어 있는지 확인하세요.
+
+   #### 확인할 점
+   `application.properties` 또는 `application.yml`에 JPA와 관련된 설정이 포함되어 있는지 확인하세요.
+
+   ##### 예: `application.properties`
+   ```properties
+   spring.datasource.url=jdbc:postgresql://localhost:5432/your_database
+   spring.datasource.username=your_username
+   spring.datasource.password=your_password
+   spring.jpa.hibernate.ddl-auto=update
+   spring.jpa.show-sql=true
+   ```
+
+   ##### 예: `application.yml`
+   ```yaml
+   spring:
+     datasource:
+       url: jdbc:postgresql://localhost:5432/your_database
+       username: your_username
+       password: your_password
+     jpa:
+       hibernate:
+         ddl-auto: update
+       show-sql: true
+   ```
+
+---
+
+### 3. **Spring Data JPA의 Auto Configuration이 비활성화됨**
+   JPA 관련 자동 구성이 비활성화되어 `EntityManager`가 주입되지 않을 수 있습니다.
+
+   #### 확인할 점
+   `@SpringBootApplication`에 `exclude` 옵션이 추가되어 있지 않은지 확인하세요.
+   ```java
+   @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
+   public class Application { ... }
+   ```
+
+   #### 해결
+   `exclude`로 인해 JPA 또는 데이터베이스 구성이 비활성화된 경우, 해당 부분을 제거합니다.
+   ```java
+   @SpringBootApplication
+   public class Application { ... }
+   ```
+
+---
+
+### 4. **Maven 의존성 업데이트 문제**
+   `EntityManager`를 포함한 클래스가 IntelliJ에서 인식되지 않을 수 있습니다.
+
+   #### 확인할 점
+   IntelliJ에서 Maven 프로젝트가 제대로 동기화되었는지 확인하세요.
+
+   #### 해결
+   1. IntelliJ의 Maven 탭에서 `Reload Project` 버튼을 클릭합니다.
+   2. 또는, 터미널에서 아래 명령어를 실행하세요:
+      ```bash
+      mvn clean install
+      ```
+
+---
+
+### 5. **잘못된 Import**
+   `EntityManager`를 올바른 패키지에서 가져와야 합니다.
+
+   #### 확인할 점
+   `javax.persistence.EntityManager` 또는 `jakarta.persistence.EntityManager`로 import되어 있는지 확인하세요.
+
+   #### 해결
+   패키지가 올바르지 않다면, 다음 중 하나로 변경합니다:
+   ```java
+   import javax.persistence.EntityManager;  // Java 8/11
+   // 또는
+   import jakarta.persistence.EntityManager;  // Java 17+
+   ```
+
+---
+
+### 6. **JDK 버전 확인**
+   `EntityManager`의 패키지가 Java 버전에 따라 달라졌습니다.
+
+   #### 확인할 점
+   - **Java 8, 11**: `javax.persistence.EntityManager`
+   - **Java 17+**: `jakarta.persistence.EntityManager`
+
+   #### 해결
+   프로젝트의 Java 버전에 따라 의존성과 import를 수정하세요. Java 17 이상이라면, `spring-boot-starter-data-jpa`가 Jakarta Persistence를 사용하도록 자동으로 설정됩니다.
+
+---
+
+위 단계를 확인한 후에도 문제가 지속되면, IntelliJ의 캐시를 무효화하거나 프로젝트를 다시 빌드해보세요:
+
+1. **IntelliJ 캐시 무효화**
+   - `File > Invalidate Caches > Invalidate and Restart`
+
+2. **프로젝트 다시 빌드**
+   - `Build > Rebuild Project`
+
+문제가 해결되지 않으면 현재의 설정 파일(`pom.xml`, `application.properties`)과 전체적인 프로젝트 구조를 공유해 주시면 추가로 도움을 드리겠습니다!
+
+
 -------------------
 
 동적으로 여러 테이블에서 데이터를 가져와 자동으로 조인을 처리하는 기능은 가능하며, 이를 구현하려면 **메타데이터 기반 조인 로직**을 사용하는 것이 효과적입니다. 메타데이터에 각 필드가 속한 테이블과 조인 조건을 정의하여, 입력된 `dimensions` 및 `measures`에 따라 필요한 테이블과 조인 로직을 동적으로 생성하도록 할 수 있습니다.
