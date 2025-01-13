@@ -1,5 +1,8 @@
 
 
+
+https://github.com/eugenp/tutorials/tree/master/persistence-modules/querydsl
+
 ```java
 <dependency>
     <groupId>jakarta.persistence</groupId>
