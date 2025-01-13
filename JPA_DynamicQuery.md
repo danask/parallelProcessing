@@ -1,3 +1,132 @@
+
+`@PersistenceContext`를 사용할 때 `EntityManager`가 `cannot resolve`로 표시되는 문제는 주로 다음과 같은 원인으로 발생합니다:
+
+---
+
+### 1. **의존성 누락**
+`EntityManager`는 JPA의 핵심 클래스이므로, 프로젝트의 `pom.xml`에 JPA 관련 의존성이 추가되어 있어야 합니다. 확인해야 할 의존성:
+
+#### Maven 의존성:
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+```
+
+---
+
+### 2. **Spring Context 설정 문제**
+JPA 관련 설정이 제대로 구성되지 않았다면 `EntityManager`를 주입받을 수 없습니다. 이를 해결하려면 `@EnableJpaRepositories`를 올바르게 설정하고, JPA 설정 파일이 존재해야 합니다.
+
+#### 주요 설정:
+- `@EnableJpaRepositories`를 적절한 패키지 경로에 설정.
+- `application.yml` 또는 `application.properties`에 데이터베이스 연결 정보 추가.
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/mydb
+spring.datasource.username=myuser
+spring.datasource.password=mypassword
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+```
+
+---
+
+### 3. **EntityManager 사용 시 Context 문제**
+`EntityManager`는 `@PersistenceContext`를 통해 관리되며, 이는 Spring의 `ApplicationContext`에 의해 관리됩니다. 만약 스프링 부트 프로젝트가 아니라거나, JPA 관련 빈 설정이 누락되었다면 이 문제가 발생할 수 있습니다.
+
+#### 해결 방법:
+- `@Configuration` 클래스에 JPA 설정 추가:
+```java
+@Configuration
+@EnableJpaRepositories(basePackages = "com.example.repository")
+public class JpaConfig {
+}
+```
+
+---
+
+### 4. **Spring Boot 버전 문제**
+Spring Boot 3.x에서는 Hibernate 6.x 버전이 사용되며, 일부 API가 변경되었습니다. `EntityManager`를 직접 사용하는 경우에는 `Supplier<EntityManager>`를 사용하는 방식으로 변경이 필요할 수 있습니다.
+
+#### 수정 예제:
+```java
+@PersistenceContext
+private Supplier<EntityManager> entityManagerSupplier;
+
+public List<MyEntity> findCustomData() {
+    JPAQueryFactory queryFactory = new JPAQueryFactory(entityManagerSupplier.get());
+    // Your QueryDSL logic here
+}
+```
+
+---
+
+### 5. **라이브러리 충돌 문제**
+`querydsl-jpa` 버전과 `spring-boot-starter-data-jpa`의 호환성을 확인하세요. QueryDSL 5.x 버전과 Spring Boot 3.x는 호환됩니다.
+
+#### 의존성 정리:
+```xml
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-jpa</artifactId>
+    <version>5.0.0</version>
+</dependency>
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-apt</artifactId>
+    <version>5.0.0</version>
+    <scope>provided</scope>
+</dependency>
+```
+
+---
+
+### 6. **IntelliJ 설정 문제**
+IntelliJ의 `Build` 또는 `Maven` 설정이 올바르게 동작하지 않아 오류가 발생할 수 있습니다.
+
+#### 해결 방법:
+1. `File > Invalidate Caches and Restart`를 실행.
+2. `pom.xml`을 다시 새로 고침.
+3. `Preferences > Build, Execution, Deployment > Compiler > Annotation Processors`에서 `Enable annotation processing`을 활성화.
+
+---
+
+### 7. **Hibernate 6와 Spring Boot 3에서 변경된 사항**
+Hibernate 6.x에서 일부 `EntityManager` 관련 동작이 변경되었습니다. `entityManager`를 빈으로 등록하지 않으면 `cannot resolve` 문제가 발생할 수 있습니다.
+
+#### 변경된 코드:
+```java
+@Bean
+public Supplier<EntityManager> entityManagerSupplier(EntityManagerFactory emf) {
+    return emf::createEntityManager;
+}
+```
+
+---
+
+### 최종 코드 예제:
+
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @PersistenceContext
+    private Supplier<EntityManager> entityManagerSupplier;
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory() {
+        return new JPAQueryFactory(entityManagerSupplier.get());
+    }
+}
+``` 
+
+위 방법으로 문제가 해결되지 않으면 `EntityManagerFactory` 설정 문제를 확인해야 합니다.
+
+
+---------------
+
 `JPAQueryFactory`에서 `EntityManager`를 직접 주입받지 않고 다른 방법으로 사용하는 방법도 있습니다. 예를 들어, SQL Repository에서 `EntityManager`를 간접적으로 활용할 수 있습니다. 여기서는 몇 가지 대안을 설명하고 예제를 제공하겠습니다.
 
 ---
