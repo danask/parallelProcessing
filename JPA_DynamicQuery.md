@@ -1,3 +1,155 @@
+
+문제를 보니 IntelliJ에서 제공하는 수정 제안이 `EntityManager`의 처리 방식과 호환되지 않는 것 같습니다. `Supplier<EntityManager>`로의 캐스팅을 시도하는 방식은 잘못된 접근일 가능성이 높으며, 특히 Spring Boot와 JPA 표준의 관점에서는 더 명확하고 일관된 설정 방법을 사용하는 것이 중요합니다.
+
+아래에 문제를 해결하기 위한 올바른 접근 방법을 단계별로 설명하겠습니다.
+
+---
+
+### 1. **Spring Boot에서 `@PersistenceContext`의 기본 설정 확인**
+`@PersistenceContext`는 일반적으로 기본 `EntityManager`를 주입받습니다. `unitName`을 지정하는 것은 다중 데이터 소스 환경에서만 필요합니다. 단일 데이터 소스 설정인 경우에는 `unitName`을 제거하고 기본 `EntityManager`를 사용하도록 설정합니다.
+
+```java
+@PersistenceContext
+private EntityManager entityManager;
+```
+
+---
+
+### 2. **다중 데이터 소스 환경에서 `unitName` 설정**
+만약 다중 데이터 소스 환경이라면, Spring Boot에서는 `@Primary` 애너테이션과 함께 데이터 소스를 설정하고 `@PersistenceContext`와 `unitName`을 연결해야 합니다.
+
+#### 데이터 소스 및 `EntityManagerFactory` 설정:
+```java
+@Configuration
+@EnableTransactionManagement
+public class PrimaryDataSourceConfig {
+
+    @Primary
+    @Bean(name = "primaryDataSource")
+    @ConfigurationProperties(prefix = "spring.datasource.primary")
+    public DataSource dataSource() {
+        return DataSourceBuilder.create().build();
+    }
+
+    @Primary
+    @Bean(name = "primaryEntityManagerFactory")
+    public LocalContainerEntityManagerFactoryBean entityManagerFactory(
+            EntityManagerFactoryBuilder builder,
+            @Qualifier("primaryDataSource") DataSource dataSource) {
+        return builder
+                .dataSource(dataSource)
+                .packages("com.example.yourpackage")
+                .persistenceUnit("primaryEntityManager")
+                .build();
+    }
+
+    @Primary
+    @Bean(name = "primaryTransactionManager")
+    public PlatformTransactionManager transactionManager(
+            @Qualifier("primaryEntityManagerFactory") EntityManagerFactory entityManagerFactory) {
+        return new JpaTransactionManager(entityManagerFactory);
+    }
+}
+```
+
+#### `@PersistenceContext` 사용:
+```java
+@PersistenceContext(unitName = "primaryEntityManager")
+private EntityManager entityManager;
+```
+
+---
+
+### 3. **Spring Boot 3.x에서 `Supplier<EntityManager>` 처리**
+Hibernate 6.x 및 Spring Boot 3.x에서는 `EntityManager`의 생성 방식이 약간 변경되었습니다. 대신, `EntityManagerFactory`를 사용하여 `EntityManager`를 생성할 수 있습니다.
+
+#### 수동으로 `EntityManager` 생성:
+```java
+@Autowired
+private EntityManagerFactory entityManagerFactory;
+
+public void findCustomData() {
+    EntityManager entityManager = entityManagerFactory.createEntityManager();
+    JPAQueryFactory queryFactory = new JPAQueryFactory(entityManager);
+    // Your QueryDSL logic here
+}
+```
+
+---
+
+### 4. **정확한 QueryDSL 설정**
+최신 QueryDSL 설정 방법에 맞게 `JPAQueryFactory`를 빈으로 등록합니다.
+
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory() {
+        return new JPAQueryFactory(entityManagerFactory.createEntityManager());
+    }
+}
+```
+
+---
+
+### 5. **테스트 환경 점검**
+다음 테스트 코드를 작성해 QueryDSL 설정이 올바르게 작동하는지 확인하세요:
+
+```java
+@SpringBootTest
+public class QueryDslIntegrationTest {
+
+    @Autowired
+    private JPAQueryFactory queryFactory;
+
+    @Test
+    public void testQueryFactoryInitialization() {
+        assertNotNull(queryFactory, "JPAQueryFactory should not be null");
+    }
+}
+```
+
+---
+
+### 6. **의존성 확인**
+`QueryDSL`과 JPA 설정이 충돌하지 않도록 Maven 의존성을 다시 확인하세요.
+
+```xml
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-jpa</artifactId>
+    <version>5.0.0</version>
+</dependency>
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-apt</artifactId>
+    <version>5.0.0</version>
+    <scope>provided</scope>
+</dependency>
+```
+
+---
+
+### 7. **캐스팅 문제 해결**
+`Supplier<EntityManager>`를 사용하는 IntelliJ의 자동 수정 제안은 오히려 잘못된 접근입니다. 위의 방법을 사용하여 캐스팅 없이 올바르게 설정하도록 변경합니다.
+
+---
+
+### 정리
+1. 단일 데이터 소스 환경에서는 `@PersistenceContext`만으로 충분합니다.
+2. 다중 데이터 소스 환경에서는 `unitName`을 통해 명시적으로 연결하세요.
+3. `EntityManagerFactory`를 직접 사용하여 `EntityManager`를 생성하는 방법도 가능합니다.
+4. IntelliJ의 자동 수정 제안은 잘못된 접근이므로 무시하고, 표준적인 Spring Boot 설정을 따르세요.
+
+위의 방법으로도 해결되지 않으면, 추가 에러 메시지나 관련 설정을 공유해 주시면 더 도움을 드릴 수 있습니다.
+
+
+----------------
+
 Spring Boot 3.2.7과 JDK 17 환경에서 `EntityManager` 관련 문제가 발생하면서, 다른 JPA API(예: `CriteriaBuilder`)는 잘 동작한다면, 특정한 문제를 더 좁혀 확인할 필요가 있습니다. 아래는 해당 문제를 해결하기 위한 몇 가지 점검 사항과 수정 방법입니다.
 
 ---
