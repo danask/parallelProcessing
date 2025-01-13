@@ -1,4 +1,197 @@
 
+
+`JoinInfo` 클래스에서 `Predicate`를 사용하여 조인 조건을 동적으로 처리할 수 있는 예제를 제공하겠습니다. 이 방법은 메타데이터를 기반으로 다양한 조인 조건을 유연하게 구성하는 데 활용됩니다.
+
+---
+
+### `JoinInfo` 클래스 정의
+
+```java
+import com.querydsl.core.types.Predicate;
+
+public class JoinInfo {
+    private QTable leftTable;
+    private QTable rightTable;
+    private String joinType; // "INNER", "LEFT", "RIGHT"
+    private Predicate condition;
+
+    // 생성자
+    public JoinInfo(QTable leftTable, QTable rightTable, String joinType, Predicate condition) {
+        this.leftTable = leftTable;
+        this.rightTable = rightTable;
+        this.joinType = joinType;
+        this.condition = condition;
+    }
+
+    // Getter 및 Setter
+    public QTable getLeftTable() {
+        return leftTable;
+    }
+
+    public void setLeftTable(QTable leftTable) {
+        this.leftTable = leftTable;
+    }
+
+    public QTable getRightTable() {
+        return rightTable;
+    }
+
+    public void setRightTable(QTable rightTable) {
+        this.rightTable = rightTable;
+    }
+
+    public String getJoinType() {
+        return joinType;
+    }
+
+    public void setJoinType(String joinType) {
+        this.joinType = joinType;
+    }
+
+    public Predicate getCondition() {
+        return condition;
+    }
+
+    public void setCondition(Predicate condition) {
+        this.condition = condition;
+    }
+}
+```
+
+---
+
+### `JoinInfo` 사용 예제
+
+#### 1. QTable 정의
+예를 들어, `Customer`와 `Order` 테이블의 `QTable` 클래스를 정의합니다.
+
+```java
+public class QCustomer extends QTable {
+    public static final QCustomer customer = new QCustomer("customer");
+    public final StringPath id = createString("id");
+    public final StringPath name = createString("name");
+
+    public QCustomer(String variable) {
+        super(QCustomer.class, forVariable(variable), "schema_name", "customer");
+    }
+}
+
+public class QOrder extends QTable {
+    public static final QOrder order = new QOrder("order");
+    public final StringPath id = createString("id");
+    public final StringPath customerId = createString("customerId");
+    public final NumberPath<Integer> amount = createNumber("amount", Integer.class);
+
+    public QOrder(String variable) {
+        super(QOrder.class, forVariable(variable), "schema_name", "order");
+    }
+}
+```
+
+#### 2. `JoinInfo` 객체 생성
+조인 조건을 포함한 `JoinInfo` 객체를 생성합니다.
+
+```java
+import com.querydsl.core.types.dsl.Expressions;
+
+public class JoinInfoExample {
+    public static void main(String[] args) {
+        QCustomer customer = QCustomer.customer;
+        QOrder order = QOrder.order;
+
+        Predicate joinCondition = customer.id.eq(order.customerId);
+
+        JoinInfo joinInfo = new JoinInfo(
+            customer,
+            order,
+            "INNER",
+            joinCondition
+        );
+
+        // JoinInfo를 활용해 동적 쿼리를 생성
+        System.out.println("조인 조건: " + joinInfo.getCondition());
+    }
+}
+```
+
+---
+
+### `JoinInfo`를 활용한 동적 쿼리 생성
+
+다음 코드는 `JoinInfo`를 사용하여 동적으로 쿼리를 생성하는 방법을 보여줍니다.
+
+```java
+import com.querydsl.jpa.impl.JPAQuery;
+
+import javax.persistence.EntityManager;
+
+public class DynamicJoinQuery {
+    private final EntityManager entityManager;
+
+    public DynamicJoinQuery(EntityManager entityManager) {
+        this.entityManager = entityManager;
+    }
+
+    public JPAQuery<?> buildDynamicQuery(JoinInfo joinInfo) {
+        JPAQuery<?> query = new JPAQuery<>(entityManager);
+
+        // 동적 조인 적용
+        switch (joinInfo.getJoinType()) {
+            case "INNER":
+                query.from(joinInfo.getLeftTable())
+                     .innerJoin(joinInfo.getRightTable())
+                     .on(joinInfo.getCondition());
+                break;
+            case "LEFT":
+                query.from(joinInfo.getLeftTable())
+                     .leftJoin(joinInfo.getRightTable())
+                     .on(joinInfo.getCondition());
+                break;
+            case "RIGHT":
+                query.from(joinInfo.getLeftTable())
+                     .rightJoin(joinInfo.getRightTable())
+                     .on(joinInfo.getCondition());
+                break;
+            default:
+                throw new IllegalArgumentException("지원되지 않는 조인 유형: " + joinInfo.getJoinType());
+        }
+
+        return query;
+    }
+}
+```
+
+---
+
+### 생성된 SQL 예제
+위의 예제에서 다음과 같은 조건이 있다고 가정합니다:
+- `leftTable`: `QCustomer`
+- `rightTable`: `QOrder`
+- `joinCondition`: `customer.id = order.customerId`
+
+이 경우 생성된 SQL은 INNER JOIN의 형태로 다음과 같습니다:
+
+```sql
+SELECT * 
+FROM customer
+INNER JOIN order
+ON customer.id = order.customerId;
+```
+
+---
+
+### 요약
+1. `Predicate`는 조인 조건을 동적으로 처리하는 데 사용됩니다.
+2. `JoinInfo`는 조인에 필요한 메타데이터(테이블, 조건, 조인 유형)를 캡슐화합니다.
+3. `buildDynamicQuery` 메서드는 `JoinInfo`를 활용하여 조인 유형에 따라 동적으로 쿼리를 생성합니다.
+4. 이 구조는 다양한 메타데이터를 기반으로 유연한 쿼리 생성이 가능하며, 유지보수성이 뛰어납니다.
+
+
+
+----------------------
+// 셋업 이슈
+
+
 https://rudaks.tistory.com/entry/Querydsl-%EC%86%8C%EA%B0%9C
 
 https://github.com/eugenp/tutorials/tree/master/persistence-modules/querydsl
