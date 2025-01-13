@@ -1,4 +1,12 @@
 
+<dependency>
+    <groupId>jakarta.persistence</groupId>
+    <artifactId>jakarta.persistence-api</artifactId>
+    <version>3.1.0</version> <!-- 최신 Jakarta Persistence 버전 -->
+</dependency>
+
+
+----
 
 문제를 보니 IntelliJ에서 제공하는 수정 제안이 `EntityManager`의 처리 방식과 호환되지 않는 것 같습니다. `Supplier<EntityManager>`로의 캐스팅을 시도하는 방식은 잘못된 접근일 가능성이 높으며, 특히 Spring Boot와 JPA 표준의 관점에서는 더 명확하고 일관된 설정 방법을 사용하는 것이 중요합니다.
 
