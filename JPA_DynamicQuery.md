@@ -1,3 +1,158 @@
+Spring Boot 3.2.7과 JDK 17 환경에서 `EntityManager` 관련 문제가 발생하면서, 다른 JPA API(예: `CriteriaBuilder`)는 잘 동작한다면, 특정한 문제를 더 좁혀 확인할 필요가 있습니다. 아래는 해당 문제를 해결하기 위한 몇 가지 점검 사항과 수정 방법입니다.
+
+---
+
+### 주요 원인 분석
+
+1. **QueryDSL 설정 문제**  
+   - `JPAQueryFactory`는 `EntityManager`를 기반으로 작동하므로, `EntityManager`를 올바르게 주입받아야 합니다. 
+   - `CriteriaBuilder`가 동작한다면, `EntityManager`는 이미 JPA 컨텍스트에서 제대로 생성되고 있습니다.  
+     따라서, 문제는 `@PersistenceContext`와 QueryDSL 설정 간의 호환성 또는 사용 방식의 차이로 보입니다.
+
+2. **Spring Boot 3.2.7 / Hibernate 6.x 변경 사항**  
+   Hibernate 6.x와 Spring Boot 3.x 환경에서는 일부 API와 기본 동작이 변경되었습니다.  
+   예를 들어, Hibernate 6에서는 `EntityManager` 사용과 관련한 동작이 약간 다르게 처리될 수 있습니다.
+
+3. **JPAQueryFactory 초기화 시점 문제**  
+   `EntityManager`가 Spring 컨텍스트에서 완전히 초기화되기 전에 `JPAQueryFactory`를 생성하려 하면 문제가 발생할 수 있습니다.
+
+---
+
+### 해결 방안
+
+#### 1. **기본적인 QueryDSL 설정 점검**
+QueryDSL 설정은 `EntityManager`와 `JPAQueryFactory`를 정확히 연결해야 합니다. 다음과 같이 설정합니다:
+
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory() {
+        return new JPAQueryFactory(entityManager);
+    }
+}
+```
+
+---
+
+#### 2. **EntityManagerFactory에서 EntityManager 공급**
+Spring Boot 3.x에서는 `EntityManager`를 `Supplier<EntityManager>`로 사용해야 할 수 있습니다. 아래와 같이 설정을 변경해 보세요:
+
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @PersistenceUnit
+    private EntityManagerFactory entityManagerFactory;
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory() {
+        return new JPAQueryFactory(entityManagerFactory.createEntityManager());
+    }
+}
+```
+
+---
+
+#### 3. **동적으로 EntityManager 주입**
+Spring 컨텍스트에서 동적으로 `EntityManager`를 주입할 수 있습니다. `@Bean` 등록 시 컨텍스트에서 동작하도록 변경합니다:
+
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @Bean
+    @Scope("prototype")
+    public EntityManager entityManager(EntityManagerFactory emf) {
+        return emf.createEntityManager();
+    }
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory(EntityManager entityManager) {
+        return new JPAQueryFactory(entityManager);
+    }
+}
+```
+
+---
+
+#### 4. **QueryDSL을 직접 테스트**
+QueryDSL이 작동하는지 확인하려면, 테스트 코드를 작성해 확인합니다.  
+`JPAQueryFactory`가 올바르게 생성되는지 확인하기 위해 다음과 같이 테스트합니다:
+
+```java
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class QueryDslTest {
+
+    @Autowired
+    private JPAQueryFactory queryFactory;
+
+    @Test
+    public void testQueryDslSetup() {
+        Assertions.assertNotNull(queryFactory, "JPAQueryFactory should not be null");
+    }
+}
+```
+
+---
+
+#### 5. **Annotation Processor 활성화**
+QueryDSL의 Q 클래스 생성이 제대로 되지 않으면 문제가 발생할 수 있습니다. `QTable` 관련 클래스가 프로젝트에 존재하는지 확인하고, IntelliJ 설정에서 **Annotation Processor**가 활성화되어 있는지 확인합니다:
+
+1. `Preferences > Build, Execution, Deployment > Compiler > Annotation Processors`
+2. **Enable annotation processing** 체크.
+
+---
+
+#### 6. **의존성 충돌 확인**
+QueryDSL 의존성과 JPA 관련 의존성이 충돌하지 않도록 확인합니다. Maven 의존성을 아래처럼 설정하세요:
+
+```xml
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-jpa</artifactId>
+    <version>5.0.0</version>
+</dependency>
+<dependency>
+    <groupId>com.querydsl</groupId>
+    <artifactId>querydsl-apt</artifactId>
+    <version>5.0.0</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+```
+
+---
+
+#### 7. **Spring Boot 및 Hibernate 설정 확인**
+Spring Boot 3.x와 Hibernate 6.x에서 JPA 설정을 다시 확인하세요. `application.yml` 또는 `application.properties`에서 아래 설정을 확인합니다:
+
+```properties
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.open-in-view=true
+spring.datasource.url=jdbc:postgresql://localhost:5432/yourdb
+spring.datasource.username=youruser
+spring.datasource.password=yourpassword
+```
+
+---
+
+### 추가 확인: 
+1. **`@Entity` 클래스의 정의 확인**: QueryDSL Q 클래스가 정상적으로 생성되었는지 확인합니다.
+2. **로그 확인**: 실행 시 `entityManager` 관련 에러 로그를 확인하세요.
+3. **수동으로 EntityManagerFactory 사용**: 필요한 경우 `EntityManagerFactory`를 사용해 수동으로 `EntityManager`를 생성하는 방식도 가능합니다.
+
+위의 방법으로도 문제가 해결되지 않으면 추가 로그와 환경 정보를 공유해 주세요.
+
+---------------
 
 `@PersistenceContext`를 사용할 때 `EntityManager`가 `cannot resolve`로 표시되는 문제는 주로 다음과 같은 원인으로 발생합니다:
 
