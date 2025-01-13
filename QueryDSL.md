@@ -1153,6 +1153,118 @@ System.out.println(sql);
 
 문제가 해결되지 않으면 현재의 설정 파일(`pom.xml`, `application.properties`)과 전체적인 프로젝트 구조를 공유해 주시면 추가로 도움을 드리겠습니다!
 
+----
+`javax.persistence` 관련 오류는 주로 Spring Boot 3.x 및 Java 17 이상 버전에서 발생합니다. 이러한 환경에서는 `javax` 패키지가 `jakarta`로 변경되었기 때문입니다. 따라서, 기존의 `apt-maven-plugin` 설정은 더 이상 호환되지 않을 수 있습니다.
+
+**해결 방법:**
+
+1. **`apt-maven-plugin` 제거:**
+   기존에 사용하던 `apt-maven-plugin` 설정을 제거합니다.
+
+2. **의존성 추가:**
+   `pom.xml` 파일에 `querydsl-jpa`와 `querydsl-apt` 의존성을 `jakarta` 분류자로 추가합니다.
+
+   ```xml
+   <dependency>
+       <groupId>com.querydsl</groupId>
+       <artifactId>querydsl-jpa</artifactId>
+       <version>5.0.0</version>
+       <classifier>jakarta</classifier>
+   </dependency>
+   <dependency>
+       <groupId>com.querydsl</groupId>
+       <artifactId>querydsl-apt</artifactId>
+       <version>5.0.0</version>
+       <classifier>jakarta</classifier>
+   </dependency>
+   ```
+
+3. **Maven 컴파일러 플러그인 설정:**
+   `maven-compiler-plugin`을 사용하여 QueryDSL의 어노테이션 프로세서를 설정합니다.
+
+   ```xml
+   <plugin>
+       <groupId>org.apache.maven.plugins</groupId>
+       <artifactId>maven-compiler-plugin</artifactId>
+       <version>3.8.1</version>
+       <configuration>
+           <source>17</source>
+           <target>17</target>
+           <annotationProcessorPaths>
+               <path>
+                   <groupId>com.querydsl</groupId>
+                   <artifactId>querydsl-apt</artifactId>
+                   <version>5.0.0</version>
+                   <classifier>jakarta</classifier>
+               </path>
+               <path>
+                   <groupId>jakarta.annotation</groupId>
+                   <artifactId>jakarta.annotation-api</artifactId>
+                   <version>2.0.0</version>
+               </path>
+               <path>
+                   <groupId>jakarta.persistence</groupId>
+                   <artifactId>jakarta.persistence-api</artifactId>
+                   <version>3.0.0</version>
+               </path>
+           </annotationProcessorPaths>
+           <compilerArgs>
+               <arg>-Aquerydsl.entityAccessors=true</arg>
+               <arg>-Aquerydsl.useFields=false</arg>
+           </compilerArgs>
+       </configuration>
+   </plugin>
+   ```
+
+4. **Q 클래스 생성 디렉토리 설정:**
+   Q 클래스가 생성될 디렉토리를 설정하고, 해당 디렉토리를 소스 디렉토리에 추가합니다.
+
+   ```xml
+   <build>
+       <plugins>
+           <plugin>
+               <groupId>org.apache.maven.plugins</groupId>
+               <artifactId>maven-compiler-plugin</artifactId>
+               <version>3.8.1</version>
+               <configuration>
+                   <source>17</source>
+                   <target>17</target>
+                   <generatedSourcesDirectory>${project.build.directory}/generated-sources</generatedSourcesDirectory>
+               </configuration>
+           </plugin>
+       </plugins>
+   </build>
+   ```
+
+   또한, `generated-sources` 디렉토리를 소스 디렉토리에 포함시키기 위해 `build-helper-maven-plugin`을 사용할 수 있습니다.
+
+   ```xml
+   <plugin>
+       <groupId>org.codehaus.mojo</groupId>
+       <artifactId>build-helper-maven-plugin</artifactId>
+       <version>3.2.0</version>
+       <executions>
+           <execution>
+               <id>add-source</id>
+               <phase>generate-sources</phase>
+               <goals>
+                   <goal>add-source</goal>
+               </goals>
+               <configuration>
+                   <sources>
+                       <source>${project.build.directory}/generated-sources</source>
+                   </sources>
+               </configuration>
+           </execution>
+       </executions>
+   </plugin>
+   ```
+
+**참고 자료:**
+
+- [Querydsl + Spring 3.0 + Java17 업데이트 내용! [Maven+Gradle]](https://samori.tistory.com/60)
+
+위와 같이 설정을 변경한 후 프로젝트를 다시 빌드하면 `javax.persistence` 관련 오류 없이 QueryDSL을 사용할 수 있을 것입니다. 
 
 
 -------------
