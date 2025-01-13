@@ -1153,6 +1153,101 @@ System.out.println(sql);
 
 문제가 해결되지 않으면 현재의 설정 파일(`pom.xml`, `application.properties`)과 전체적인 프로젝트 구조를 공유해 주시면 추가로 도움을 드리겠습니다!
 
+---
+
+`Attempt to recreate a file for type com.samsung.knox.dai.anomalydetectionservice.model.QAppUsageTable` 오류는 QueryDSL이 Q 클래스를 생성하는 과정에서 이미 해당 파일이 존재하여 중복 생성하려 할 때 발생하는 문제입니다. 이 문제를 해결하기 위해 다음과 같은 방법들을 시도해 볼 수 있습니다:
+
+**1. 빌드 폴더 정리 및 재빌드**
+
+기존에 생성된 Q 클래스 파일이 남아 있어 충돌이 발생할 수 있으므로, 빌드 폴더를 정리한 후 프로젝트를 다시 빌드합니다.
+
+- **IntelliJ IDEA에서의 방법:**
+
+  - 상단 메뉴에서 `Build` > `Clean Project`를 선택하여 빌드 폴더를 정리합니다.
+
+  - 이후 `Build` > `Build Project`를 선택하여 프로젝트를 다시 빌드합니다.
+
+- **터미널에서의 방법:**
+
+  - 프로젝트 루트 디렉토리에서 다음 명령어를 실행하여 빌드 폴더를 삭제합니다:
+
+    ```bash
+    ./mvn clean
+    ```
+
+  - 그런 다음, 다음 명령어로 프로젝트를 다시 빌드합니다:
+
+    ```bash
+    ./mvn compile
+    ```
+
+**2. Maven 플러그인 설정 확인**
+
+Maven을 사용하는 경우, `maven-compiler-plugin`과 `querydsl-maven-plugin`의 설정이 중복되거나 잘못되어 있을 수 있습니다. 특히, `querydsl-maven-plugin`이 Q 클래스를 생성하는 과정에서 문제가 발생할 수 있으므로, 해당 플러그인의 설정을 확인하거나 필요에 따라 제거해 보시기 바랍니다.
+
+- **예시:**
+
+  ```xml
+  <build>
+      <plugins>
+          <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-compiler-plugin</artifactId>
+              <version>3.8.1</version>
+              <configuration>
+                  <source>17</source>
+                  <target>17</target>
+                  <annotationProcessorPaths>
+                      <path>
+                          <groupId>com.querydsl</groupId>
+                          <artifactId>querydsl-apt</artifactId>
+                          <version>5.0.0</version>
+                          <classifier>jakarta</classifier>
+                      </path>
+                  </annotationProcessorPaths>
+              </configuration>
+          </plugin>
+          <!-- 필요에 따라 querydsl-maven-plugin을 제거하거나 설정을 확인 -->
+          <!--
+          <plugin>
+              <groupId>com.mysema.maven</groupId>
+              <artifactId>querydsl-maven-plugin</artifactId>
+              <version>4.4.0</version>
+              <executions>
+                  <execution>
+                      <goals>
+                          <goal>export</goal>
+                      </goals>
+                  </execution>
+              </executions>
+              <configuration>
+                  <processor>com.querydsl.apt.jpa.JPAAnnotationProcessor</processor>
+              </configuration>
+          </plugin>
+          -->
+      </plugins>
+  </build>
+  ```
+
+**3. Q 클래스 생성 경로 확인 및 정리**
+
+Q 클래스가 생성되는 경로에 이전에 생성된 파일이 남아 있을 수 있으므로, 해당 경로를 확인하고 불필요한 파일을 삭제한 후 다시 빌드해 보시기 바랍니다.
+
+- **예시:**
+
+  - `target/generated-sources` 디렉토리에 생성된 Q 클래스 파일을 삭제합니다.
+
+  - 그런 다음, 프로젝트를 다시 빌드하여 새로운 Q 클래스를 생성합니다.
+
+**참고 자료:**
+
+- [QueryDSL][Spring] attempt to recreate a file for type qclass 에러 해결 방법 ([ttmcr.tistory.com](https://ttmcr.tistory.com/entry/QueryDsl-attempt-to-recreate-a-file-for-type-qclass-%EC%97%90%EB%9F%AC-%ED%95%B4%EA%B2%B0-%EB%B0%A9%EB%B2%95))
+
+- [Spring Boot] QueryDSL _ Attempt to recreate a file for type 빌드 에러 해결 방법 ([melonicedlatte.com](https://melonicedlatte.com/2023/02/06/225400.html))
+
+위의 방법들을 시도하여도 문제가 해결되지 않는다면, 프로젝트의 빌드 설정이나 QueryDSL 설정을 다시 한 번 점검해 보시기 바랍니다. 
+
+
 ----
 `javax.persistence` 관련 오류는 주로 Spring Boot 3.x 및 Java 17 이상 버전에서 발생합니다. 이러한 환경에서는 `javax` 패키지가 `jakarta`로 변경되었기 때문입니다. 따라서, 기존의 `apt-maven-plugin` 설정은 더 이상 호환되지 않을 수 있습니다.
 
