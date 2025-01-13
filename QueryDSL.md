@@ -9,6 +9,22 @@ https://github.com/eugenp/tutorials/tree/master/persistence-modules/querydsl
     <artifactId>jakarta.persistence-api</artifactId>
     <version>3.1.0</version> <!-- 최신 Jakarta Persistence 버전 -->
 </dependency>
+
+
+<dependency>
+  <groupId>com.querydsl</groupId>
+  <artifactId>querydsl-jpa</artifactId>
+  <classifier>jakarta</classifier>
+</dependency>
+ 
+<dependency>
+  <groupId>com.querydsl</groupId>
+  <artifactId>querydsl-apt</artifactId>
+  <version>5.0.0</version>
+  <scope>provided</scope>
+  <optional>true</optional>
+  <classifier>jakarta</classifier>
+</dependency>
 ```
 ----
 
