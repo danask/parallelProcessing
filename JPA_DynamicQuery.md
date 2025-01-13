@@ -1,5 +1,146 @@
+`JPAQueryFactory`에서 `EntityManager`를 직접 주입받지 않고 다른 방법으로 사용하는 방법도 있습니다. 예를 들어, SQL Repository에서 `EntityManager`를 간접적으로 활용할 수 있습니다. 여기서는 몇 가지 대안을 설명하고 예제를 제공하겠습니다.
 
+---
 
+### 1. **`@PersistenceContext`를 직접 사용하는 방법**
+
+`EntityManager`를 주입받아 `JPAQueryFactory`를 SQL Repository에서 직접 생성할 수 있습니다.
+
+#### Repository 예제:
+```java
+@Repository
+public class CustomQueryRepository {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<MyEntity> findCustomData() {
+        JPAQueryFactory queryFactory = new JPAQueryFactory(entityManager);
+
+        QMyEntity myEntity = QMyEntity.myEntity;
+
+        return queryFactory.selectFrom(myEntity)
+                .where(myEntity.field.eq("value"))
+                .fetch();
+    }
+}
+```
+
+#### 장점:
+- `EntityManager`를 SQL Repository에서 직접 사용할 수 있습니다.
+- 간단한 설정으로 유연하게 사용할 수 있습니다.
+
+---
+
+### 2. **`EntityManager`를 Constructor Injection으로 주입받기**
+
+`EntityManager`를 생성자로 주입받아 `JPAQueryFactory`를 활용할 수도 있습니다.
+
+#### Repository 예제:
+```java
+@Repository
+public class CustomQueryRepository {
+
+    private final JPAQueryFactory queryFactory;
+
+    public CustomQueryRepository(EntityManager entityManager) {
+        this.queryFactory = new JPAQueryFactory(entityManager);
+    }
+
+    public List<MyEntity> findCustomData() {
+        QMyEntity myEntity = QMyEntity.myEntity;
+
+        return queryFactory.selectFrom(myEntity)
+                .where(myEntity.field.eq("value"))
+                .fetch();
+    }
+}
+```
+
+#### 장점:
+- 의존성 주입을 통해 `EntityManager`를 깔끔하게 관리할 수 있습니다.
+- 테스트 시 `EntityManager`를 쉽게 Mocking 할 수 있습니다.
+
+---
+
+### 3. **Spring Configuration에서 Bean으로 선언**
+
+`JPAQueryFactory`를 Spring Bean으로 등록하고 Repository에서 주입받아 사용하는 방법입니다.
+
+#### Configuration:
+```java
+@Configuration
+public class QueryDslConfig {
+
+    @Bean
+    public JPAQueryFactory jpaQueryFactory(EntityManager entityManager) {
+        return new JPAQueryFactory(entityManager);
+    }
+}
+```
+
+#### Repository:
+```java
+@Repository
+public class CustomQueryRepository {
+
+    private final JPAQueryFactory queryFactory;
+
+    public CustomQueryRepository(JPAQueryFactory queryFactory) {
+        this.queryFactory = queryFactory;
+    }
+
+    public List<MyEntity> findCustomData() {
+        QMyEntity myEntity = QMyEntity.myEntity;
+
+        return queryFactory.selectFrom(myEntity)
+                .where(myEntity.field.eq("value"))
+                .fetch();
+    }
+}
+```
+
+#### 장점:
+- `JPAQueryFactory`를 여러 Repository에서 재사용할 수 있습니다.
+- `EntityManager`를 명시적으로 처리하지 않아 코드가 간결해집니다.
+
+---
+
+### 4. **Native SQL로 처리하기 (EntityManager 직접 사용)**
+
+`JPAQueryFactory` 대신 `EntityManager`의 Native SQL Query 기능을 사용해도 됩니다.
+
+#### Repository 예제:
+```java
+@Repository
+public class CustomQueryRepository {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<Object[]> findCustomData() {
+        String sql = "SELECT * FROM my_table WHERE field = :value";
+        return entityManager.createNativeQuery(sql)
+                .setParameter("value", "desired_value")
+                .getResultList();
+    }
+}
+```
+
+#### 장점:
+- 복잡한 쿼리를 작성하거나 QueryDSL이 지원하지 않는 기능을 활용할 수 있습니다.
+- 직접 SQL을 작성해야 하는 상황에서 유용합니다.
+
+---
+
+### 정리
+
+- **QueryDSL**을 이용한 `JPAQueryFactory` 생성은 `@Bean`, 생성자 주입, 혹은 `@PersistenceContext`를 사용하여 쉽게 구현 가능합니다.
+- **SQL Repository**에서는 `EntityManager`를 통해 Native SQL과 QueryDSL을 자유롭게 혼합할 수 있습니다.
+- **권장 방식**: 대부분의 경우, `JPAQueryFactory`를 Spring Bean으로 등록하고 Constructor Injection을 사용하는 방법이 가장 깔끔하고 확장 가능성이 높습니다. 
+
+원하는 방식에 따라 위 예제를 응용하면 됩니다!
+-----------------
 
 `pom.xml`에 필요한 의존성을 추가했다고 하더라도, **특정 설정이나 동작을 구현**하기 위해 추가적인 `@Configuration` 설정이 필요할 수 있습니다. 이는 의존성만으로는 런타임에서 자동으로 동작을 수행하도록 설정되지 않기 때문입니다.
 
