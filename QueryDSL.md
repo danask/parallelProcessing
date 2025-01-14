@@ -1478,3 +1478,18 @@ QueryDSL은 엔티티 클래스를 기반으로 Q 클래스를 생성합니다. 
 - [Spring Boot 3에서 QueryDSL 설정하기](https://jskim1991.medium.com/spring-boot-exploring-spring-boot-3-with-querydsl-part-2-7b563c382192)
 
 위의 단계를 따라 설정하면, 기존 `CriteriaBuilder` 기반의 JPA 리포지토리와 함께 QueryDSL을 사용할 수 있습니다. 
+
+
+----------------
+
+Here is a table summarizing the advantages and disadvantages of QueryDSL:
+
+| **Advantages**                                                                                   | **Disadvantages**                                                                                   |
+|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| **Type Safety**: Ensures compile-time validation of queries, reducing runtime errors.  | **Learning Curve**: Requires time to learn and integrate into existing projects.                    |
+| **Fluent API**: Provides a readable and maintainable syntax for building queries.  | **Complex Queries**: Can become verbose and complex for intricate database operations.  |
+| **Multi-Backend Support**: Compatible with various backends like JPA, SQL, MongoDB, enhancing flexibility.  | **Additional Dependencies**: Necessitates adding extra libraries to the project.                    |
+| **Integration**: Seamlessly integrates with frameworks like Spring Data JPA, enhancing functionality.  | **Q-Type Generation**: Requires an additional build step to generate Q-classes, complicating the build process. |
+| **Dynamic Query Construction**: Facilitates building dynamic queries based on runtime conditions.  | **Limited Community Support**: Smaller community compared to other query frameworks, potentially leading to fewer resources. |
+
+This table provides a concise overview of the strengths and potential challenges associated with using QueryDSL in your projects. 
