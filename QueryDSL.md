@@ -1,5 +1,8 @@
 
 
+
+https://github.com/jskim1991/spring-boot-querydsl-sample/tree/main/src 
+
 `JoinInfo` 클래스에서 `Predicate`를 사용하여 조인 조건을 동적으로 처리할 수 있는 예제를 제공하겠습니다. 이 방법은 메타데이터를 기반으로 다양한 조인 조건을 유연하게 구성하는 데 활용됩니다.
 
 ---
