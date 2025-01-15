@@ -1489,6 +1489,123 @@ QueryDSL은 엔티티 클래스를 기반으로 Q 클래스를 생성합니다. 
 위의 단계를 따라 설정하면, 기존 `CriteriaBuilder` 기반의 JPA 리포지토리와 함께 QueryDSL을 사용할 수 있습니다. 
 
 
+------------
+QueryDSL을 Maven 프로젝트에 통합하려면, `pom.xml` 파일에 필요한 **의존성(dependencies)**과 **플러그인(plugins)**을 정확하게 설정해야 합니다. 아래는 이러한 설정을 한 번에 보여주는 예시입니다:
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>querydsl-example</artifactId>
+    <version>1.0.0</version>
+
+    <properties>
+        <!-- Java 버전 설정 -->
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <!-- QueryDSL 버전 설정 -->
+        <querydsl.version>5.0.0</querydsl.version>
+    </properties>
+
+    <dependencies>
+        <!-- QueryDSL Core -->
+        <dependency>
+            <groupId>com.querydsl</groupId>
+            <artifactId>querydsl-core</artifactId>
+            <version>${querydsl.version}</version>
+        </dependency>
+
+        <!-- QueryDSL JPA (Jakarta 버전) -->
+        <dependency>
+            <groupId>com.querydsl</groupId>
+            <artifactId>querydsl-jpa</artifactId>
+            <version>${querydsl.version}</version>
+            <classifier>jakarta</classifier>
+        </dependency>
+
+        <!-- JPA API (Jakarta 버전) -->
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>3.0.0</version>
+        </dependency>
+
+        <!-- Hibernate Validator (Jakarta 버전) -->
+        <dependency>
+            <groupId>org.hibernate.validator</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <version>7.0.0.Final</version>
+        </dependency>
+
+        <!-- Lombok (선택 사항) -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.24</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- 기타 필요한 의존성 추가 -->
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin 설정 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                    <annotationProcessorPaths>
+                        <!-- QueryDSL APT (Jakarta 버전) -->
+                        <path>
+                            <groupId>com.querydsl</groupId>
+                            <artifactId>querydsl-apt</artifactId>
+                            <version>${querydsl.version}</version>
+                            <classifier>jakarta</classifier>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+**설명:**
+
+- **의존성(dependencies):**
+  - `querydsl-core`: QueryDSL의 핵심 모듈로, 모든 QueryDSL 프로젝트에 필요합니다.
+  - `querydsl-jpa`: JPA와 함께 QueryDSL을 사용할 때 필요한 모듈입니다. Jakarta 버전을 사용하려면 `classifier`를 `jakarta`로 설정합니다.
+  - `jakarta.persistence-api`: Jakarta Persistence API를 사용하기 위한 의존성입니다.
+  - `hibernate-validator`: Jakarta 버전의 Hibernate Validator로, 유효성 검사를 위해 사용됩니다.
+  - `lombok`: 코드 생성을 도와주는 라이브러리로, 선택 사항입니다.
+
+- **플러그인(plugins):**
+  - `maven-compiler-plugin`: Maven의 기본 컴파일러 플러그인으로, Java 버전과 애노테이션 프로세서를 설정합니다.
+    - `annotationProcessorPaths` 섹션에 `querydsl-apt`를 추가하여 컴파일 시 Q 클래스를 생성하도록 설정합니다.
+
+**주의사항:**
+
+- **중복 설정 방지:** `querydsl-apt`를 의존성과 플러그인 양쪽에 중복 설정하면 빌드 과정에서 충돌이 발생할 수 있으므로, 플러그인 설정의 `annotationProcessorPaths`에만 추가하는 것이 좋습니다.
+
+- **버전 호환성 확인:** 사용하는 라이브러리와 플러그인의 버전이 서로 호환되는지 확인해야 합니다. 특히, Jakarta 버전과 기존 Java EE 버전 간의 호환성에 주의하세요.
+
+- **IDE 설정:** IntelliJ IDEA나 Eclipse와 같은 IDE를 사용한다면, 해당 IDE의 빌드 및 컴파일러 설정이 Maven 설정과 일치하는지 확인하여 빌드 오류를 방지하세요.
+
+**참고 자료:**
+
+- [QueryDSL 공식 문서](https://querydsl.com/static/querydsl/5.0.0/reference/html_single/)
+- [Maven Compiler Plugin Documentation](https://maven.apache.org/plugins/maven-compiler-plugin/)
+
+위 설정을 적용한 후, `mvn clean compile` 명령을 실행하여 Q 클래스가 올바르게 생성되는지 확인하시기 바랍니다. 
+
+
 ----------------
 
 Here is a table summarizing the advantages and disadvantages of QueryDSL:
