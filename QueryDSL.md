@@ -1157,6 +1157,13 @@ System.out.println(sql);
 
 `Attempt to recreate a file for type com.samsung.knox.dai.anomalydetectionservice.model.QAppUsageTable` 오류는 QueryDSL이 Q 클래스를 생성하는 과정에서 이미 해당 파일이 존재하여 중복 생성하려 할 때 발생하는 문제입니다. 이 문제를 해결하기 위해 다음과 같은 방법들을 시도해 볼 수 있습니다:
 
+아래 삭제
+```
+            <plugin>
+                <groupId>com.mysema.maven</groupId>
+                <artifactId>apt-maven-plugin</artifactId>
+```
+
 **1. 빌드 폴더 정리 및 재빌드**
 
 기존에 생성된 Q 클래스 파일이 남아 있어 충돌이 발생할 수 있으므로, 빌드 폴더를 정리한 후 프로젝트를 다시 빌드합니다.
@@ -1249,6 +1256,8 @@ Q 클래스가 생성되는 경로에 이전에 생성된 파일이 남아 있�
 
 
 ----
+
+
 `javax.persistence` 관련 오류는 주로 Spring Boot 3.x 및 Java 17 이상 버전에서 발생합니다. 이러한 환경에서는 `javax` 패키지가 `jakarta`로 변경되었기 때문입니다. 따라서, 기존의 `apt-maven-plugin` 설정은 더 이상 호환되지 않을 수 있습니다.
 
 **해결 방법:**
