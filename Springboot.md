@@ -1,4 +1,133 @@
 
+### 📌 **에러 분석**
+```
+Unable to make private java.time.ZonedDateTime(java.time.LocalDateTime,java.time.ZoneOffset,java.time.ZoneId) accessible: module java.base does not "opens java.time" to unnamed module
+```
+이 오류는 **Java 17 이상의 모듈 시스템에서 리플렉션을 사용할 때 접근 제한 문제**가 발생했음을 의미합니다.  
+
+**발생 원인:**  
+- Spring Data MongoDB가 `ZonedDateTime`을 `@Field`로 매핑하는 과정에서 **Java 17의 강한 캡슐화(strict encapsulation)** 정책으로 인해 리플렉션 접근이 제한됨.
+- Java 17 이상에서는 `java.time` 패키지가 기본적으로 모듈 외부에서 리플렉션을 통해 접근하는 것이 금지됨.
+
+---
+
+### 🛠 **해결 방법**
+
+#### ✅ **1. JVM 옵션으로 강제 허용 (가장 빠른 해결 방법)**
+Spring Boot 애플리케이션 실행 시, 아래 JVM 옵션을 추가하면 `java.time` 모듈을 공개할 수 있습니다.
+
+```sh
+--add-opens java.base/java.time=ALL-UNNAMED
+```
+
+📌 **Spring Boot 실행 시 적용 (IDE 실행 설정 or 실행 스크립트에서 추가)**
+- **IntelliJ IDEA:**  
+  `Run/Debug Configurations` → `VM options`에 추가:
+  ```
+  --add-opens java.base/java.time=ALL-UNNAMED
+  ```
+- **Gradle 실행 시 추가** (`build.gradle.kts` 수정)
+  ```kotlin
+  tasks.withType<JavaExec> {
+      jvmArgs("--add-opens", "java.base/java.time=ALL-UNNAMED")
+  }
+  ```
+- **Maven 실행 시 추가**
+  ```xml
+  <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-surefire-plugin</artifactId>
+      <configuration>
+          <argLine>--add-opens java.base/java.time=ALL-UNNAMED</argLine>
+      </configuration>
+  </plugin>
+  ```
+
+---
+
+#### ✅ **2. `@JsonFormat` 또는 `@Convert`를 사용하여 `ZonedDateTime`을 직접 매핑**
+MongoDB는 기본적으로 `ZonedDateTime`을 직렬화할 수 없으므로, JSON 변환을 명시적으로 정의하는 것이 좋습니다.
+
+**📌 해결 방법: `@JsonFormat` 사용**
+```java
+import com.fasterxml.jackson.annotation.JsonFormat;
+import org.springframework.data.mongodb.core.mapping.Document;
+import java.time.ZonedDateTime;
+
+@Document(collection = "app_usage")
+public class AppUsage {
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ssXXX")
+    private ZonedDateTime usageTime;
+
+    // Getter, Setter
+}
+```
+👉 이렇게 하면 Spring이 JSON 직렬화 시 `ZonedDateTime`을 문자열로 변환하여 저장합니다.
+
+---
+
+#### ✅ **3. `ZonedDateTime`을 `Instant`로 변경**
+MongoDB는 `Instant` 타입을 기본적으로 지원합니다. `ZonedDateTime`을 `Instant`로 변환하면 별도의 설정 없이도 MongoDB에 저장할 수 있습니다.
+
+📌 **코드 변경 (ZonedDateTime → Instant)**
+```java
+import org.springframework.data.mongodb.core.mapping.Document;
+import java.time.Instant;
+
+@Document(collection = "app_usage")
+public class AppUsage {
+
+    private Instant usageTime;  // ZonedDateTime 대신 Instant 사용
+
+    // Getter, Setter
+}
+```
+**이 방식이 가장 안정적이며, Java 17의 모듈 접근 문제도 피할 수 있습니다.**
+
+---
+
+#### ✅ **4. `ZonedDateTime`을 `String`으로 변환하여 저장**
+직렬화 및 역직렬화를 직접 수행하는 방법입니다.
+
+📌 **Entity에서 `ZonedDateTime`을 `String`으로 저장**
+```java
+import org.springframework.data.mongodb.core.mapping.Document;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+
+@Document(collection = "app_usage")
+public class AppUsage {
+
+    private String usageTime;  // MongoDB에는 String으로 저장
+
+    public ZonedDateTime getUsageTime() {
+        return ZonedDateTime.parse(usageTime, DateTimeFormatter.ISO_ZONED_DATE_TIME);
+    }
+
+    public void setUsageTime(ZonedDateTime usageTime) {
+        this.usageTime = usageTime.format(DateTimeFormatter.ISO_ZONED_DATE_TIME);
+    }
+}
+```
+**MongoDB에는 ISO 형식의 `String`으로 저장되지만, Java 객체에서는 `ZonedDateTime`으로 사용할 수 있음.**
+
+---
+
+### 🔥 **최적의 해결책**
+| 해결 방법 | 적용 난이도 | 추천 여부 | 설명 |
+|-----------|-----------|-----------|------|
+| **JVM 옵션 추가 (`--add-opens`)** | 🟢 (쉬움) | ✅ 임시 해결 | 빠르게 해결 가능하지만, 운영 환경에서는 보안상 비추천 |
+| **`@JsonFormat`을 사용** | 🟡 (보통) | ✅ 추천 | `ZonedDateTime`을 JSON에서 자동 변환 |
+| **`ZonedDateTime` → `Instant` 변경** | 🟢 (쉬움) | 🔥 강력 추천 | 가장 안정적인 방식, Java 17 모듈 문제 없음 |
+| **`String`으로 변환하여 저장** | 🟡 (보통) | ⚠️ 비추천 | 데이터 일관성을 유지하기 어려움 |
+
+🚀 **가장 좋은 해결책:**  
+➡ **ZonedDateTime 대신 `Instant`를 사용** (권장)  
+➡ **JVM 옵션 (`--add-opens`)으로 해결 가능하지만 운영 환경에서는 비추천**
+
+-------------------
+
 이 오류는 **Spring Boot에서 `MeterRegistry` 빈을 찾을 수 없어서 발생**합니다. `MeterRegistry`는 **Micrometer 라이브러리**에서 제공하는 인터페이스로, 애플리케이션의 **메트릭(metrics)**을 수집하는 역할을 합니다.  
 
 ### 🔍 **원인 분석**
