@@ -1,4 +1,122 @@
 
+이 오류는 **Spring Boot에서 `MeterRegistry` 빈을 찾을 수 없어서 발생**합니다. `MeterRegistry`는 **Micrometer 라이브러리**에서 제공하는 인터페이스로, 애플리케이션의 **메트릭(metrics)**을 수집하는 역할을 합니다.  
+
+### 🔍 **원인 분석**
+Spring Boot 3에서 `@Autowired MeterRegistry meterRegistry`가 있는 경우, Spring이 `MeterRegistry` 빈을 찾을 수 없을 때 이 오류가 발생합니다. 다음과 같은 원인일 수 있습니다.
+
+---
+
+### ✅ **1. `micrometer-core` 또는 `spring-boot-starter-actuator` 의존성이 누락됨**
+Spring Boot 3에서는 기본적으로 Micrometer가 포함되지 않으며, `spring-boot-starter-actuator`를 추가해야 `MeterRegistry`가 자동 등록됩니다.
+
+#### **해결 방법**
+📌 **`pom.xml`에 Micrometer 및 Actuator 추가**
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+또는 Gradle:
+```kotlin
+implementation("org.springframework.boot:spring-boot-starter-actuator")
+```
+👉 위 의존성이 없으면 **`MeterRegistry` 빈이 생성되지 않아서 에러가 발생**합니다.
+
+---
+
+### ✅ **2. Micrometer 의존성은 있지만, 특정 레지스트리 의존성이 누락됨**
+Micrometer는 여러 모니터링 시스템을 지원하는데, 기본적으로 **Prometheus, Graphite, Datadog 등과 연동하는 추가 라이브러리**가 필요할 수 있습니다.
+
+📌 **추가할 수 있는 의존성 예시**:
+#### **Prometheus를 사용하는 경우**
+```xml
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+</dependency>
+```
+#### **Graphite를 사용하는 경우**
+```xml
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-graphite</artifactId>
+</dependency>
+```
+
+---
+
+### ✅ **3. `management.metrics.export` 설정이 비활성화됨**
+Spring Boot 3에서는 `application.yml`에서 **Micrometer의 메트릭 기능을 명시적으로 활성화해야 하는 경우**가 있습니다.
+
+📌 **확인할 설정 (`application.yml`)**
+```yaml
+management:
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+```
+👉 특정 모니터링 시스템(Prometheus 등)을 사용하는 경우, 해당 설정을 활성화해야 합니다.
+
+---
+
+### ✅ **4. `MeterRegistry`가 수동으로 정의되지 않음**
+만약 Micrometer 관련 설정이 자동으로 등록되지 않는다면, 직접 `MeterRegistry` 빈을 생성해야 합니다.
+
+📌 **수동으로 `MeterRegistry`를 등록하는 방법**
+```java
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class MetricsConfig {
+
+    @Bean
+    public MeterRegistry meterRegistry() {
+        return io.micrometer.core.instrument.simple.SimpleMeterRegistry.builder().build();
+    }
+}
+```
+👉 위와 같이 빈을 수동 등록하면 `MeterRegistry`를 사용할 수 있습니다.
+
+---
+
+### ✅ **5. Micrometer 관련 기능이 `spring-boot-starter-test`에서 제외됨**
+Spring Boot의 `spring-boot-starter-test`에는 기본적으로 Micrometer가 포함되지 않습니다. 따라서 **테스트 환경에서 실행할 때만 에러가 발생**할 수도 있습니다.
+
+📌 **테스트 환경에서도 `MeterRegistry`를 제공하려면**
+```java
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+
+@TestConfiguration
+public class TestMetricsConfig {
+
+    @Bean
+    public MeterRegistry testMeterRegistry() {
+        return new SimpleMeterRegistry();
+    }
+}
+```
+테스트 코드에서 이 설정을 활성화하면 테스트 실행 시에도 `MeterRegistry`를 사용할 수 있습니다.
+
+---
+
+### 🛠 **결론 (해결 방법 요약)**
+1. **Micrometer 의존성이 누락되었는지 확인 (`spring-boot-starter-actuator` 추가)**
+2. **특정 모니터링 시스템을 사용할 경우 관련 `micrometer-registry-*` 의존성을 추가**
+3. **`application.yml`에서 `management.metrics.export`가 올바르게 설정되었는지 확인**
+4. **필요하면 `MeterRegistry`를 수동으로 빈 등록**
+5. **테스트 환경에서 실행할 때도 `MeterRegistry`가 제공되는지 확인**
+
+이 방법들을 차례로 적용하면 `MeterRegistry` 관련 `UnsatisfiedDependencyException` 문제를 해결할 수 있습니다! 🚀
+
+----------------------------
+
 Spring Boot에서 **`@Range`** 또는 **`@PositiveOrZero`** 애노테이션을 사용해 API 응답에서 요청값을 검증하고, 잘못된 값일 경우 40x 에러를 반환하는 방법은 아래와 같습니다. 이를 위해 Spring의 **`@Validated`**와 **`@ExceptionHandler`**를 조합해 사용하면 됩니다.
 
 ### 주요 개념
