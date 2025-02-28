@@ -1,3 +1,82 @@
+### **📝 SQL로 변환된 정렬 예제**  
+CriteriaBuilder의 `cb.selectCase()`로 NULL을 마지막으로 보내는 로직을 SQL로 표현하면 다음과 같습니다.  
+
+---
+
+## **✅ 1. `totalRuntime`이 NULL이면 마지막으로 보내는 정렬 (SQL 버전)**
+```sql
+SELECT 
+    appname, 
+    totalRuntime
+FROM my_table
+ORDER BY 
+    CASE 
+        WHEN totalRuntime IS NULL THEN 1 ELSE 0 
+    END ASC,  -- NULL이면 1, NULL이 아니면 0 → NULL이 마지막으로 정렬됨
+    totalRuntime DESC;  -- 그다음 totalRuntime 기준 내림차순 정렬
+```
+### **🔹 SQL 설명**
+- `CASE WHEN totalRuntime IS NULL THEN 1 ELSE 0 END ASC`  
+  → `totalRuntime`이 **NULL이면 1**, 아니면 0 → **NULL이 마지막으로 정렬됨**  
+- `totalRuntime DESC`  
+  → NULL이 아닌 값들은 `totalRuntime` 기준으로 내림차순 정렬됨  
+
+---
+
+## **✅ 2. `appUsageTime`도 NULL이면 마지막으로 보내는 정렬 (두 개의 필드)**
+```sql
+SELECT 
+    appname, 
+    totalRuntime, 
+    appUsageTime
+FROM my_table
+ORDER BY 
+    CASE 
+        WHEN totalRuntime IS NULL THEN 1 ELSE 0 
+    END ASC,  
+    totalRuntime DESC,  -- NULL이 아닌 값 중에서 내림차순 정렬
+    CASE 
+        WHEN appUsageTime IS NULL THEN 1 ELSE 0 
+    END ASC,  
+    appUsageTime ASC;  -- NULL이 아닌 값 중에서 오름차순 정렬
+```
+### **🔹 SQL 설명**
+- `totalRuntime IS NULL THEN 1 ELSE 0` → `totalRuntime`이 NULL이면 1로 설정  
+- `appUsageTime IS NULL THEN 1 ELSE 0` → `appUsageTime`이 NULL이면 1로 설정  
+- NULL이 아닌 데이터들을 `totalRuntime DESC` → `appUsageTime ASC` 순서로 정렬  
+
+---
+
+## **✅ 3. QueryDSL처럼 더 간단한 SQL**
+QueryDSL에서는 `NULLS LAST`를 지원하므로 SQL에서 이렇게 간단하게 쓸 수도 있습니다.
+```sql
+SELECT 
+    appname, 
+    totalRuntime
+FROM my_table
+ORDER BY 
+    totalRuntime DESC NULLS LAST, 
+    appname ASC;
+```
+### **🔹 SQL 설명**
+- `totalRuntime DESC NULLS LAST` → `totalRuntime` 기준 내림차순, **NULL 값은 마지막**
+- `appname ASC` → `appname` 기준 오름차순  
+
+이 방법이 **가장 간결하고 효율적인 SQL 방식**입니다.  
+
+---
+
+### **🎯 결론**
+1️⃣ **CriteriaBuilder → SQL 변환**  
+   - `cb.selectCase()` → `CASE WHEN 필드 IS NULL THEN 1 ELSE 0 END`  
+   - SQL에서 NULL을 마지막으로 보내는 로직 구현 가능  
+
+2️⃣ **QueryDSL을 쓰면 `nullsLast()`가 있어서 SQL도 단순해짐**  
+   - SQL에서 `ORDER BY totalRuntime DESC NULLS LAST`로 간단히 해결  
+
+**➡️ 가능하면 `NULLS LAST`를 사용하는 것이 가장 깔끔한 해결 방법!** 🚀
+
+------
 
 `CriteriaBuilder.selectCase()`를 사용하여 정렬할 때, 특정 필드의 값이 `NULL`이면 결과를 마지막으로 보내는 방법은 `CASE WHEN`을 활용하는 것입니다.  
 
