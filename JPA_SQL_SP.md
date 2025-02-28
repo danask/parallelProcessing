@@ -1,5 +1,53 @@
 
+`CriteriaBuilder.selectCase()`를 사용하여 정렬할 때, 특정 필드의 값이 `NULL`이면 결과를 마지막으로 보내는 방법은 `CASE WHEN`을 활용하는 것입니다.  
 
+## ✅ **해결 방법: `CriteriaBuilder.selectCase()` + `CriteriaBuilder.desc()/asc()`**
+1. `totalRuntime` → `appName` 순서로 기본 정렬  
+2. 특정 필드(`someField`)가 `NULL`이면 마지막으로 정렬  
+
+---
+
+### **🔹 코드 예제 (Spring JPA + CriteriaBuilder)**
+```java
+CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+CriteriaQuery<MyEntity> query = cb.createQuery(MyEntity.class);
+Root<MyEntity> root = query.from(MyEntity.class);
+
+// 정렬 필드
+Expression<?> totalRuntime = root.get("totalRuntime");
+Expression<?> appName = root.get("appName");
+Expression<?> someField = root.get("someField");
+
+// CASE WHEN (NULL이면 1, 아니면 0) → NULL을 마지막으로 정렬
+Order nullsLastOrder = cb.asc(
+    cb.selectCase()
+        .when(cb.isNull(someField), 1)
+        .otherwise(0)
+);
+
+// 정렬 조건 추가
+query.orderBy(
+    cb.desc(totalRuntime),  // 1순위: totalRuntime 내림차순
+    cb.asc(appName),        // 2순위: appName 오름차순
+    nullsLastOrder,         // 3순위: someField가 NULL이면 마지막으로
+    cb.desc(someField)      // 4순위: 그다음 someField 내림차순
+);
+
+TypedQuery<MyEntity> typedQuery = entityManager.createQuery(query);
+List<MyEntity> result = typedQuery.getResultList();
+```
+
+---
+
+## 🔍 **설명**
+1️⃣ `totalRuntime`을 내림차순으로 정렬  
+2️⃣ `appName`을 오름차순으로 정렬  
+3️⃣ `someField`가 `NULL`이면 `1`, 그렇지 않으면 `0`을 반환 → `ASC`로 정렬하면 `NULL`이 마지막으로 감  
+4️⃣ `someField`를 내림차순으로 정렬  
+
+✅ **결과적으로 NULL이 마지막으로 정렬되면서 기존 정렬도 유지됨** 🚀
+
+----------------
 
 모든 이스케이프 패턴을 고려하여 `replaceAll`을 사용할 때, 다음과 같은 처리를 해야 합니다:
 
