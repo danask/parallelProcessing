@@ -1,3 +1,92 @@
+네! `CacheInitializer` 클래스는 **Spring Bean**으로 등록되므로, 따로 트리거(trigger)할 필요 없이 **애플리케이션이 시작될 때 자동으로 실행**됩니다.  
+
+Spring Boot에서 `@EventListener(ApplicationReadyEvent.class)`는 **애플리케이션이 모든 빈을 초기화한 후 자동으로 실행**되기 때문입니다.
+
+---
+
+### 🔹 실행 과정 요약
+1. `CacheInitializer`가 Spring Bean으로 등록됨 (`@Component` 사용)
+2. Spring Boot 애플리케이션이 **모든 빈을 초기화한 후** `ApplicationReadyEvent`를 발생시킴
+3. `@EventListener(ApplicationReadyEvent.class)`가 자동으로 실행됨
+4. 캐시를 초기화 (`cacheManager.getCacheNames().forEach(...)`)
+5. **애플리케이션이 정상적으로 시작됨** 🚀
+
+---
+
+### ✅ `CacheInitializer`는 자동 실행됨 (트리거 불필요)
+따라서, 별도의 메서드 호출 없이 아래처럼 `@Component`만 선언해두면 **Spring이 자동으로 실행**해 줍니다.
+
+```java
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.cache.CacheManager;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class CacheInitializer {
+
+    private final CacheManager cacheManager;
+
+    public CacheInitializer(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void clearAllCachesOnStartup() {
+        System.out.println("Clearing all caches at startup...");
+        cacheManager.getCacheNames().forEach(cacheName -> {
+            System.out.println("Clearing cache: " + cacheName);
+            cacheManager.getCache(cacheName).clear();
+        });
+        System.out.println("All caches cleared.");
+    }
+}
+```
+**이 코드는 자동 실행되므로 `main()`에서 직접 호출할 필요 없음!**  
+
+---
+
+### 🔹 실행 로그 예시
+애플리케이션을 실행하면 콘솔에서 다음과 같은 로그가 출력될 것입니다.
+
+```
+Clearing all caches at startup...
+Clearing cache: managedApps
+Clearing cache: userSessions
+Clearing cache: productData
+All caches cleared.
+```
+
+---
+
+### 🔹 만약 특정 캐시만 초기화하고 싶다면?
+모든 캐시가 아닌 특정 캐시만 초기화하려면 아래처럼 수정하면 됩니다.
+
+```java
+@EventListener(ApplicationReadyEvent.class)
+public void clearSpecificCachesOnStartup() {
+    String[] cachesToClear = {"userSessions", "productData"};
+    
+    System.out.println("Clearing specific caches at startup...");
+    for (String cacheName : cachesToClear) {
+        if (cacheManager.getCache(cacheName) != null) {
+            System.out.println("Clearing cache: " + cacheName);
+            cacheManager.getCache(cacheName).clear();
+        }
+    }
+    System.out.println("Selected caches cleared.");
+}
+```
+
+---
+
+### 결론 🎯  
+✅ `CacheInitializer`는 **Spring Boot가 자동으로 실행**해 주므로, 따로 트리거할 필요 없음!  
+✅ `@EventListener(ApplicationReadyEvent.class)` 덕분에 **빈 초기화가 끝난 후 안전하게 실행**됨  
+✅ 특정 캐시만 초기화하고 싶다면 캐시 이름을 지정하여 `clear()` 호출하면 됨  
+
+이제 `@Cacheable`로 저장된 캐시가 애플리케이션 시작 시 자동으로 초기화됩니다! 🚀
+------
 
 Redis에 데이터를 `redisTemplate.opsForValue().set()`을 사용해 저장하려고 했는데, 저장이 되지 않는 이유는 여러 가지가 있을 수 있습니다. 여기서는 그 원인들을 하나씩 점검하는 방법을 알려드리겠습니다.
 
