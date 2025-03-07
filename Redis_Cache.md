@@ -1,3 +1,62 @@
+
+키를 따로 기억할 필요 없이, **삭제할 때마다 조회해서 `delete()`** 하는 것이 더 효율적입니다.  
+**`cacheManager.getCache(cacheName).clear()`보다 직접 조회 후 `delete()`하는 방식이 더 빠름** ✅
+
+---
+
+### 1️⃣ **매번 키를 조회한 후 `delete()`하면 어떤가?**
+- `cacheManager.getCache(cacheName).clear()` 내부적으로도 **모든 키를 조회 후 삭제**하는 방식임
+- 하지만 **RedisTemplate을 사용해서 직접 조회 후 `delete()`를 하면 더 유연하게 최적화 가능**  
+- `SCAN`을 사용하여 점진적으로 조회하고 삭제하면 **Redis 부하를 줄일 수 있음**  
+
+---
+
+### 2️⃣ **어떤 방식이 가장 빠를까?**
+| 방법 | 동작 방식 | 속도 |
+|------|----------|------|
+| **`cacheManager.getCache(cacheName).clear()`** | 내부적으로 `keys()` 사용 후 개별 삭제 | 🐌 느림 (O(N)) |
+| **`keys("*") + delete()`** | 모든 키 조회 후 한 번에 삭제 | ⚡ 빠름 (하지만 `keys()`는 성능 문제) |
+| **`SCAN + DELETE`** | SCAN으로 점진적으로 조회 후 삭제 | 🚀 가장 빠름 (효율적 메모리 사용) |
+
+---
+
+### 3️⃣ **효율적인 방법: `SCAN` + `DELETE` 사용**  
+```java
+Set<String> keysToDelete = new HashSet<>();
+Cursor<byte[]> cursor = redisTemplate.getConnectionFactory().getConnection()
+        .scan(ScanOptions.scanOptions().match("cachePrefix:*").count(1000).build());
+
+while (cursor.hasNext()) {
+    keysToDelete.add(new String(cursor.next()));
+}
+
+// 키 개수가 많다면 여러 번 나누어 삭제
+if (!keysToDelete.isEmpty()) {
+    redisTemplate.delete(keysToDelete);
+}
+```
+✅ **장점**  
+- `SCAN`을 사용하여 한 번에 모든 키를 조회하지 않고 **점진적으로 조회** → **메모리 사용량 감소**  
+- `delete()`를 한 번에 실행 → **처리 속도 향상**  
+
+---
+
+### 4️⃣ **`clear()` vs `SCAN + DELETE` 비교**
+| 방법 | 특징 | 성능 |
+|------|------|------|
+| `cacheManager.getCache(cacheName).clear()` | 내부적으로 `keys()` 조회 후 삭제 | 🐌 느림 (O(N)) |
+| `keys("*") + delete()` | 모든 키를 한 번에 조회 후 삭제 | ⚡ 빠름 (하지만 메모리 부담) |
+| **`SCAN + DELETE`** | 점진적으로 키 조회 후 삭제 | 🚀 매우 빠름 (Redis 부하 적음) |
+
+---
+
+### ✅ **결론: `SCAN` + `DELETE` 사용이 가장 빠르고 안전한 방법!** 🚀  
+- **키를 별도로 저장할 필요 없이 조회하면서 삭제 가능**  
+- **clear()보다 빠르고, 메모리 부하 없이 효율적으로 동작**  
+- **운영 환경에서 안정적인 성능을 원하면 `SCAN` + `DELETE`를 추천!** 🎯
+
+-------------------------
+
 네! `CacheInitializer` 클래스는 **Spring Bean**으로 등록되므로, 따로 트리거(trigger)할 필요 없이 **애플리케이션이 시작될 때 자동으로 실행**됩니다.  
 
 Spring Boot에서 `@EventListener(ApplicationReadyEvent.class)`는 **애플리케이션이 모든 빈을 초기화한 후 자동으로 실행**되기 때문입니다.
