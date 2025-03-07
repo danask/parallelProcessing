@@ -1,3 +1,66 @@
+아니, `pipelined()` 자체는 **자동으로 나눠서 실행하지 않음**.  
+즉, 한 번 실행하면 내부적으로 **모든 요청을 한꺼번에 Redis로 전송**하고, Redis가 이를 **한 번에 처리**하는 방식이야.  
+
+하지만 **삭제할 키가 너무 많으면** Redis가 과부하될 수도 있어.   
+이 경우, `SCAN`을 사용해서 일정 단위(batch)로 나눠서 삭제하는 게 좋아.  
+
+---
+
+### ✅ **SCAN & PIPELINE 방식으로 대량 키 삭제 (Batch 처리)**
+```java
+String pattern = "APP_ISSUE:*";
+int batchSize = 1000; // 한 번에 처리할 개수
+Cursor<byte[]> cursor = redisTemplate.executeWithStickyConnection(
+    redisConnection -> redisConnection.scan(ScanOptions.scanOptions().match(pattern).count(batchSize).build())
+);
+
+List<String> keysToDelete = new ArrayList<>();
+
+while (cursor.hasNext()) {
+    keysToDelete.add(new String(cursor.next())); // 키 수집
+    if (keysToDelete.size() >= batchSize) {
+        deleteKeysInPipeline(keysToDelete); // 일정 개수마다 삭제
+        keysToDelete.clear();
+    }
+}
+
+// 남아있는 키 삭제
+if (!keysToDelete.isEmpty()) {
+    deleteKeysInPipeline(keysToDelete);
+}
+
+private void deleteKeysInPipeline(List<String> keys) {
+    redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+        for (String key : keys) {
+            connection.del(redisTemplate.getStringSerializer().serialize(key));
+        }
+        return null;
+    });
+}
+```
+
+---
+
+### 📌 **이 코드가 좋은 이유**
+1. **`SCAN` 사용 → `KEYS`보다 안전**  
+   - `KEYS`는 **모든 키를 한 번에 가져와서** Redis에 부담이 됨.  
+   - `SCAN`은 **일정 개수씩 나눠서 조회**하므로 더 효율적.  
+
+2. **Batch 크기 제한 (`batchSize = 1000`)**  
+   - 한 번에 너무 많은 키를 삭제하지 않고, `1000개씩` 나눠서 처리 → Redis 부하 방지  
+
+3. **`pipelined()`를 적용하여 네트워크 성능 최적화**  
+   - 개별 `DEL` 호출 대신 **한 번에 Redis로 전송**하여 성능 향상  
+
+---
+
+### 🚀 **결론**
+✔️ **그냥 `pipelined()`만 사용하면, 모든 키를 한꺼번에 삭제 요청**해서 부담이 될 수도 있음.  
+✔️ **`SCAN`과 `batchSize`를 활용해 나눠서 삭제하면 더 안정적**!  
+✔️ **특히 수만 개 이상의 키를 삭제할 경우, `SCAN + PIPELINE`을 함께 쓰는 것이 추천됨**! 🚀
+
+-----------------------
+
 
 키를 따로 기억할 필요 없이, **삭제할 때마다 조회해서 `delete()`** 하는 것이 더 효율적입니다.  
 **`cacheManager.getCache(cacheName).clear()`보다 직접 조회 후 `delete()`하는 방식이 더 빠름** ✅
