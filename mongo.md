@@ -1,3 +1,74 @@
+`MongoTemplate`을 사용하여 **(appUid가 1 또는 2가 아닌 것 중에서 appName과 packageName이 같은 값을 제외)** 하려면 `Criteria`를 조합하여 조건을 구성하면 됩니다.  
+
+---
+
+### **✅ MongoTemplate 쿼리 예제**
+```java
+Query query = new Query();
+
+// appUid가 1 또는 2가 아닌 조건
+Criteria appUidCriteria = Criteria.where("appUid").nin(1, 2);
+
+// appName과 packageName이 같은 경우 제외
+Criteria excludeSameName = new Criteria().orOperator(
+    Criteria.where("appName").ne(null),
+    Criteria.where("packageName").ne(null),
+    Criteria.where("appName").ne("").and("packageName").ne("").andOperator(
+        Criteria.where("appName").neField("packageName")
+    )
+);
+
+// 최종 Criteria 조합
+query.addCriteria(new Criteria().andOperator(appUidCriteria, excludeSameName));
+
+List<MyEntity> results = mongoTemplate.find(query, MyEntity.class);
+```
+
+---
+
+### **📌 동작 방식**
+1. **`appUid.nin(1, 2)`** → `appUid` 값이 **1, 2가 아닌 데이터**만 선택  
+2. **`appName == packageName` 제거**  
+   - `appName`과 `packageName`이 **NULL 또는 빈 문자열**이면 포함  
+   - 하지만 두 값이 같으면 제외 (`neField()` 사용)  
+3. `andOperator()`를 사용하여 두 조건을 모두 충족하는 데이터만 조회  
+
+---
+
+### **✅ MongoDB 쿼리로 변환 시**
+위 코드는 MongoDB 쿼리로 변환하면 다음과 같습니다.
+```json
+{
+  "$and": [
+    { "appUid": { "$nin": [1, 2] } },
+    {
+      "$or": [
+        { "appName": { "$ne": null } },
+        { "packageName": { "$ne": null } },
+        {
+          "$and": [
+            { "appName": { "$ne": "" } },
+            { "packageName": { "$ne": "" } },
+            { "appName": { "$ne": "$packageName" } }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+이렇게 하면 **`appUid`가 1, 2가 아닌 것 중에서 `appName == packageName`인 데이터가 제외**됩니다.
+
+---
+
+### **🚀 정리**
+✅ `nin(1, 2)`로 특정 값 제외  
+✅ `neField("packageName")`을 이용해 `appName == packageName` 필터링  
+✅ `orOperator`를 활용하여 NULL 값이나 빈 문자열도 고려  
+
+이 방식으로 원하는 결과를 얻을 수 있을 거예요!
+
+-----------------
 
 위의 **MongoDB 쿼리**를 **SQL로 변환**하면 다음과 같이 표현할 수 있습니다.  
 
