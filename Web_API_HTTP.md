@@ -1,3 +1,150 @@
+1GB 이상의 대용량 데이터를 API 호출로 처리하려면 **메모리 사용 최적화, 네트워크 성능 고려, 처리 속도 향상** 등의 전략이 필요합니다. 다음과 같은 방법이 효과적입니다.  
+
+---
+
+### **✅ 1. 스트리밍 방식 (Streaming Response)**
+대용량 데이터를 한 번에 로드하지 않고, **청크(Chunk) 단위**로 받아서 처리하는 방법입니다.  
+
+🔹 **방법:**  
+- HTTP 응답을 **Chunked Transfer Encoding** 방식으로 설정 (`Transfer-Encoding: chunked`)  
+- 서버에서 JSON, CSV, XML 등의 데이터를 **부분적으로 스트리밍하여 전송**  
+- 클라이언트는 **스트림을 읽으면서 즉시 처리** (예: 파싱, 저장, 변환)  
+
+🔹 **예제 (Spring Boot Controller에서 Streaming Response 사용)**  
+```java
+@GetMapping(value = "/large-data", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+public ResponseEntity<StreamingResponseBody> getLargeData() {
+    StreamingResponseBody responseBody = outputStream -> {
+        for (int i = 0; i < 1000000; i++) {
+            outputStream.write(("data-" + i + "\n").getBytes());
+            outputStream.flush();
+        }
+    };
+    return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .body(responseBody);
+}
+```
+
+🔹 **클라이언트 처리 (Java)**  
+```java
+HttpURLConnection connection = (HttpURLConnection) new URL("http://api.example.com/large-data").openConnection();
+connection.setRequestMethod("GET");
+
+try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+    String line;
+    while ((line = reader.readLine()) != null) {
+        System.out.println("Received: " + line);
+    }
+}
+```
+
+✅ **장점:** 메모리 부담이 적고, 네트워크 부하를 줄일 수 있음.  
+❌ **단점:** 클라이언트에서 부분 데이터를 처리할 로직이 필요함.  
+
+---
+
+### **✅ 2. 페이지네이션 (Pagination)**
+API 응답을 **여러 개의 작은 요청으로 나누어 순차적으로 가져오는 방식**입니다.  
+
+🔹 **방법:**  
+- `offset` / `limit` 방식: 특정 개수만큼 잘라서 응답 (예: `GET /api/data?offset=1000&limit=500`)  
+- `cursor` 방식: 특정 ID나 timestamp를 기반으로 페이지 이동 (예: `GET /api/data?cursor=abc123`)  
+
+🔹 **예제 (Spring Boot에서 페이징 API 구현)**  
+```java
+@GetMapping("/large-data")
+public ResponseEntity<List<DataEntity>> getLargeData(
+        @RequestParam int page, 
+        @RequestParam int size) {
+    Pageable pageable = PageRequest.of(page, size);
+    Page<DataEntity> dataPage = dataRepository.findAll(pageable);
+    return ResponseEntity.ok(dataPage.getContent());
+}
+```
+
+🔹 **클라이언트 요청 예시**  
+```sh
+GET /api/data?page=0&size=1000
+GET /api/data?page=1&size=1000
+```
+
+✅ **장점:** 클라이언트가 필요한 만큼만 로딩 가능 → 빠른 응답 속도  
+❌ **단점:** 서버에서 데이터 정렬 및 페이징 비용이 발생할 수 있음  
+
+---
+
+### **✅ 3. 데이터 압축 (Compression)**
+대용량 데이터를 전송할 때 **Gzip, Brotli, Snappy 등으로 압축**하여 네트워크 트래픽을 줄이는 방식입니다.  
+
+🔹 **방법:**  
+- HTTP Header에 `Accept-Encoding: gzip` 설정하여 압축된 응답 요청  
+- 서버에서 `Content-Encoding: gzip`으로 응답  
+- 클라이언트는 압축 해제 후 처리  
+
+🔹 **Spring Boot에서 Gzip 설정**  
+```properties
+server.compression.enabled=true
+server.compression.mime-types=application/json
+server.compression.min-response-size=1024
+```
+
+🔹 **클라이언트 요청 헤더**  
+```http
+GET /api/large-data HTTP/1.1
+Accept-Encoding: gzip
+```
+
+✅ **장점:** 네트워크 비용 절감, 빠른 응답  
+❌ **단점:** 서버 및 클라이언트에서 압축/해제 연산이 필요  
+
+---
+
+### **✅ 4. 비동기 처리 (Async Processing)**
+요청 후 바로 응답을 받지 않고, **비동기적으로 데이터를 준비한 후 클라이언트가 다시 가져가는 방식**입니다.  
+
+🔹 **방법:**  
+1. 클라이언트가 데이터를 요청하면 **서버가 처리 ID(예: `job_id` = `12345`)를 반환**  
+2. 클라이언트는 `job_id`로 진행 상태를 주기적으로 체크  
+3. 데이터 처리가 끝나면 클라이언트가 최종 데이터 다운로드  
+
+🔹 **예제**  
+1️⃣ **요청 시 작업 ID 반환**  
+```java
+@PostMapping("/start-job")
+public ResponseEntity<String> startJob() {
+    String jobId = UUID.randomUUID().toString();
+    asyncProcessingService.processData(jobId);
+    return ResponseEntity.ok(jobId);
+}
+```
+
+2️⃣ **진행 상태 체크 API**  
+```java
+@GetMapping("/job-status")
+public ResponseEntity<String> checkJobStatus(@RequestParam String jobId) {
+    return ResponseEntity.ok(asyncProcessingService.getStatus(jobId));
+}
+```
+
+✅ **장점:** 서버 부하가 적고, 클라이언트가 여러 번 요청 가능  
+❌ **단점:** 클라이언트에서 상태 체크 로직 필요  
+
+---
+
+### **📌 결론: 어떤 방식이 가장 좋을까?**  
+| 방법 | 특징 | 추천 사용 사례 |
+|------|------|---------------|
+| **스트리밍 (Streaming)** | 실시간으로 데이터를 받아 처리 | 로그, 실시간 데이터 전송 |
+| **페이지네이션 (Pagination)** | 데이터 일부만 요청, 빠른 로딩 | REST API, 검색 결과 |
+| **데이터 압축 (Compression)** | 네트워크 비용 절감 | JSON, XML 응답 최적화 |
+| **비동기 처리 (Async Processing)** | 비동기 작업 후 결과 가져옴 | 대량 데이터 가공, 배치 처리 |
+
+🔥 **1GB 이상의 API 응답을 받을 때는 "스트리밍" 또는 "페이지네이션"을 추천!**  
+🔥 **네트워크 트래픽이 많다면 "압축"을 추가로 고려!**  
+🔥 **오래 걸리는 데이터 처리라면 "비동기 방식"이 효율적!**
+
+----------------
 HTTP **204 No Content** 응답 후에 **504 Gateway Timeout**으로 상태가 변하고 응답을 받지 못하는 상황은 비정상적인 동작을 나타냅니다. 이 문제는 여러 가지 원인으로 발생할 수 있으며, 클라이언트, 서버, 그리고 게이트웨이 또는 프록시 사이의 통신 흐름에서 문제를 추적해야 합니다.
 
 ### 가능한 원인들
