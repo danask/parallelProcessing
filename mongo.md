@@ -1,4 +1,47 @@
 
+위의 **MongoDB 쿼리**를 **SQL로 변환**하면 다음과 같이 표현할 수 있습니다.  
+
+---
+
+### **✅ SQL 변환 예제**  
+```sql
+SELECT *
+FROM my_table
+WHERE appUid NOT IN (1, 2)
+AND NOT (appName = packageName AND appName IS NOT NULL AND packageName IS NOT NULL AND appName <> '' AND packageName <> '');
+```
+
+---
+
+### **📌 SQL 변환 로직**
+1. **`appUid NOT IN (1, 2)`** → `appUid`가 1, 2가 아닌 값만 선택  
+2. **`appName = packageName` 필터링**  
+   - 두 필드가 **NULL이 아니어야** 한다 (`IS NOT NULL`)  
+   - 두 필드가 **빈 문자열이 아니어야** 한다 (`<> ''`)  
+   - 두 필드가 **동일한 값이면 제외** (`NOT (appName = packageName)`)  
+
+---
+
+### **✅ SQL 실행 결과 예시**  
+| appUid | appName  | packageName | 포함 여부 |
+|--------|---------|-------------|----------|
+| 3      | "A"     | "A"         | ❌ (제외) |
+| 3      | "A"     | "B"         | ✅ (포함) |
+| 1      | "C"     | "C"         | ❌ (제외) |
+| 4      | NULL    | "D"         | ✅ (포함) |
+| 5      | "E"     | ""          | ✅ (포함) |
+
+---
+
+### **🚀 결론**
+✅ `appUid`가 1, 2가 아닌 경우만 선택  
+✅ `appName == packageName`이면 **제외**  
+✅ `NULL` 값도 고려해서 올바르게 필터링  
+
+이제 **SQL과 MongoDB** 쿼리를 비교하면서 사용할 수 있어요!
+
+---------
+
 위의 예에서 `Map`을 사용하는 대신에 명확한 클래스를 생성하여 데이터를 처리하면 더 구조적이고 명확한 코드를 작성할 수 있습니다. 이를 통해 각 `deviceId` 그룹의 정보를 다루기 위해 `DeviceGroup`이라는 클래스를 정의하고, 해당 객체를 통해 중복된 `deviceId`를 처리할 수 있습니다.
 
 ### 1. `DeviceGroup` 클래스 정의
