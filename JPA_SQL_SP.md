@@ -1,3 +1,67 @@
+
+`criteriaQuery.orderBy(criteriaBuilder.desc(itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount())));`에서 `deviceCount`가 `Long` 타입이어서 에러가 발생하는 이유는 **CriteriaBuilder의 기본적인 메서드들이 `Comparable` 타입만 처리**하기 때문입니다.
+
+---
+
+## 🔥 **해결 방법**
+### ✅ **방법 1: `cb.literal()`을 활용하여 형 변환**
+`cb.literal()`을 사용하여 **타입 변환을 명시적으로** 처리할 수 있습니다.
+
+```java
+criteriaQuery.orderBy(
+    criteriaBuilder.desc(criteriaBuilder.literal(itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount())))
+);
+```
+이 방법은 간단하게 타입 변환을 명시할 수 있지만, **데이터베이스마다 동작이 다를 수 있습니다.**
+
+---
+
+### ✅ **방법 2: `cb.function()`을 사용하여 명시적 캐스팅**
+`cb.function()`으로 **Long 타입을 명시적으로 String이나 Integer로 변환**한 후 처리하는 방법입니다.
+
+```java
+Expression<Long> deviceCountExpr = itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount());
+criteriaQuery.orderBy(criteriaBuilder.desc(criteriaBuilder.function("CAST", Long.class, deviceCountExpr)));
+```
+여기서 `"CAST"` 대신 `"CONVERT"`를 사용할 수도 있습니다. 데이터베이스에 따라 캐스팅 함수를 조정해야 합니다.
+
+---
+
+### ✅ **방법 3: `.as()` 메서드를 사용하여 타입 변환**
+`.as()` 메서드를 통해 **타입을 명시적으로 변경**할 수 있습니다.
+
+```java
+criteriaQuery.orderBy(
+    criteriaBuilder.desc(itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount()).as(Long.class))
+);
+```
+- 이 방식은 **타입 안정성**을 확보하면서, JPA 표준에 맞춰 구현할 수 있습니다.
+
+---
+
+### ✅ **방법 4: `cb.selectCase()`를 이용한 예외 처리**
+만약 `null` 값이 포함될 수 있다면, `selectCase()`를 활용하여 정렬 조건을 추가하는 것도 가능합니다.
+
+```java
+Expression<Long> deviceCountExpr = itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount());
+Expression<Integer> nullsLastOrder = criteriaBuilder.selectCase()
+    .when(criteriaBuilder.isNull(deviceCountExpr), 1)
+    .otherwise(0);
+
+criteriaQuery.orderBy(criteriaBuilder.asc(nullsLastOrder), criteriaBuilder.desc(deviceCountExpr));
+```
+- null이 있으면 마지막에 위치하도록 처리할 수 있습니다.
+
+---
+
+## 🔔 **결론**
+- **단순한 경우:** `.as(Long.class)`나 `cb.literal()`이 가장 간단함.
+- **타입 변환에 예민한 경우:** `cb.function("CAST")`나 `selectCase()` 활용.
+- **null 처리도 필요한 경우:** `cb.selectCase()` 활용하여 정렬.
+
+원하는 방식이나 더 궁금한 점 있으면 말해줘! 😊🚀
+
+-----------------
 ### **📝 SQL로 변환된 정렬 예제**  
 CriteriaBuilder의 `cb.selectCase()`로 NULL을 마지막으로 보내는 로직을 SQL로 표현하면 다음과 같습니다.  
 
