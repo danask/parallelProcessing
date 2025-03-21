@@ -1,4 +1,75 @@
 
+`itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount())`에서 에러가 발생하는 이유는 **deviceCount**가 **엔티티의 필드명**과 매칭되지 않아서 생기는 문제일 가능성이 큽니다.
+
+---
+
+## 🔎 **문제 원인 분석**
+1. **타입 불일치:**  
+   `getDeviceCount()`가 `Long`이나 `Integer`를 리턴하지만, `itemRoot.get()`이 필드명으로 사용될 때는 보통 String 타입이 필요합니다.
+
+2. **필드명 매칭 오류:**  
+   엔티티에서 `deviceCount` 필드명이 다르게 정의되어 있을 수 있습니다. 필드명이 정확하지 않으면 예외가 발생합니다.
+
+---
+
+## 🔧 **해결 방법 제안**
+### ✅ **방법 1: 엔티티의 필드명 명확히 확인**
+```java
+criteriaQuery.orderBy(
+    criteriaBuilder.desc(itemRoot.get("deviceCount"))  // 필드명이 정확한지 확인!
+);
+```
+- 만약 엔티티의 필드명이 다른 경우, 정확하게 맞춰주세요.
+
+---
+
+### ✅ **방법 2: `Path<Long>`로 명시적으로 지정**
+```java
+Path<Long> deviceCountPath = itemRoot.get("deviceCount");  // 엔티티의 필드명 확인 필요
+criteriaQuery.orderBy(criteriaBuilder.desc(deviceCountPath));
+```
+- `get()`에 들어가는 필드명이 **문자열**로 되어야 하며, 실제 엔티티의 필드명과 일치해야 합니다.
+
+---
+
+### ✅ **방법 3: Expression으로 타입 지정**
+```java
+Expression<Long> deviceCountExpr = itemRoot.get("deviceCount");
+criteriaQuery.orderBy(criteriaBuilder.desc(deviceCountExpr));
+```
+- 만약 `deviceCount`의 타입이 Long이 아닌 Integer라면 `Expression<Integer>`로 변경하세요.
+
+---
+
+### ✅ **방법 4: 동적 필드명으로 접근**
+만약 **request.getAppRAMUsageOrDaily().getDeviceCount()**가 필드명을 제공하는 상황이라면 아래와 같이 수정합니다.
+
+```java
+String fieldName = request.getAppRAMUsageOrDaily().getDeviceCount(); // 필드명 가져오기
+criteriaQuery.orderBy(criteriaBuilder.desc(itemRoot.get(fieldName)));
+```
+- 필드명이 동적으로 들어올 경우, String 타입으로 처리되어야 합니다.
+
+---
+
+### ✅ **방법 5: 필드명이 하드코딩된 경우**
+만약 하드코딩된 필드명으로 접근하려면 아래처럼 변경합니다.
+
+```java
+criteriaQuery.orderBy(criteriaBuilder.desc(itemRoot.get("deviceCount")));
+```
+- 이 경우 **엔티티의 필드명**과 정확히 맞아야 합니다.
+
+---
+
+## 🔥 **마무리 체크리스트**
+1. **엔티티 필드명**을 정확하게 확인해주세요.  
+2. `itemRoot.get()`에서 **문자열 필드명**이 맞는지 확인하세요.  
+3. **타입(Long, Integer)**이 일치하도록 맞춰주세요.  
+4. `request.getAppRAMUsageOrDaily().getDeviceCount()`의 리턴값이 **String**이어야 합니다.  
+
+필드명이나 엔티티 구조를 확인한 후에도 문제가 있으면 다시 말해주세요! 😄🚀
+---------------------
 `criteriaQuery.orderBy(criteriaBuilder.desc(itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount())));`에서 `deviceCount`가 `Long` 타입이어서 에러가 발생하는 이유는 **CriteriaBuilder의 기본적인 메서드들이 `Comparable` 타입만 처리**하기 때문입니다.
 
 ---
