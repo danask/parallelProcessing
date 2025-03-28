@@ -1,4 +1,118 @@
 
+### 🔎 **에러 분석: `Not an entity`**
+에러 메시지:
+```
+org.springframework.dao.InvalidDataAccessApiUsageException: Not an entity: com.samsung.knox.dai.appservice.model.dde.AppUsageSumDaily
+```
+이는 `AppUsageSumDaily`가 **JPA 엔티티로 인식되지 않아서 발생하는 문제**입니다.
+
+---
+
+## ✅ **1. 문제 원인 확인 및 해결 방법**
+### 🔹 **(1) `@Entity` 어노테이션이 누락되었는지 확인**
+JPA에서 엔티티로 사용하려면 반드시 `@Entity` 어노테이션이 있어야 합니다.
+
+📌 **확인할 코드 (`AppUsageSumDaily.java`)**
+```java
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+
+@Entity  // ✅ 이게 있어야 JPA에서 인식 가능
+@Table(name = "app_usage_sum_daily")  // 테이블명 확인
+public class AppUsageSumDaily {
+    // 필드 선언
+}
+```
+✔️ 만약 `@Entity`가 없다면 추가하세요.
+
+---
+
+### 🔹 **(2) `@Table(name = "app_usage_sum_daily")` 확인**
+- 엔티티 클래스의 `@Table(name = "app_usage_sum_daily")`에서 **실제 DB 테이블명과 일치하는지 확인하세요.**
+- **대소문자 차이**도 문제를 일으킬 수 있습니다.
+
+```java
+@Entity
+@Table(name = "app_usage_sum_daily")  // DB 테이블명 확인
+public class AppUsageSumDaily {
+}
+```
+✔️ 만약 테이블명이 다르다면 **DB에 실제 있는 테이블명으로 수정하세요.**
+
+---
+
+### 🔹 **(3) `@Id` 필드가 존재하는지 확인**
+JPA 엔티티는 반드시 `@Id` 필드를 가져야 합니다.  
+없으면 엔티티로 인식되지 않습니다.
+
+```java
+@Entity
+@Table(name = "app_usage_sum_daily")
+public class AppUsageSumDaily {
+    
+    @Id  // ✅ 반드시 필요
+    @GeneratedValue(strategy = GenerationType.IDENTITY) // (필요시 추가)
+    private Long id;  
+
+    // 다른 필드들...
+}
+```
+✔️ `@Id`가 없으면 추가하세요.
+
+---
+
+### 🔹 **(4) `spring.jpa.properties.hibernate.globally_quoted_identifiers=true` 설정 확인**
+- **Redshift, PostgreSQL 등에서는 테이블명/컬럼명이 대소문자 구분됨**  
+- `application.yml` 또는 `application.properties`에서 아래 설정 확인:
+
+```yaml
+spring:
+  jpa:
+    properties:
+      hibernate:
+        globally_quoted_identifiers: true
+```
+✔️ 이 설정이 없으면 Redshift/PostgreSQL에서 테이블명이 자동으로 소문자로 변환될 수도 있습니다.
+
+---
+
+### 🔹 **(5) JPA 엔티티 스캔 경로 확인**
+- `@EntityScan`을 사용하지 않으면, Spring Boot가 해당 엔티티를 못 찾을 수 있음.
+- `@SpringBootApplication`이 있는 클래스에서 엔티티 스캔을 확인하세요.
+
+```java
+@EntityScan(basePackages = "com.samsung.knox.dai.appservice.model.dde")
+@SpringBootApplication
+public class MyApplication {
+}
+```
+✔️ `@EntityScan`이 없다면 추가하세요.
+
+---
+
+### 🔹 **(6) `AppUsageSumDaily`가 JPA Repository에서 사용되는지 확인**
+- `JpaRepository<AppUsageSumDaily, Long>`을 올바르게 정의해야 합니다.
+
+```java
+@Repository
+public interface AppUsageSumDailyRepository extends JpaRepository<AppUsageSumDaily, Long> {
+}
+```
+✔️ `JpaRepository`에서 올바르게 사용되는지 확인하세요.
+
+---
+
+### ✅ **2. 정리 및 해결 순서**
+1️⃣ `@Entity` 및 `@Table(name = "app_usage_sum_daily")`이 있는지 확인  
+2️⃣ `@Id` 필드가 존재하는지 확인  
+3️⃣ DB에 테이블이 실제로 존재하는지 확인 (`SELECT * FROM app_usage_sum_daily;`)  
+4️⃣ `spring.jpa.properties.hibernate.globally_quoted_identifiers=true` 설정 추가  
+5️⃣ `@EntityScan("com.samsung.knox.dai.appservice.model.dde")` 추가  
+6️⃣ `JpaRepository<AppUsageSumDaily, Long>`가 올바르게 정의되었는지 확인  
+
+이 방법으로 해결되지 않으면 알려주세요! 🚀
+-------------------
+
 `itemRoot.get(request.getAppRAMUsageOrDaily().getDeviceCount())`에서 에러가 발생하는 이유는 **deviceCount**가 **엔티티의 필드명**과 매칭되지 않아서 생기는 문제일 가능성이 큽니다.
 
 ---
