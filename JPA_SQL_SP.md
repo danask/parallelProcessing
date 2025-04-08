@@ -1,4 +1,34 @@
 
+이 에러 메시지는 JPA가 com.samsung.knox.dai.ddeservice.model.dde.AppView 클래스를 엔티티로 인식하지 못해서 발생한 것입니다.
+
+원인 요약: Not a managed type: class com.samsung.knox.dai.ddeservice.model.dde.AppView 
+
+즉, JPA가 AppView를 관리하는 엔티티로 스캔하지 못했다는 뜻입니다.
+
+해결 방법 체크리스트 1. @Entity 어노테이션이 붙어 있는지 확인 import jakarta.persistence.Entity; import jakarta.persistence.Table; @Entity @Table(name = "app_view") // 실제 DB 테이블 이름 public class AppView { @Id private Long id; // 다른 필드들... } 2. @EntityScan이 되어 있는지 확인 
+
+멀티 데이터소스(예: SecondarySQLDataSourceConfig)를 사용 중이면, 해당 데이터소스에 대해 엔티티 스캔 경로를 따로 설정해야 합니다.
+
+@Configuration @EnableJpaRepositories( basePackages = "com.samsung.knox.dai.ddeservice.sqlrepository.dde", // Repository 위치 entityManagerFactoryRef = "secondaryEntityManagerFactory", transactionManagerRef = "secondaryTransactionManager" ) @EntityScan(basePackages = "com.samsung.knox.dai.ddeservice.model.dde") // ✅ 엔티티 경로 지정 public class SecondarySQLDataSourceConfig { // datasource, em factory, tx manager 설정 } 3. @Id 필드가 반드시 있어야 합니다 
+
+JPA에서 엔티티는 반드시 @Id가 있어야 합니다. @Entity만 있고 @Id가 없으면 에러 납니다.
+
+@Entity public class AppView { @Id private Long id; // ✅ 반드시 필요 } 4. AppView가 인터페이스나 DTO가 아니어야 합니다 
+
+간혹 실수로 interface나 record, @Projection, 혹은 DTO 클래스를 Repository에 넘기면 이 에러가 납니다. AppView는 JPA가 관리할 수 있는 순수 클래스여야 합니다.
+
+5. 패키지 분리로 인한 스캔 누락 문제 
+
+멀티모듈 프로젝트거나 AppView가 Repository와 멀리 떨어진 다른 패키지에 있을 경우, @EntityScan이 없으면 기본 스캔 대상에서 누락될 수 있습니다.
+
+정리 
+
+필요하면 SecondarySQLDataSourceConfig 전체 예제도 만들어줄게요.
+지금 설정 파일 내용 일부 보여줄래?
+
+
+
+
 ### 🔎 **에러 분석: `Not an entity`**
 에러 메시지:
 ```
