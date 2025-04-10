@@ -1,3 +1,18 @@
+좋습니다! WebClient는 Spring 5부터 도입된 비동기/리액티브 HTTP 클라이언트로, 기존 RestTemplate을 대체합니다.
+아래는 WebClient를 사용하는 방식, 예외 처리, 실전 예제까지 단계별로 정리해드릴게요.
+
+✅ 1. 기본 WebClient 설정 import org.springframework.web.reactive.function.client.WebClient; @Configuration public class WebClientConfig { @Bean public WebClient webClient() { return WebClient.builder() .baseUrl("http://otherservice") .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE) .build(); } } ✅ 2. 동기 방식 호출 (block 사용) public class ApiService { private final WebClient webClient; public ApiService(WebClient webClient) { this.webClient = webClient; } public String getData() { return webClient.get() .uri("/api/data") .retrieve() .bodyToMono(String.class) .block(); // 동기적으로 결과 받기 } } ✅ 3. 예외 처리 포함 (onStatus) public String getDataWithErrorHandling() { return webClient.get() .uri("/api/data") .retrieve() .onStatus(HttpStatus::is4xxClientError, response -> { return response.bodyToMono(String.class) .flatMap(errorBody -> Mono.error(new RuntimeException("Client Error: " + errorBody))); }) .onStatus(HttpStatus::is5xxServerError, response -> { return response.bodyToMono(String.class) .flatMap(errorBody -> Mono.error(new RuntimeException("Server Error: " + errorBody))); }) .bodyToMono(String.class) .block(); } ✅ 4. 비동기 호출 (Mono 반환) public Mono<String> getDataAsync() { return webClient.get() .uri("/api/data") .retrieve() .bodyToMono(String.class); } 
+
+이 경우 Controller에서도 Mono<String>을 반환할 수 있습니다.
+
+✅ 5. POST 요청 보내기 public String postData(MyRequestDto requestDto) { return webClient.post() .uri("/api/submit") .bodyValue(requestDto) .retrieve() .bodyToMono(String.class) .block(); } ✅ 6. 예외 처리 통합 예 (예외 클래스 포함) public String getWithExceptionHandling() { return webClient.get() .uri("/api/data") .retrieve() .onStatus(HttpStatus::isError, clientResponse -> { return clientResponse.bodyToMono(String.class) .flatMap(error -> Mono.error(new ExternalServiceException(error))); }) .bodyToMono(String.class) .block(); } // 커스텀 예외 public class ExternalServiceException extends RuntimeException { public ExternalServiceException(String message) { super(message); } } ✅ 7. 타임아웃 등 고급 설정 WebClient webClient = WebClient.builder() .baseUrl("http://otherservice") .clientConnector(new ReactorClientHttpConnector(HttpClient.create() .responseTimeout(Duration.ofSeconds(3)))) .build(); ✅ 실제 컨트롤러에서 호출 예 @RestController @RequestMapping("/my-api") public class MyController { private final ApiService apiService; public MyController(ApiService apiService) { this.apiService = apiService; } @GetMapping("/data") public ResponseEntity<String> getData() { try { String data = apiService.getWithExceptionHandling(); return ResponseEntity.ok(data); } catch (ExternalServiceException ex) { return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body("외부 서비스 오류: " + ex.getMessage()); } } } ✅ 장점 정리 
+
+필요하다면 파일 업로드, OAuth 인증, WebClient 인터셉터 추가 방법도 안내드릴 수 있어요!
+원하는 구조나 시나리오가 있다면 알려주세요.
+
+
+----
+
 1GB 이상의 대용량 데이터를 API 호출로 처리하려면 **메모리 사용 최적화, 네트워크 성능 고려, 처리 속도 향상** 등의 전략이 필요합니다. 다음과 같은 방법이 효과적입니다.  
 
 ---
