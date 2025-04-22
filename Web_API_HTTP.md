@@ -1,3 +1,14 @@
+
+좋습니다! 위의 RestTemplate 코드와 같은 기능을 Spring WebClient로 구현한 버전을 아래에 정리해드릴게요.
+
+✅ 전제 POST /api/user로 아래 JSON을 보냄: { "name": "홍길동", "roles": ["admin", "user"], "metadata": { "age": 30, "email": "hong@example.com" } } ✅ 1. UserRequest 클래스 (동일) public class UserRequest { private String name; private List<String> roles; private Map<String, Object> metadata; // 생성자, getter, setter } ✅ 2. WebClient 설정 import org.springframework.context.annotation.Bean; import org.springframework.context.annotation.Configuration; import org.springframework.web.reactive.function.client.WebClient; @Configuration public class WebClientConfig { @Bean public WebClient webClient() { return WebClient.builder() .baseUrl("http://otherservice") // 필요시 제거 가능 .build(); } } ✅ 3. WebClient를 이용한 POST 요청 import org.springframework.http.MediaType; import org.springframework.stereotype.Service; import org.springframework.web.reactive.function.client.WebClient; import reactor.core.publisher.Mono; import java.util.*; @Service public class ExternalApiClient { private final WebClient webClient; public ExternalApiClient(WebClient webClient) { this.webClient = webClient; } public String sendUserData() { // 데이터 구성 UserRequest request = new UserRequest( "홍길동", Arrays.asList("admin", "user"), Map.of("age", 30, "email", "hong@example.com") ); // WebClient POST 요청 return webClient.post() .uri("/api/user") .contentType(MediaType.APPLICATION_JSON) .bodyValue(request) .retrieve() .bodyToMono(String.class) .block(); // 동기식 호출 } } ✅ 4. 예외 처리 포함 (선택사항) public String sendWithErrorHandling() { return webClient.post() .uri("/api/user") .contentType(MediaType.APPLICATION_JSON) .bodyValue(new UserRequest(...)) .retrieve() .onStatus(status -> status.is4xxClientError() || status.is5xxServerError(), response -> response.bodyToMono(String.class) .flatMap(body -> Mono.error(new RuntimeException("API 오류: " + body))) ) .bodyToMono(String.class) .block(); } ✅ 5. 비동기식으로 사용하고 싶다면 public Mono<String> sendAsync(UserRequest request) { return webClient.post() .uri("/api/user") .contentType(MediaType.APPLICATION_JSON) .bodyValue(request) .retrieve() .bodyToMono(String.class); } 요약 비교 
+
+필요하시면 WebClient를 OAuth 인증 붙이기, 파일 업로드, 헤더 동적 추가 예제도 드릴 수 있어요!
+
+
+
+-------
+
 좋습니다! WebClient는 Spring 5부터 도입된 비동기/리액티브 HTTP 클라이언트로, 기존 RestTemplate을 대체합니다.
 아래는 WebClient를 사용하는 방식, 예외 처리, 실전 예제까지 단계별로 정리해드릴게요.
 
