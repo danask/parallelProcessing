@@ -1,4 +1,97 @@
 
+
+CriteriaBuilder API를 쓸 때도 `Interceptor`나 `StatementInspector` 같은 **Hibernate 수준의 Hook**을 걸면 **Criteria로 생성된 쿼리에도 영향을 줄 수 있어**.  
+
+Criteria API → Hibernate Query → SQL 생성 → 이 과정에서 Hibernate Hook이 작동하니까, **기본적인 SQL을 조작하거나 주석을 삽입하는 게 가능해.**
+
+---
+
+### ✅ 1. CriteriaBuilder + Hibernate StatementInspector 조합
+
+#### 1) StatementInspector 구현
+
+```java
+public class QueryCommentInspector implements StatementInspector {
+    @Override
+    public String inspect(String sql) {
+        // CriteriaBuilder로 생성된 쿼리 포함 모든 쿼리에 주석 추가
+        return "/* [DAI-MODULE] */ " + sql;
+    }
+}
+```
+
+#### 2) Spring Boot 설정
+
+```properties
+spring.jpa.properties.hibernate.session_factory.statement_inspector=com.example.QueryCommentInspector
+```
+
+---
+
+### ✅ 2. Interceptor (Hibernate 5 이전 버전 호환)
+
+#### 구현
+
+```java
+public class CustomQueryInterceptor extends EmptyInterceptor {
+    @Override
+    public String onPrepareStatement(String sql) {
+        return "/* USER:admin */ " + sql;
+    }
+}
+```
+
+#### 등록
+
+```properties
+spring.jpa.properties.hibernate.ejb.interceptor=com.example.CustomQueryInterceptor
+```
+
+---
+
+### 🔍 CriteriaBuilder 내부에선 어떻게 적용되나?
+
+```java
+CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+CriteriaQuery<AppUsage> cq = cb.createQuery(AppUsage.class);
+Root<AppUsage> root = cq.from(AppUsage.class);
+cq.select(root).where(cb.greaterThan(root.get("usage"), 100));
+
+List<AppUsage> result = entityManager.createQuery(cq).getResultList();
+```
+
+이렇게 Criteria로 만든 쿼리도 Hibernate 내부에선 SQL로 변환되기 때문에, 위에서 정의한 `StatementInspector`나 `Interceptor`가 **자동으로 작동**해.
+
+---
+
+### ✅ 추가 팁 – 주석에 동적 정보 넣기
+
+`ThreadLocal`을 활용하면, 예를 들어 사용자 ID, 요청 ID 같은 동적 데이터를 주석에 포함시킬 수도 있어.
+
+```java
+public class QueryContext {
+    private static final ThreadLocal<String> comment = new ThreadLocal<>();
+
+    public static void setComment(String value) { comment.set(value); }
+    public static String getComment() { return comment.get(); }
+    public static void clear() { comment.remove(); }
+}
+```
+
+```java
+public class ContextAwareInspector implements StatementInspector {
+    @Override
+    public String inspect(String sql) {
+        String comment = QueryContext.getComment();
+        return comment != null ? "/* " + comment + " */ " + sql : sql;
+    }
+}
+```
+
+---
+
+원하는 주석 형태나 삽입 조건이 있다면 같이 구성해볼까?
+
 -------------------
 
 동적으로 여러 테이블에서 데이터를 가져와 자동으로 조인을 처리하는 기능은 가능하며, 이를 구현하려면 **메타데이터 기반 조인 로직**을 사용하는 것이 효과적입니다. 메타데이터에 각 필드가 속한 테이블과 조인 조건을 정의하여, 입력된 `dimensions` 및 `measures`에 따라 필요한 테이블과 조인 로직을 동적으로 생성하도록 할 수 있습니다.
