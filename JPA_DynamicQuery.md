@@ -1,4 +1,207 @@
 
+좋아, 그럼 위에 `field-metadata.yml`을 기반으로 실제 **Service Layer**에서 어떻게 활용할 수 있는지 전체적인 흐름을 보여줄게.
+
+---
+
+## 🧩 1. `application.yml` (또는 `field-metadata.yml`) 설정 예시
+
+```yaml
+field:
+  metadata:
+    device:
+      device_model: "Device Model"
+      device_id: "Device ID"
+      group_id: "Group ID"
+
+    package:
+      app_name: "App Name"
+      package_name: "Package Name"
+      app_version: "App Version"
+```
+
+---
+
+## 🧩 2. 설정 읽는 `@ConfigurationProperties` 클래스
+
+```java
+@Component
+@ConfigurationProperties(prefix = "field")
+public class FieldMetadataProperties {
+    private Map<String, Map<String, String>> metadata = new HashMap<>();
+
+    public Map<String, String> getCategoryFields(String category) {
+        return metadata.getOrDefault(category, Map.of());
+    }
+
+    public void setMetadata(Map<String, Map<String, String>> metadata) {
+        this.metadata = metadata;
+    }
+}
+```
+
+---
+
+## 🧩 3. Enum – 카테고리에 따라 Root 클래스 반환
+
+```java
+public enum QueryCategoryType {
+    DEVICE("device", DimDevice.class),
+    PACKAGE("package", DimPackage.class);
+
+    private final String key;
+    private final Class<?> rootClass;
+
+    QueryCategoryType(String key, Class<?> rootClass) {
+        this.key = key;
+        this.rootClass = rootClass;
+    }
+
+    public static Class<?> resolveRoot(String key) {
+        return Arrays.stream(values())
+            .filter(e -> e.key.equalsIgnoreCase(key))
+            .map(e -> e.rootClass)
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Invalid category: " + key));
+    }
+}
+```
+
+---
+
+## 🧩 4. Service Layer 구현
+
+```java
+@Service
+@RequiredArgsConstructor
+public class MetadataService {
+
+    private final FieldMetadataProperties fieldMetadataProperties;
+
+    private final EntityManager entityManager;
+
+    public Map<String, String> getFieldDescriptions(String category) {
+        return fieldMetadataProperties.getCategoryFields(category);
+    }
+
+    public List<String> fetchAvailableFieldValues(String category, String fieldName) {
+        Class<?> rootClass = QueryCategoryType.resolveRoot(category);
+
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<String> cq = cb.createQuery(String.class);
+        Root<?> root = cq.from(rootClass);
+
+        cq.select(root.get(fieldName).as(String.class)).distinct(true);
+        TypedQuery<String> query = entityManager.createQuery(cq);
+
+        return query.getResultList();
+    }
+}
+```
+
+---
+
+## 🧩 5. Controller Layer 예시
+
+```java
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/fields")
+public class FieldController {
+
+    private final MetadataService metadataService;
+
+    @GetMapping("/{category}")
+    public ResponseEntity<Map<String, String>> getFieldDescriptions(@PathVariable String category) {
+        return ResponseEntity.ok(metadataService.getFieldDescriptions(category));
+    }
+
+    @GetMapping("/{category}/{field}/values")
+    public ResponseEntity<List<String>> getFieldValues(
+            @PathVariable String category,
+            @PathVariable String field
+    ) {
+        return ResponseEntity.ok(metadataService.fetchAvailableFieldValues(category, field));
+    }
+}
+```
+
+---
+
+## 🔚 결과 예시 (API 응답)
+
+**`GET /api/fields/device`**
+```json
+{
+  "device_model": "Device Model",
+  "device_id": "Device ID",
+  "group_id": "Group ID"
+}
+```
+
+**`GET /api/fields/device/device_model/values`**
+```json
+[
+  "Galaxy S23",
+  "Pixel 8",
+  "iPhone 15"
+]
+```
+
+---
+
+
+좋은 질문이야!  
+"Device Model"처럼 **FE에서 전달된 사용자 친화적 이름**을,  
+우리 시스템 내부적으로 사용하는 **field key** (`device_model` 등)로 다시 맵핑하려면  
+역방향 조회용 메소드를 `FieldMetadataProperties` 클래스에 하나 추가해주면 돼.
+
+---
+
+## ✅ 1. 사용자 입력 값을 내부 field 이름으로 역매핑하는 메소드
+
+```java
+public String resolveFieldKey(String category, String displayName) {
+    Map<String, String> fieldMap = metadata.get(category);
+    if (fieldMap == null) {
+        throw new IllegalArgumentException("Unknown category: " + category);
+    }
+
+    return fieldMap.entrySet().stream()
+        .filter(entry -> entry.getValue().equalsIgnoreCase(displayName))
+        .map(Map.Entry::getKey)
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("Unknown display name: " + displayName));
+}
+```
+
+---
+
+## ✅ 2. `MetadataService`에서 래핑
+
+```java
+public String resolveFieldKeyFromDisplayName(String category, String displayName) {
+    return fieldMetadataProperties.resolveFieldKey(category, displayName);
+}
+```
+
+---
+
+## ✅ 3. 사용 예시
+
+```java
+String fieldKey = metadataService.resolveFieldKeyFromDisplayName("device", "Device Model");
+// → "device_model"
+```
+
+이제 이 `fieldKey`를 가지고 JPA Criteria에서 사용하거나, QueryDSL에서도 동적으로 빌드할 수 있어.
+
+---
+
+필요하면 display name → enum → DB 필드명까지 이어지는 세 단계 맵핑도 가능해.  
+혹시 정렬이나 필터링도 이 display name 기준으로 받고 싶어?
+
+
+-----------------
 
 CriteriaBuilder API를 쓸 때도 `Interceptor`나 `StatementInspector` 같은 **Hibernate 수준의 Hook**을 걸면 **Criteria로 생성된 쿼리에도 영향을 줄 수 있어**.  
 
