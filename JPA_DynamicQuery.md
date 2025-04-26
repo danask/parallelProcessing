@@ -201,6 +201,69 @@ String fieldKey = metadataService.resolveFieldKeyFromDisplayName("device", "Devi
 혹시 정렬이나 필터링도 이 display name 기준으로 받고 싶어?
 
 
+좋은 코드 구성이고, 방향도 잘 잡고 있어요!  
+하지만 지금 문제가 되는 핵심은 이거예요:
+
+> `CriteriaBuilder`에서 사용하는 `Root<?>` 객체는 `Class<?>` 자체로는 만들 수 없어요.
+
+---
+
+### ✅ 요약해서 말하면
+
+- `enum`에서 반환하는 `Class<?>`는 `Root<?>`를 생성하는 **기준 정보**로만 쓰일 수 있고,  
+- 실제 `Root<?>`는 `CriteriaQuery.from(Class<T>)`를 통해 **CriteriaQuery 빌드 시점에 만들어야 해요.**
+
+---
+
+## 🔧 해결 방법 예시
+
+```java
+CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+CriteriaQuery<MyDto> query = cb.createQuery(MyDto.class);
+
+// 1. 카테고리로부터 root class 얻기
+Class<?> rootClass = QueryCategoryType.resolveRoot(inputCategory);
+
+// 2. Root<?> 생성
+Root<?> root = query.from(rootClass);
+```
+
+그 후에 `root.get("deviceId")`, `root.get("packageName")` 같은 필드 접근을 하게 되겠죠.
+
+---
+
+## 🔄 대안 (Root 타입을 일반화)
+
+만약 DTO 빌드를 위해 `Tuple` 또는 동적 select를 쓴다면:
+
+```java
+CriteriaQuery<Tuple> query = cb.createTupleQuery();
+Root<?> root = query.from(QueryCategoryType.resolveRoot(inputCategory));
+```
+
+`Root<?>`는 제네릭 타입이기 때문에 `.get(...)` 할 때 캐스팅이 필요할 수 있어요.
+
+---
+
+## 💡 추가 팁: 필드명도 맵핑되어야 한다면?
+
+`FieldMetadataProperties`와 `QueryCategoryType`을 조합해서 다음처럼 쓸 수 있어요:
+
+```java
+String fieldName = fieldMetadataProperties.resolveFieldKey(category, displayName);
+Path<?> path = root.get(fieldName);
+```
+
+---
+
+정리하면, `QueryCategoryType.resolveRoot(key)`에서 `Class<?>`를 받아서  
+`CriteriaQuery.from(...)`에서 `Root<?>`를 만드는 건 맞는 흐름이고,  
+직접 `Root<?>`를 enum에서 만들어줄 수는 없다는 점만 기억하면 될 것 같아요.
+
+필요하면 실제 코드 흐름 예제도 같이 만들어줄게요. 해볼까?
+
+
+
 -----------------
 
 CriteriaBuilder API를 쓸 때도 `Interceptor`나 `StatementInspector` 같은 **Hibernate 수준의 Hook**을 걸면 **Criteria로 생성된 쿼리에도 영향을 줄 수 있어**.  
