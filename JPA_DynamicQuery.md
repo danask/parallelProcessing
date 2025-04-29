@@ -1,4 +1,90 @@
 
+좋습니다! DimPackage와 CustomerApps 간의 조인을 CriteriaBuilder 또는 QueryDSL로 제대로 하려면, 먼저 JPA 엔터티 간의 관계 설정이 올바르게 돼 있어야 합니다. 아래에 양방향/단방향 관계 설정 예제와 함께, 이를 기준으로 CriteriaBuilder & QueryDSL 코드를 보여드릴게요.
+
+
+---
+
+1. 엔터티 관계 설정 예제
+
+DimPackage (1:N 관계 기준)
+
+@Entity
+public class DimPackage {
+
+    @Id
+    private Long dimPackageId;
+
+    @OneToMany(mappedBy = "dimPackage", fetch = FetchType.LAZY)
+    private List<CustomerApps> customerAppsList;
+}
+
+CustomerApps
+
+@Entity
+public class CustomerApps {
+
+    @Id
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "dim_package_id")
+    private DimPackage dimPackage;
+}
+
+이렇게 하면 JPA는 dim_package_id를 기준으로 두 엔터티를 자동으로 매핑할 수 있습니다.
+
+
+---
+
+2. CriteriaBuilder 사용 예시 (with 관계 설정)
+
+CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+Root<DimPackage> dimPackageRoot = cq.from(DimPackage.class);
+Join<DimPackage, CustomerApps> customerAppsJoin =
+    dimPackageRoot.join("customerAppsList", JoinType.LEFT);
+
+cq.multiselect(dimPackageRoot, customerAppsJoin)
+  .where(cb.equal(dimPackageRoot.get("dimPackageId"), customerAppsJoin.get("dimPackage").get("dimPackageId")));
+
+List<Tuple> results = entityManager.createQuery(cq).getResultList();
+
+> "customerAppsList"는 @OneToMany 필드 이름입니다.
+
+
+
+
+---
+
+3. QueryDSL 사용 예시 (with 관계 설정)
+
+QDimPackage dimPackage = QDimPackage.dimPackage;
+QCustomerApps customerApps = QCustomerApps.customerApps;
+
+List<Tuple> results = new JPAQuery<>(entityManager)
+    .select(dimPackage, customerApps)
+    .from(dimPackage)
+    .leftJoin(dimPackage.customerAppsList, customerApps)  // 관계된 필드명으로 조인
+    .fetch();
+
+> 이건 단방향/양방향 관계 모두 지원 가능하며, QueryDSL이 가장 직관적입니다.
+
+
+
+
+---
+
+정리
+
+
+---
+
+혹시 @ManyToOne만 설정된 단방향 관계라면, 반대로 CustomerApps를 기준으로 루트로 삼아서 조인을 구성할 수도 있습니다. 이런 방식도 원하시나요?
+
+
+-----
+
 CriteriaBuilder를 사용해 DimPackage와 CustomerApps를 dim_package_id를 기준으로 LEFT OUTER JOIN 또는 RIGHT OUTER JOIN 하려는 경우, 다음과 같은 방식으로 작성할 수 있습니다. 그리고 이를 QueryDSL과 비교해서 정리해드릴게요.
 
 
