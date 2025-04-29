@@ -1,3 +1,85 @@
+좋습니다! 주 테이블이 CustomerApps이고, DimPackage는 dim_package_id를 기준으로 LEFT JOIN할 대상이라면, JPA 엔터티 매핑과 CriteriaBuilder/QueryDSL에서의 조인 방식은 아래와 같이 설계하면 됩니다.
+
+
+---
+
+1. JPA 엔터티 관계 설정
+
+CustomerApps (메인 테이블 기준)
+
+@Entity
+public class CustomerApps {
+
+    @Id
+    private Long id;
+
+    private Long customerId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "dim_package_id")  // FK
+    private DimPackage dimPackage;
+}
+
+DimPackage
+
+@Entity
+public class DimPackage {
+
+    @Id
+    private Long dimPackageId;
+
+    private String appName;
+}
+
+
+---
+
+2. CriteriaBuilder 로 LEFT JOIN 하기
+
+CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+Root<CustomerApps> root = cq.from(CustomerApps.class);
+Join<CustomerApps, DimPackage> join = root.join("dimPackage", JoinType.LEFT);
+
+cq.multiselect(
+    root.get("customerId"),
+    join.get("appName")
+);
+
+List<Tuple> results = entityManager.createQuery(cq).getResultList();
+
+> "dimPackage"는 @ManyToOne 필드 이름입니다. JoinType.LEFT를 명시해서 LEFT JOIN 처리합니다.
+
+
+
+
+---
+
+3. QueryDSL 버전 (같은 조인)
+
+QCustomerApps customerApps = QCustomerApps.customerApps;
+QDimPackage dimPackage = QDimPackage.dimPackage;
+
+List<Tuple> results = new JPAQuery<>(entityManager)
+    .select(customerApps.customerId, dimPackage.appName)
+    .from(customerApps)
+    .leftJoin(customerApps.dimPackage, dimPackage)
+    .fetch();
+
+
+---
+
+4. 결론
+
+
+---
+
+원하는 결과를 기준으로 JPA와 QueryDSL 둘 다 설정해드렸습니다. 혹시 CustomerApps에서 다른 기준으로도 조인하거나 추가 필터가 필요하신가요?
+
+
+
+-----
 
 좋습니다! DimPackage와 CustomerApps 간의 조인을 CriteriaBuilder 또는 QueryDSL로 제대로 하려면, 먼저 JPA 엔터티 간의 관계 설정이 올바르게 돼 있어야 합니다. 아래에 양방향/단방향 관계 설정 예제와 함께, 이를 기준으로 CriteriaBuilder & QueryDSL 코드를 보여드릴게요.
 
