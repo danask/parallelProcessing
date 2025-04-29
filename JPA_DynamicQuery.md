@@ -1,4 +1,68 @@
 
+CriteriaBuilder를 사용해 DimPackage와 CustomerApps를 dim_package_id를 기준으로 LEFT OUTER JOIN 또는 RIGHT OUTER JOIN 하려는 경우, 다음과 같은 방식으로 작성할 수 있습니다. 그리고 이를 QueryDSL과 비교해서 정리해드릴게요.
+
+
+---
+
+✅ 1. CriteriaBuilder 사용 예시 (LEFT OUTER JOIN)
+
+CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+Root<DimPackage> dimPackageRoot = cq.from(DimPackage.class);
+Join<DimPackage, CustomerApps> customerAppsJoin = dimPackageRoot.join("customerApps", JoinType.LEFT); // 관계 이름
+
+cq.multiselect(dimPackageRoot, customerAppsJoin)
+  .where(cb.equal(dimPackageRoot.get("dimPackageId"), customerAppsJoin.get("dimPackageId")));
+
+List<Tuple> results = entityManager.createQuery(cq).getResultList();
+
+주의할 점
+
+@OneToMany, @ManyToOne 등 관계 설정이 반드시 엔터티에 정의되어 있어야 함.
+
+단방향이면 Join<DimPackage, CustomerApps> 을 Join<CustomerApps, DimPackage>로 바꿔도 됨.
+
+
+
+---
+
+✅ 2. QueryDSL 사용 예시 (LEFT JOIN)
+
+QDimPackage dimPackage = QDimPackage.dimPackage;
+QCustomerApps customerApps = QCustomerApps.customerApps;
+
+JPAQuery<Tuple> query = new JPAQuery<>(entityManager);
+List<Tuple> results = query
+    .select(dimPackage, customerApps)
+    .from(dimPackage)
+    .leftJoin(customerApps).on(dimPackage.dimPackageId.eq(customerApps.dimPackageId))
+    .fetch();
+
+
+---
+
+✅ 비교 요약
+
+
+---
+
+✅ 결론
+
+CriteriaBuilder는 JPA 표준을 따르지만 복잡한 조인이나 조건이 많아질수록 불편합니다.
+
+QueryDSL은 관계가 없거나 복잡한 조인 조건일 때도 코드가 간결하고 타입 안전성 확보가 쉬워서 더 유리합니다.
+
+
+
+---
+
+혹시 dim_package_id가 관계 매핑이 안 돼 있는 단순 필드인 경우를 대비한 예제도 원하시나요?
+
+
+
+-----
+
 좋아, 그럼 위에 `field-metadata.yml`을 기반으로 실제 **Service Layer**에서 어떻게 활용할 수 있는지 전체적인 흐름을 보여줄게.
 
 ---
