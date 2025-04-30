@@ -1,3 +1,75 @@
+좋은 방향으로 접근하셨어요. 다만 자바에서는 **오버로딩된 메서드를 런타임에서 분기**해서 사용하려면 정적 분기 구조나 명시적인 타입 캐스팅이 필요합니다. 또한, `builder()`를 쓰려면 `@Builder` 패턴이나 직접 Builder 클래스를 정의해야 해요.
+
+요구하신 형태대로 정리해드리면, 하나의 클래스 안에서 `category`와 `Tuple`을 기반으로 `FilterValue`를 생성하는 방식은 다음과 같이 개선할 수 있습니다:
+
+---
+
+### ✅ 개선된 통합 클래스 구조
+
+```java
+public class FilterValue {
+    private Long deviceId;
+    private String appName;
+    private Long batteryConsumption;
+
+    // 정적 팩토리 메서드
+    public static FilterValue from(String category, Tuple tuple) {
+        FilterValue fv = new FilterValue();
+
+        switch (category.toLowerCase()) {
+            case "device" -> fv.deviceId = tuple.get("deviceId", Long.class);
+            case "package" -> fv.appName = tuple.get("appName", String.class);
+            case "appusage" -> {
+                fv.appName = tuple.get("appName", String.class);
+                fv.batteryConsumption = tuple.get("batteryConsumption", Long.class);
+            }
+            default -> throw new IllegalArgumentException("Unknown category: " + category);
+        }
+
+        return fv;
+    }
+
+    // getters, setters, toString 등 필요 시 추가
+}
+```
+
+---
+
+### ✅ 사용 예
+
+```java
+List<FilterValue> mappedList = resultList.stream()
+    .map(tuple -> FilterValue.from(category, tuple))
+    .toList();
+```
+
+---
+
+### ✅ 보완 포인트
+
+- `Tuple`에서 필요한 필드가 없을 경우 NPE가 날 수 있으므로 사전에 DTO 구조가 명확히 정의되어 있어야 합니다.
+- 타입 안정성을 위해 `enum Category`를 쓰면 더 견고합니다.
+
+---
+
+### ✅ 선택적으로 enum을 활용한 개선
+
+```java
+public enum Category {
+    DEVICE, PACKAGE, APPUSAGE
+}
+```
+
+```java
+FilterValue.from(Category.valueOf(category.toUpperCase()), tuple);
+```
+
+---
+
+이렇게 하면 모든 DTO 타입을 하나의 `FilterValue` 클래스로 유연하게 처리할 수 있습니다. 이 구조로 진행해도 괜찮을까요?
+
+-------------------
+
 좋습니다! 주 테이블이 CustomerApps이고, DimPackage는 dim_package_id를 기준으로 LEFT JOIN할 대상이라면, JPA 엔터티 매핑과 CriteriaBuilder/QueryDSL에서의 조인 방식은 아래와 같이 설계하면 됩니다.
 
 
