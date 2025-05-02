@@ -1,3 +1,77 @@
+
+네, 맞습니다. `ANR_EVENT(MetadataCategory.ANR_FC_DAILY, FactANREvent.class)`에서 `ANR_EVENT`라는 enum 이름과 `MetadataCategory.ANR_FC_DAILY`가 **사실상 동일한 의미를 갖는다면**, `MetadataCategory` 자체를 key로 활용하거나 enum 이름을 문자열로 재사용하면 중복을 줄일 수 있습니다.
+
+### ✅ 간략화 방법 1: `MetadataCategory`를 키로 직접 사용
+
+```java
+public enum QueryCategoryType {
+    DEVICE(MetadataCategory.DEVICE, DimDevice.class),
+    PACKAGE(MetadataCategory.PACKAGE, DimPackage.class),
+    ANR_EVENT(MetadataCategory.ANR_FC_DAILY, FactANREvent.class);
+
+    private final MetadataCategory key;
+    private final Class<?> rootClass;
+
+    QueryCategoryType(MetadataCategory key, Class<?> rootClass) {
+        this.key = key;
+        this.rootClass = rootClass;
+    }
+
+    public static Class<?> resolveRoot(MetadataCategory key) {
+        return Arrays.stream(values())
+                .filter(e -> e.key == key)
+                .map(e -> e.rootClass)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Invalid category: " + key));
+    }
+}
+```
+
+사용 시:
+
+```java
+QueryCategoryType.resolveRoot(MetadataCategory.ANR_FC_DAILY);
+```
+
+---
+
+### ✅ 간략화 방법 2: enum name()을 문자열로 활용
+
+`key`가 결국 enum 이름(`ANR_EVENT`)과 같다면, 굳이 따로 저장하지 않아도 됩니다.
+
+```java
+public enum QueryCategoryType {
+    DEVICE(DimDevice.class),
+    PACKAGE(DimPackage.class),
+    ANR_EVENT(FactANREvent.class);
+
+    private final Class<?> rootClass;
+
+    QueryCategoryType(Class<?> rootClass) {
+        this.rootClass = rootClass;
+    }
+
+    public static Class<?> resolveRoot(String key) {
+        return Arrays.stream(values())
+                .filter(e -> e.name().equalsIgnoreCase(key))
+                .map(e -> e.rootClass)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Invalid category: " + key));
+    }
+}
+```
+
+---
+
+### ✅ 결론
+
+* `key`가 enum 이름과 다를 이유가 없다면 `name()`을 활용하는 방식이 가장 간단하고 유지보수가 좋습니다.
+* 아니면 `MetadataCategory`를 그대로 enum field로 넣는 것이 더 명확하고 중복이 없습니다.
+
+둘 중 어떤 방식이 더 적합해 보이세요?
+
+
+------
 좋은 방향으로 접근하셨어요. 다만 자바에서는 **오버로딩된 메서드를 런타임에서 분기**해서 사용하려면 정적 분기 구조나 명시적인 타입 캐스팅이 필요합니다. 또한, `builder()`를 쓰려면 `@Builder` 패턴이나 직접 Builder 클래스를 정의해야 해요.
 
 요구하신 형태대로 정리해드리면, 하나의 클래스 안에서 `category`와 `Tuple`을 기반으로 `FilterValue`를 생성하는 방식은 다음과 같이 개선할 수 있습니다:
