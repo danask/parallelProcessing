@@ -1,4 +1,97 @@
 
+아하, 설명해주신 구조를 정리하면 다음과 같습니다:
+
+---
+
+### 💡 문제 구조 요약
+
+* `Event` 테이블이 메인 (`primary`) 테이블이고,
+* `viewId`는 실제 PK 구성에 사용됨 → `@IdClass`나 `@EmbeddedId` 구조 필요
+* 그런데 이 `viewId`가 **다른 테이블 (`Package`, `Device`)의 외래키 역할**도 해야 함
+* 예: `Event` → `join` → `Package`, `Device` (조인 키: `viewId`, `packageId`, `deviceId`)
+
+---
+
+### ✅ 해결 전략
+
+#### 1. **복합키 정의 (viewId + packageId + deviceId 등)**
+
+* `Event` 테이블은 복합키 구조가 필요 → `@IdClass` 또는 `@EmbeddedId`
+* `viewId`는 `@ManyToOne` 연관관계로 다른 테이블에 조인되게 설정
+
+#### 2. **JPA로 설계할 때 핵심 규칙**
+
+* PK 구성용 필드(viewId 등)와 조인용 필드가 **동일**할 수 있음
+* 이때 `@ManyToOne`을 다음과 같이 설정
+
+---
+
+### 🔧 예시 코드
+
+#### 📌 1. `@IdClass` 방식 (복합 키 정의)
+
+```java
+public class EventId implements Serializable {
+    private Long viewId;
+    private Long packageId;
+    private Long deviceId;
+}
+```
+
+#### 📌 2. `Event` 엔티티
+
+```java
+@Entity
+@IdClass(EventId.class)
+public class Event {
+
+    @Id
+    private Long viewId;
+
+    @Id
+    private Long packageId;
+
+    @Id
+    private Long deviceId;
+
+    @ManyToOne
+    @JoinColumn(name = "view_id", insertable = false, updatable = false)
+    private Package pkg;  // viewId로 조인되는 테이블
+
+    @ManyToOne
+    @JoinColumn(name = "device_id", insertable = false, updatable = false)
+    private Device device;
+
+    // 나머지 필드
+}
+```
+
+이 구조는 `viewId`, `packageId`, `deviceId`로 PK를 구성하면서도, 해당 키들을 외래키로 사용하는 테이블에 조인할 수 있도록 합니다.
+
+---
+
+### 🚨 주의할 점
+
+* **외래키 필드와 연관 필드를 동시에 둘 경우** 반드시 `insertable = false, updatable = false`로 설정
+  → 그렇지 않으면 JPA가 동일한 컬럼을 두 번 관리하려 하며 오류 발생
+* 조인 대상 테이블(`Package`, `Device`)의 PK도 반드시 `viewId` 포함해야 연관관계 매핑이 정확하게 동작
+
+---
+
+### ✅ 정리
+
+| 목적         | 처리 방법                                                                    |
+| ---------- | ------------------------------------------------------------------------ |
+| 복합 PK 구성   | `@IdClass` 또는 `@EmbeddedId`                                              |
+| 다른 테이블과 조인 | `@ManyToOne`, `@JoinColumn(name=..., insertable=false, updatable=false)` |
+| SQL로는?     | `JOIN package ON event.view_id = package.view_id` 등으로 표현 가능              |
+
+---
+
+필요하다면 SQL 쿼리나 실제 전체 구조 예시도 만들어 드릴 수 있어요. 현재 JPA 설계 중이신 구조를 제가 코드로 정리해드릴까요?
+
+-----------
+
 좋은 질문입니다. JPA에서 `@ManyToOne`과 `@OneToMany`는 **양방향 관계** 설정에서 핵심 역할을 하며, 각각 반대편 엔터티와의 관계를 정의합니다. 그리고 이미 외래키 필드(viewId 또는 packageId 등)가 존재할 때 `@ManyToOne`을 적용하는 방식과 `@Id` 처리는 약간의 주의가 필요합니다.
 
 ---
