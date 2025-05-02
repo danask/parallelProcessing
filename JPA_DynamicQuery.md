@@ -1,4 +1,90 @@
 
+좋은 질문입니다. JPA에서 `@ManyToOne`과 `@OneToMany`는 **양방향 관계** 설정에서 핵심 역할을 하며, 각각 반대편 엔터티와의 관계를 정의합니다. 그리고 이미 외래키 필드(viewId 또는 packageId 등)가 존재할 때 `@ManyToOne`을 적용하는 방식과 `@Id` 처리는 약간의 주의가 필요합니다.
+
+---
+
+### ✅ @ManyToOne vs @OneToMany 차이
+
+| 항목     | `@ManyToOne`        | `@OneToMany`                             |
+| ------ | ------------------- | ---------------------------------------- |
+| 관계 의미  | N(다수) 쪽에서 1(하나)쪽 참조 | 1(하나) 쪽에서 N(다수) 참조                       |
+| 외래키 위치 | **Many 쪽** 테이블에 존재  | **Many 쪽** 테이블에 존재 (즉, One 쪽엔 실제 외래키 없음) |
+| 기본 방향  | 관계의 주인(Owner)       | 관계의 비주인 (mappedBy 필요)                    |
+
+---
+
+### ✅ 예시: `Package`와 `View`의 관계
+
+```java
+@Entity
+public class Package {
+    @Id
+    private Long packageId;
+
+    @ManyToOne
+    @JoinColumn(name = "view_id") // 외래키가 존재하는 경우
+    private View view;
+}
+```
+
+```java
+@Entity
+public class View {
+    @Id
+    private Long viewId;
+
+    @OneToMany(mappedBy = "view")
+    private List<Package> packages;
+}
+```
+
+* 이 경우 외래키는 `Package` 테이블 안의 `view_id` 필드로 나타납니다.
+* 양방향 매핑 시 `@ManyToOne`이 **관계의 주인**이고, `@OneToMany`는 `mappedBy`로 연결되어 있어야 합니다.
+
+---
+
+### ✅ 이미 viewId나 packageId 필드가 있을 때
+
+`viewId`가 이미 있다면, 아래 둘 중 하나를 택할 수 있습니다:
+
+#### ✔️ 1. Embedded 방식 (권장 X, 복잡해짐)
+
+viewId라는 필드 그대로 두고 `@ManyToOne` 대신 단순 Long 값으로 관리 (하지만 JPA 매핑을 활용하지 못함).
+
+#### ✔️ 2. `@ManyToOne` 관계를 명확히 하고, ID는 별도로 설정
+
+```java
+@Entity
+public class Package {
+
+    @Id
+    private Long packageId;
+
+    @ManyToOne
+    @JoinColumn(name = "view_id", insertable = false, updatable = false)
+    private View view;
+
+    private Long viewId; // 실제 foreign key 값은 여기에
+}
+```
+
+* 이렇게 하면 `viewId`는 실제 DB 외래키이고, `view` 객체는 JPA 연관관계용입니다.
+* `insertable = false, updatable = false`로 설정해야 JPA가 충돌하지 않습니다.
+
+---
+
+### ✅ 요약
+
+* `@ManyToOne`은 외래키가 있는 **N 쪽에서 설정**, 관계의 주인입니다.
+* 이미 외래키 필드가 있을 경우, `@JoinColumn(..., insertable = false, updatable = false)`을 활용해서 JPA와 충돌 없이 객체 관계를 사용할 수 있습니다.
+* `@OneToMany`는 주인이 아니므로 `mappedBy`로 연결만 해줍니다.
+* 복합키(@IdClass or @EmbeddedId)를 사용하지 않는 한, `@Id`는 별도 필드로 유지하세요.
+
+필요하다면 전체 관계 코드 예제도 제공해드릴게요. 더 정리된 구조가 필요하신가요?
+
+
+-----
+
 네, 맞습니다. `ANR_EVENT(MetadataCategory.ANR_FC_DAILY, FactANREvent.class)`에서 `ANR_EVENT`라는 enum 이름과 `MetadataCategory.ANR_FC_DAILY`가 **사실상 동일한 의미를 갖는다면**, `MetadataCategory` 자체를 key로 활용하거나 enum 이름을 문자열로 재사용하면 중복을 줄일 수 있습니다.
 
 ### ✅ 간략화 방법 1: `MetadataCategory`를 키로 직접 사용
