@@ -703,6 +703,82 @@ public class FieldController {
   "iPhone 15"
 ]
 ```
+---
+원하시는 응답 구조는 카테고리(`device`, `package`)별로 해당 필드와 필드의 한글(또는 UI)용 이름을 포함하는 **Map\<String, Map\<String, String>>** 형태입니다.
+지금 설정하신 `application.yml`과 `@ConfigurationProperties`는 이미 이 구조를 표현하고 있으니, 이를 그대로 응답으로 반환하면 됩니다.
+
+---
+
+## ✅ 최종적으로 원하는 JSON 응답 예시
+
+```json
+{
+  "device": {
+    "device_model": "Device Model",
+    "device_id": "Device ID",
+    "group_id": "Group ID"
+  },
+  "package": {
+    "app_name": "App Name"
+  }
+}
+```
+
+---
+
+## ✅ 이를 위한 메서드 정의 방법
+
+```java
+@Service
+public class MetadataFieldService {
+
+    private final FieldMetadataProperties fieldMetadataProperties;
+
+    public MetadataFieldService(FieldMetadataProperties fieldMetadataProperties) {
+        this.fieldMetadataProperties = fieldMetadataProperties;
+    }
+
+    public Map<String, Map<String, String>> getAllCategoryFields() {
+        return fieldMetadataProperties.getMetadata();
+    }
+}
+```
+
+---
+
+## ✅ Controller 예시
+
+```java
+@RestController
+@RequestMapping("/api/metadata")
+public class MetadataController {
+
+    private final MetadataFieldService metadataFieldService;
+
+    public MetadataController(MetadataFieldService metadataFieldService) {
+        this.metadataFieldService = metadataFieldService;
+    }
+
+    @GetMapping("/fields")
+    public ResponseEntity<Map<String, Map<String, String>>> getFieldMetadata() {
+        return ResponseEntity.ok(metadataFieldService.getAllCategoryFields());
+    }
+}
+```
+
+---
+
+## ✅ 결과적으로 이 URL로 요청하면
+
+```
+GET /api/metadata/fields
+```
+
+위에서 원하는 구조의 JSON 응답을 받을 수 있습니다.
+
+---
+
+필요하다면 특정 카테고리만 조회하는 메서드도 추가해드릴 수 있어요. 그렇게 해드릴까요?
 
 ---
 
