@@ -153,6 +153,78 @@ Map<String, String> labels = ddeMetadataProperties.getLabelsForFields(fieldNames
 원하시는 출력 포맷이 Map\<String, String> 외에 더 복잡한 구조인가요?
 
 
+좋아요! 말씀하신 `"App Name"`이라는 **라벨값**으로 역으로 **필드명**을 찾고 싶은 경우, 즉:
+
+```java
+Map<String, String> result = getFieldsForLabel("App Name");
+```
+
+요청한 라벨에 해당하는 필드명을 찾아주는 메서드를 만들면 됩니다.
+
+---
+
+### ✅ 메서드 구현: 라벨로 필드명 찾기
+
+```java
+public Map<String, String> getFieldsForLabel(String labelToFind) {
+    Map<String, String> result = new LinkedHashMap<>();
+
+    Stream.of(dimension, measure)
+        .flatMap(group -> group.values().stream()) // Map<String, CategoryConfig>
+        .flatMap(categoryMap -> categoryMap.entrySet().stream()) // Entry<String, CategoryConfig>
+        .forEach(entry -> {
+            String categoryName = entry.getKey();
+            Map<String, String> fields = entry.getValue().getFields();
+
+            fields.forEach((field, label) -> {
+                if (label.equalsIgnoreCase(labelToFind)) {
+                    result.put(field, label); // 또는 result.put(categoryName + "." + field, label);
+                }
+            });
+        });
+
+    return result;
+}
+```
+
+---
+
+### ✅ 사용 예
+
+```java
+Map<String, String> fields = ddeMetadataProperties.getFieldsForLabel("App Name");
+
+// 출력 예:
+// {
+//   "app_name" -> "App Name"
+// }
+```
+
+---
+
+### 🔁 참고: 전체 구조 다시 요약
+
+`application.yml` 구조가 다음과 같다고 할 때:
+
+```yaml
+dde:
+  dimension:  
+    device:
+      device_model: "Device Model"
+      device_id: "Device ID"
+      group_id: "Group ID"
+  measure:
+    package:
+      app_name: "App Name"
+      package_name: "Package Name"
+      app_version: "App Version"
+```
+
+위 코드로 `"App Name"` → `"app_name"`을 잘 찾을 수 있습니다.
+
+---
+
+필요하면 `"category"` 정보도 함께 반환하는 구조로 바꿔드릴 수 있어요. 그렇게 해드릴까요?
 
 -------------
 
