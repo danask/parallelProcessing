@@ -1,3 +1,107 @@
+좋습니다! 아래는 주어진 YAML 구조를 기반으로, 원하는 정보를 읽어내는 자바 메서드를 정의하는 방식입니다.
+
+---
+
+### ✅ YAML 구조 예시
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model: "Device Model"
+        device_id: "Device ID"
+        group_id: "Group ID"
+
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name: "App Name"
+        package_name: "Package Name"
+        app_version: "App Version"
+```
+
+---
+
+### ✅ 자바 설정 클래스 (@ConfigurationProperties)
+
+```java
+@Component
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+
+    private Map<String, Map<String, CategoryConfig>> dimension = new HashMap<>();
+    private Map<String, Map<String, CategoryConfig>> measure = new HashMap<>();
+
+    @Data
+    public static class CategoryConfig {
+        private String label;
+        private Map<String, String> fields = new HashMap<>();
+    }
+
+    public Map<String, Map<String, CategoryConfig>> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    // ✅ 1. 그룹 안의 category 라벨 목록 가져오기
+    public List<String> getCategoryLabels(String group) {
+        return getGroupMap(group).values().stream()
+            .flatMap(catMap -> catMap.values().stream())
+            .map(CategoryConfig::getLabel)
+            .toList();
+    }
+
+    // ✅ 2. 특정 category 의 label 가져오기
+    public String getCategoryLabel(String group, String category) {
+        return getGroupMap(group)
+            .getOrDefault(category, Map.of())
+            .get(category)
+            .getLabel();
+    }
+
+    // ✅ 3. 특정 category 의 필드-라벨 매핑 가져오기
+    public Map<String, String> getFieldLabels(String group, String category) {
+        return getGroupMap(group)
+            .getOrDefault(category, Map.of())
+            .get(category)
+            .getFields();
+    }
+}
+```
+
+---
+
+### ✅ 사용 예시
+
+```java
+// 예시: dimension 그룹의 모든 category label
+List<String> labels = ddeMetadataProperties.getCategoryLabels("dimension");
+// → ["Device Name"]
+
+// 예시: dimension 그룹에서 device 카테고리의 label
+String deviceLabel = ddeMetadataProperties.getCategoryLabel("dimension", "device");
+// → "Device Name"
+
+// 예시: measure 그룹에서 package 카테고리의 필드 라벨 매핑
+Map<String, String> fields = ddeMetadataProperties.getFieldLabels("measure", "package");
+// → {app_name="App Name", package_name="Package Name", app_version="App Version"}
+```
+
+---
+
+구조가 안정적이면서 유연해서, category와 group이 늘어나도 대응하기 쉬운 방식입니다.
+
+원하시는 출력 포맷이나 추가 필터가 더 있을까요?
+
+
+-------------
+
 좋은 방향이에요! 기존 방식에서 `dimension`, `measure`처럼 카테고리를 *세분화된 그룹 안에 묶는 방식*으로 변경하면, 설정 파일 구조가 한 단계 더 깊어지기 때문에 `@ConfigurationProperties`와 서비스 코드도 그에 맞춰 수정해야 합니다.
 
 ---
