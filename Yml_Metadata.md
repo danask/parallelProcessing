@@ -172,6 +172,55 @@ fieldKey.ifPresent(System.out::println);  // 출력: app_name
 필요하시면 반대로 `getFieldLabelByKey(group, category, "app_name")`도 만들어드릴 수 있어요. 추가로 필요하신 기능 있을까요?
 
 
+좋습니다!
+`field list by group and category`는 다음처럼 \*\*group(dimension/measure)\*\*와 \*\*category(device/package 등)\*\*를 기준으로 해당 필드 목록 전체를 반환하는 기능입니다.
+
+---
+
+### ✅ 메서드 시그니처
+
+```java
+public Map<String, String> getFieldsByGroupAndCategory(String group, String category)
+```
+
+---
+
+### ✅ 구현 예시 (`DdeMetadataProperties` 클래스 내부)
+
+```java
+public Map<String, String> getFieldsByGroupAndCategory(String group, String category) {
+    Map<String, CategoryConfig> target = getGroupMap(group);
+    CategoryConfig config = target.get(category);
+    if (config == null || config.getFields() == null) {
+        return Map.of(); // 빈 맵 반환
+    }
+    return config.getFields();
+}
+```
+
+---
+
+### ✅ 사용 예
+
+```java
+Map<String, String> fields = ddeMetadataProperties.getFieldsByGroupAndCategory("dimension", "device");
+fields.forEach((key, value) -> System.out.println(key + " -> " + value));
+```
+
+출력 예시:
+
+```
+device_model -> Device Model
+device_id -> Device ID
+group_id -> Group ID
+```
+
+---
+
+필요하다면 `List<String>` 형식으로 key만 뽑는 메서드도 같이 만들어 드릴 수 있어요.
+그럴까요?
+
+
 ---------------------
 --------------------------------
 -------------------------------
