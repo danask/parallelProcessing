@@ -1,4 +1,181 @@
 
+전체적으로 요구하신 구조에 맞춰 YAML, Java 클래스, 메서드 구조를 **정리**해서 제공드립니다.
+
+---
+
+## ✅ 1. `application.yml` 또는 `dde-metadata.yml`
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model: "Device Model"
+        device_id: "Device ID"
+        group_id: "Group ID"
+
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name: "App Name"
+        package_name: "Package Name"
+        app_version: "App Version"
+```
+
+---
+
+## ✅ 2. `DdeMetadataProperties.java`
+
+```java
+@Component
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+
+    private Map<String, CategoryConfig> dimension = new LinkedHashMap<>();
+    private Map<String, CategoryConfig> measure = new LinkedHashMap<>();
+
+    @Getter @Setter
+    public static class CategoryConfig {
+        private String label;
+        private Map<String, String> fields = new LinkedHashMap<>();
+    }
+
+    // getters & setters
+    public Map<String, CategoryConfig> getDimension() {
+        return dimension;
+    }
+
+    public void setDimension(Map<String, CategoryConfig> dimension) {
+        this.dimension = dimension;
+    }
+
+    public Map<String, CategoryConfig> getMeasure() {
+        return measure;
+    }
+
+    public void setMeasure(Map<String, CategoryConfig> measure) {
+        this.measure = measure;
+    }
+
+    // ✅ 1. get category label list by group
+    public List<String> getCategoryLabels(String group) {
+        Map<String, CategoryConfig> target = getGroupMap(group);
+        return target.values().stream()
+                .map(CategoryConfig::getLabel)
+                .toList();
+    }
+
+    // ✅ 2. get category name by label
+    public Optional<String> getCategoryNameByLabel(String group, String label) {
+        Map<String, CategoryConfig> target = getGroupMap(group);
+        return target.entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst();
+    }
+
+    // ✅ 3. get field name and label list across all groups
+    public Map<String, String> getAllFieldNameToLabelMap() {
+        Map<String, String> result = new LinkedHashMap<>();
+        Stream.of(dimension, measure).forEach(map ->
+            map.forEach((category, config) ->
+                config.getFields().forEach((k, v) -> result.put(k, v))
+            )
+        );
+        return result;
+    }
+
+    // 🔧 group helper
+    private Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+}
+```
+
+---
+
+## ✅ 3. 사용 예시
+
+```java
+// 1. categoryLabels by group
+List<String> labels = ddeMetadataProperties.getCategoryLabels("dimension");
+// 결과: ["Device Name"]
+
+// 2. categoryLabelSearch with label
+Optional<String> category = ddeMetadataProperties.getCategoryNameByLabel("dimension", "Device Name");
+// 결과: Optional["device"]
+
+// 3. fieldsSearch with name
+Map<String, String> fieldMap = ddeMetadataProperties.getAllFieldNameToLabelMap();
+String appLabel = fieldMap.get("app_name"); 
+// 결과: "App Name"
+```
+
+---
+
+좋습니다! 아래는 요청하신 메서드 `getFieldLabel(group, category, inputLabel)`을 추가하는 방법입니다.
+
+---
+
+### ✅ 1. 메서드 시그니처
+
+```java
+public Optional<String> getFieldKeyByLabel(String group, String category, String inputLabel)
+```
+
+즉, `"App Name"`이라는 *label*을 넣으면 해당 group과 category 내에서 `"app_name"`이라는 *key*를 찾아주는 기능입니다.
+
+---
+
+### ✅ 2. `DdeMetadataProperties`에 메서드 추가
+
+```java
+public Optional<String> getFieldKeyByLabel(String group, String category, String inputLabel) {
+    Map<String, CategoryConfig> target = getGroupMap(group);
+    CategoryConfig config = target.get(category);
+    if (config == null || config.getFields() == null) {
+        return Optional.empty();
+    }
+    return config.getFields().entrySet().stream()
+            .filter(e -> e.getValue().equalsIgnoreCase(inputLabel))
+            .map(Map.Entry::getKey)
+            .findFirst();
+}
+```
+
+---
+
+### ✅ 3. 사용 예시
+
+```java
+Optional<String> fieldKey = ddeMetadataProperties.getFieldKeyByLabel("measure", "package", "App Name");
+fieldKey.ifPresent(System.out::println);  // 출력: app_name
+```
+
+---
+
+### 🔄 참고: 전체 구조 복사용 요약
+
+* `group`: "dimension" or "measure"
+* `category`: 예: "device", "package"
+* `label`: 예: "App Name"
+* 결과: 해당 label에 매핑된 key (예: `"app_name"`)
+
+---
+
+필요하시면 반대로 `getFieldLabelByKey(group, category, "app_name")`도 만들어드릴 수 있어요. 추가로 필요하신 기능 있을까요?
+
+
+---------------------
+--------------------------------
+-------------------------------
+
 좋습니다! 그럼 `getFieldName(...)`의 반대 역할을 하는 `getLabel(...)` 메서드도 함께 정의해드릴게요.
 
 ---
