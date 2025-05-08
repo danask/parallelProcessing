@@ -216,12 +216,149 @@ group_id -> Group ID
 ```
 
 ---
+네, 가능합니다. 말씀하신 형태는 다음과 같이 **group → categoryLabel → fields** 구조의 `Map<String, Map<String, Map<String, String>>>` 형태로 반환하면 됩니다.
 
-필요하다면 `List<String>` 형식으로 key만 뽑는 메서드도 같이 만들어 드릴 수 있어요.
-그럴까요?
+---
+
+### ✅ 목표 형태
+
+```yaml
+dimension:
+  "Device Name":
+    device_model: "Device Model"
+    device_id: "Device ID"
+    group_id: "Group ID"
+  "Another Label":
+    ...
+```
+
+---
+
+### ✅ Java 메서드 예시
+
+```java
+public Map<String, Map<String, String>> getLabeledFieldsByGroup(String group) {
+    Map<String, CategoryConfig> target = getGroupMap(group);
+
+    return target.values().stream()
+        .collect(Collectors.toMap(
+            CategoryConfig::getLabel,     // label을 key로
+            CategoryConfig::getFields     // 해당 label의 fields 맵
+        ));
+}
+```
+
+---
+
+### ✅ 사용 예시
+
+```java
+Map<String, Map<String, String>> dimensionFields = ddeMetadataProperties.getLabeledFieldsByGroup("dimension");
+
+dimensionFields.forEach((label, fields) -> {
+    System.out.println(label + ":");
+    fields.forEach((field, desc) -> System.out.println("  " + field + " -> " + desc));
+});
+```
+
+---
+
+### 📌 주의점
+
+* `label`이 중복되면 `Map`에서 `key` 충돌이 생기므로, `label`은 그룹 내에서 고유해야 합니다.
+* 만약 label 중복 가능성이 있다면 key를 `"label (category)"` 형태로 구성하는 것도 고려해볼 수 있습니다.
+
+원하시면 그런 식으로 키 이름을 조합하는 버전도 만들어드릴게요. 원하시나요?
 
 
----------------------
+좋습니다. 말씀하신 구조는 다음과 같은 **group → category → {label + fields}** 형태의 계층입니다:
+
+---
+
+### ✅ 목표 JSON/YAML 구조 예시
+
+```yaml
+dimension:
+  device:
+    label: "Device Name"
+    device_model: "Device Model"
+    device_id: "Device ID"
+    group_id: "Group ID"
+  anotherCategory:
+    label: "Another Label"
+    ...
+```
+
+---
+
+### ✅ 반환 타입
+
+이 구조는 다음과 같은 타입으로 매핑됩니다:
+
+```java
+Map<String, Map<String, Object>>
+```
+
+즉, `Map<categoryName, Map<"label"/fieldName, value>>`
+
+---
+
+### ✅ 메서드 구현
+
+```java
+public Map<String, Map<String, Object>> getCategoryDetailMapByGroup(String group) {
+    Map<String, CategoryConfig> target = getGroupMap(group);
+
+    return target.entrySet().stream()
+        .collect(Collectors.toMap(
+            Map.Entry::getKey, // category name
+            entry -> {
+                CategoryConfig config = entry.getValue();
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("label", config.getLabel());
+                result.putAll(config.getFields()); // fieldName -> fieldLabel
+                return result;
+            }
+        ));
+}
+```
+
+---
+
+### ✅ 사용 예시
+
+```java
+Map<String, Map<String, Object>> dimensionConfig = ddeMetadataProperties.getCategoryDetailMapByGroup("dimension");
+
+dimensionConfig.forEach((category, configMap) -> {
+    System.out.println("Category: " + category);
+    System.out.println("Label: " + configMap.get("label"));
+    configMap.forEach((k, v) -> {
+        if (!k.equals("label")) {
+            System.out.println("  " + k + ": " + v);
+        }
+    });
+});
+```
+
+---
+
+### 🔄 요약
+
+| 구조                           | 반환 메서드                                      |
+| ---------------------------- | ------------------------------------------- |
+| `label → fields`             | `getLabeledFieldsByGroup(String group)`     |
+| `category → {label, fields}` | `getCategoryDetailMapByGroup(String group)` |
+
+---
+
+원하는 형태에 맞춰 동적으로 전환도 가능합니다. 두 가지 모두 유지할 수도 있고, 필요 시 하나를 기반으로 다른 형태로 변환해도 됩니다.
+
+혹시 JSON 형태로도 결과 예시가 필요하신가요?
+
+
+
+-----------------------------
 --------------------------------
 -------------------------------
 
