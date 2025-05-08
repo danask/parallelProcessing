@@ -95,9 +95,63 @@ Map<String, String> fields = ddeMetadataProperties.getFieldLabels("measure", "pa
 
 ---
 
-구조가 안정적이면서 유연해서, category와 group이 늘어나도 대응하기 쉬운 방식입니다.
+좋습니다. `fields: device_model with "Device Model", app_name with "App Name"` 이 예는 다음과 같은 요청이라고 해석할 수 있습니다:
 
-원하시는 출력 포맷이나 추가 필터가 더 있을까요?
+* 여러 그룹(dimension, measure)에 속한 여러 카테고리(device, package 등) 중
+* 특정 **필드 이름들**(`device_model`, `app_name`)에 대해
+* 해당되는 \*\*라벨(label)\*\*을 가져오고 싶다는 의미입니다.
+
+---
+
+### ✅ 목표: 특정 필드 이름들에 해당하는 라벨(label)을 가져오는 메서드
+
+예를 들어 다음 메서드를 만들 수 있습니다:
+
+```java
+/**
+ * 모든 group + category를 순회하여
+ * 주어진 필드명에 해당하는 라벨들을 찾아 반환
+ */
+public Map<String, String> getLabelsForFields(Set<String> fieldNames) {
+    Map<String, String> result = new LinkedHashMap<>();
+
+    Stream.of(dimension, measure)
+        .flatMap(group -> group.values().stream()) // Map<String, CategoryConfig>
+        .flatMap(categoryMap -> categoryMap.values().stream()) // CategoryConfig
+        .forEach(category -> {
+            category.getFields().forEach((field, label) -> {
+                if (fieldNames.contains(field)) {
+                    result.put(field, label);
+                }
+            });
+        });
+
+    return result;
+}
+```
+
+---
+
+### ✅ 사용 예시
+
+```java
+Set<String> fieldNames = Set.of("device_model", "app_name");
+Map<String, String> labels = ddeMetadataProperties.getLabelsForFields(fieldNames);
+
+// 결과:
+// {
+//   "device_model" -> "Device Model",
+//   "app_name"     -> "App Name"
+// }
+```
+
+---
+
+이렇게 하면 어떤 group/dimension/package에 있는 필드든지 한 번에 해당 라벨을 찾을 수 있습니다.
+필요하다면 group, category 정보도 같이 붙여줄 수도 있습니다.
+
+원하시는 출력 포맷이 Map\<String, String> 외에 더 복잡한 구조인가요?
+
 
 
 -------------
