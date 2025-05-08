@@ -1,4 +1,92 @@
 
+네, 가능합니다! 이전 구조와 같이 `group`, `category`, 그리고 사용자가 입력한 `inputName`(예: `"App Name"`)을 기준으로 해당 \*\*필드 이름(fieldName)\*\*을 조회하는 메서드를 만들 수 있습니다.
+
+---
+
+### 🔁 목표
+
+다음과 같은 YAML 구조에서:
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model: "Device Model"
+        device_id: "Device ID"
+        group_id: "Group ID"
+
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name: "App Name"
+        package_name: "Package Name"
+        app_version: "App Version"
+```
+
+아래와 같은 메서드를 호출해서:
+
+```java
+String fieldName = ddeMetadataProperties.getFieldName("measure", "package", "App Name");
+```
+
+결과가:
+
+```
+"app_name"
+```
+
+처럼 나오는 것을 목표로 합니다.
+
+---
+
+### ✅ 메서드 예시
+
+```java
+public String getFieldName(String group, String category, String inputLabel) {
+    Map<String, CategoryConfig> groupMap = switch (group.toLowerCase()) {
+        case "dimension" -> dimension;
+        case "measure" -> measure;
+        default -> throw new IllegalArgumentException("Unknown group: " + group);
+    };
+
+    CategoryConfig categoryConfig = groupMap.get(category);
+    if (categoryConfig == null) {
+        throw new IllegalArgumentException("Unknown category: " + category);
+    }
+
+    return categoryConfig.getFields().entrySet().stream()
+        .filter(entry -> entry.getValue().equalsIgnoreCase(inputLabel))
+        .map(Map.Entry::getKey)
+        .findFirst()
+        .orElseThrow(() -> new IllegalArgumentException("Field with label '" + inputLabel + "' not found in " + group + "/" + category));
+}
+```
+
+---
+
+### 📦 CategoryConfig 클래스 (다시)
+
+```java
+public class CategoryConfig {
+    private String label;
+    private Map<String, String> fields = new LinkedHashMap<>();
+
+    // getters & setters
+}
+```
+
+---
+
+이 구조를 바탕으로 특정 그룹/카테고리 내에서 라벨을 키로 실제 필드명을 역조회할 수 있습니다.
+
+혹시 반대로 `getLabel(String group, String category, String fieldName)`도 필요할까요?
+
+
+----------------
+
 좋습니다! 말씀하신 구조는 다음과 같은 YAML을 기준으로 합니다:
 
 ```yaml
