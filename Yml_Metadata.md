@@ -1,4 +1,92 @@
 
+좋습니다! 그럼 `getFieldName(...)`의 반대 역할을 하는 `getLabel(...)` 메서드도 함께 정의해드릴게요.
+
+---
+
+### ✅ 1. 목적
+
+YAML 설정:
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model: "Device Model"
+        device_id: "Device ID"
+        group_id: "Group ID"
+
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name: "App Name"
+        package_name: "Package Name"
+        app_version: "App Version"
+```
+
+```java
+// 조회 예시
+String label = ddeMetadataProperties.getLabel("measure", "package", "app_name"); 
+// 결과: "App Name"
+```
+
+---
+
+### ✅ 2. `getLabel(...)` 메서드
+
+```java
+public String getLabel(String group, String category, String fieldName) {
+    Map<String, CategoryConfig> groupMap = switch (group.toLowerCase()) {
+        case "dimension" -> dimension;
+        case "measure" -> measure;
+        default -> throw new IllegalArgumentException("Unknown group: " + group);
+    };
+
+    CategoryConfig categoryConfig = groupMap.get(category);
+    if (categoryConfig == null) {
+        throw new IllegalArgumentException("Unknown category: " + category);
+    }
+
+    String label = categoryConfig.getFields().get(fieldName);
+    if (label == null) {
+        throw new IllegalArgumentException("Field '" + fieldName + "' not found in " + group + "/" + category);
+    }
+
+    return label;
+}
+```
+
+---
+
+### ✅ 전체 구조 요약
+
+```java
+public class DdeMetadataProperties {
+    private Map<String, CategoryConfig> dimension = new LinkedHashMap<>();
+    private Map<String, CategoryConfig> measure = new LinkedHashMap<>();
+
+    // getFieldName(...) and getLabel(...) 메서드 포함
+
+    public static class CategoryConfig {
+        private String label;
+        private Map<String, String> fields = new LinkedHashMap<>();
+        // getters & setters
+    }
+
+    // Getters & setters for dimension and measure
+}
+```
+
+---
+
+이제 `필드명 <-> 라벨`을 자유롭게 변환할 수 있습니다.
+필요하시면 양방향 매핑 유틸도 따로 만들어드릴 수 있어요.
+
+
+--------------
+
 네, 가능합니다! 이전 구조와 같이 `group`, `category`, 그리고 사용자가 입력한 `inputName`(예: `"App Name"`)을 기준으로 해당 \*\*필드 이름(fieldName)\*\*을 조회하는 메서드를 만들 수 있습니다.
 
 ---
