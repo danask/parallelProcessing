@@ -1,3 +1,105 @@
+
+좋습니다! 말씀하신 구조는 다음과 같은 YAML을 기준으로 합니다:
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model: "Device Model"
+        device_id: "Device ID"
+        group_id: "Group ID"
+
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name: "App Name"
+        package_name: "Package Name"
+        app_version: "App Version"
+```
+
+이제 이 구조에 맞춰, 주어진 `"App Name"` 같은 **필드 라벨**로부터 **(group, category, fieldName)** 정보를 찾는 메서드를 작성해드릴게요.
+
+---
+
+### ✅ 반환 구조 예
+
+```java
+public record FieldMatch(String group, String category, String field, String label) {}
+```
+
+---
+
+### ✅ 메서드 구현 예시
+
+```java
+public List<FieldMatch> getFieldMatchesByLabel(String labelToFind) {
+    List<FieldMatch> matches = new ArrayList<>();
+
+    Map<String, Map<String, CategoryConfig>> groups = Map.of(
+        "dimension", dimension,
+        "measure", measure
+    );
+
+    for (Map.Entry<String, Map<String, CategoryConfig>> groupEntry : groups.entrySet()) {
+        String groupName = groupEntry.getKey();
+        Map<String, CategoryConfig> categories = groupEntry.getValue();
+
+        for (Map.Entry<String, CategoryConfig> categoryEntry : categories.entrySet()) {
+            String categoryName = categoryEntry.getKey();
+            CategoryConfig config = categoryEntry.getValue();
+            Map<String, String> fields = config.getFields();
+
+            for (Map.Entry<String, String> fieldEntry : fields.entrySet()) {
+                String fieldName = fieldEntry.getKey();
+                String label = fieldEntry.getValue();
+
+                if (label.equalsIgnoreCase(labelToFind)) {
+                    matches.add(new FieldMatch(groupName, categoryName, fieldName, label));
+                }
+            }
+        }
+    }
+
+    return matches;
+}
+```
+
+---
+
+### ✅ 사용 예
+
+```java
+List<FieldMatch> result = ddeMetadataProperties.getFieldMatchesByLabel("App Name");
+
+// 출력 예 (실제 객체):
+// [
+//   FieldMatch("measure", "package", "app_name", "App Name")
+// ]
+```
+
+---
+
+### 📦 CategoryConfig 클래스 예시
+
+```java
+public class CategoryConfig {
+    private String label;
+    private Map<String, String> fields = new LinkedHashMap<>();
+
+    // getters & setters
+}
+```
+
+---
+
+필요하다면 JSON 형태로 반환하거나 DTO로 가공해도 됩니다. 이 방식 괜찮을까요, 혹시 추가적으로 원하는 형태가 있을까요?
+
+
+------------
+
 좋습니다! 아래는 주어진 YAML 구조를 기반으로, 원하는 정보를 읽어내는 자바 메서드를 정의하는 방식입니다.
 
 ---
