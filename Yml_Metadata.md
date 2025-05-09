@@ -11,38 +11,21 @@
 원하는 사용 방식과 유연성을 갖추도록 설계되어 있습니다. 필요하면 JSON 응답 포맷을 만드는 메소드도 추가할 수 있어요. 출력 구조도 만들어 드릴까요?
 
 ```java
-// DTO for metric info
-public class MetricConfig {
-    private Map<String, String> metric = new HashMap<>();
-
-    // getters and setters
-}
-
-// DTO for each field
-public class FieldConfig {
-    private String label;
-    private Map<String, String> metric = new HashMap<>();
-
-    // getters and setters
-}
-
-// DTO for each category
-public class CategoryConfig {
-    private String label;
-    private Map<String, FieldConfig> fields = new HashMap<>();
-
-    // getters and setters
-}
-
-// Main configuration class
-@Component
-@ConfigurationProperties(prefix = "dde")
+    
 public class DdeMetadataProperties {
+
     private Map<String, Map<String, CategoryConfig>> dimension = new HashMap<>();
     private Map<String, Map<String, CategoryConfig>> measure = new HashMap<>();
 
-    // Get group map based on group name
-    private Map<String, CategoryConfig> getGroupMap(String group) {
+    public Map<String, Map<String, CategoryConfig>> getDimension() {
+        return dimension;
+    }
+
+    public Map<String, Map<String, CategoryConfig>> getMeasure() {
+        return measure;
+    }
+
+    private Map<String, Map<String, CategoryConfig>> getGroupMap(String group) {
         return switch (group.toLowerCase()) {
             case "dimension" -> dimension;
             case "measure" -> measure;
@@ -50,68 +33,92 @@ public class DdeMetadataProperties {
         };
     }
 
+    // 1. getCategoryLabels
     public List<String> getCategoryLabels(String group) {
-        return new ArrayList<>(getGroupMap(group).values().stream()
-                .map(CategoryConfig::getLabel).toList());
+        return getGroupMap(group).values().stream()
+            .map(CategoryConfig::getLabel)
+            .toList();
     }
 
-    public Optional<String> getCategoryByLabel(String group, String label) {
+    // 2. getCategoryByLabel
+    public String getCategoryByLabel(String group, String label) {
         return getGroupMap(group).entrySet().stream()
-            .filter(e -> label.equals(e.getValue().getLabel()))
+            .filter(entry -> label.equals(entry.getValue().getLabel()))
             .map(Map.Entry::getKey)
-            .findFirst();
+            .findFirst()
+            .orElse(null);
     }
 
-    public Optional<String> getFieldNameByLabel(String group, String category, String label) {
-        Map<String, FieldConfig> fields = Optional.ofNullable(getGroupMap(group).get(category))
-            .map(CategoryConfig::getFields)
-            .orElse(Map.of());
-
-        return fields.entrySet().stream()
-            .filter(e -> label.equals(e.getValue().getLabel()))
+    // 3. getFieldNameByLabel
+    public String getFieldNameByLabel(String group, String category, String label) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return null;
+        return config.getFields().entrySet().stream()
+            .filter(entry -> label.equals(entry.getValue().getLabel()))
             .map(Map.Entry::getKey)
-            .findFirst();
+            .findFirst()
+            .orElse(null);
     }
 
-    public Optional<String> getFieldLabel(String group, String category, String fieldName) {
-        return Optional.ofNullable(getGroupMap(group).get(category))
-            .map(CategoryConfig::getFields)
-            .map(f -> f.get(fieldName))
-            .map(FieldConfig::getLabel);
+    // 4. getFieldLabel
+    public String getFieldLabel(String group, String category, String field) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig fieldConfig = config.getFields().get(field);
+        return fieldConfig != null ? fieldConfig.getLabel() : null;
     }
 
-    public Optional<FieldConfig> getFieldConfig(String group, String category, String fieldName) {
-        return Optional.ofNullable(getGroupMap(group).get(category))
-            .map(CategoryConfig::getFields)
-            .map(f -> f.get(fieldName));
+    // 5. getFields
+    public List<String> getFields(String group, String category) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return List.of();
+        return new ArrayList<>(config.getFields().keySet());
     }
 
-    public Map<String, FieldConfig> getFields(String group, String category) {
-        return Optional.ofNullable(getGroupMap(group).get(category))
-            .map(CategoryConfig::getFields)
-            .orElse(Map.of());
-    }
-
-    // Group-less search by label
-    public Optional<String> findCategoryByLabelAcrossGroups(String label) {
-        for (var group : List.of("dimension", "measure")) {
-            var result = getCategoryByLabel(group, label);
-            if (result.isPresent()) return result;
+    // 6. findCategoryByLabelAcrossGroups
+    public String findCategoryByLabelAcrossGroups(String label) {
+        for (String group : List.of("dimension", "measure")) {
+            String result = getCategoryByLabel(group, label);
+            if (result != null) return result;
         }
-        return Optional.empty();
+        return null;
     }
 
-    public Optional<String> findFieldNameAcrossGroups(String label) {
-        for (var group : List.of("dimension", "measure")) {
-            var groupMap = getGroupMap(group);
-            for (var category : groupMap.keySet()) {
-                var result = getFieldNameByLabel(group, category, label);
-                if (result.isPresent()) return result;
+    // 7. findFieldNameAcrossGroups
+    public String findFieldNameAcrossGroups(String label) {
+        for (String group : List.of("dimension", "measure")) {
+            Map<String, Map<String, CategoryConfig>> groupMap = getGroupMap(group);
+            for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                String category = entry.getKey();
+                CategoryConfig config = entry.getValue();
+                String field = config.getFields().entrySet().stream()
+                    .filter(e -> label.equals(e.getValue().getLabel()))
+                    .map(Map.Entry::getKey)
+                    .findFirst()
+                    .orElse(null);
+                if (field != null) return field;
             }
         }
-        return Optional.empty();
+        return null;
+    }
+
+    // 8. getFieldConfig
+    public FieldConfig getFieldConfig(String group, String category, String field) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        return config.getFields().get(field);
+    }
+
+    // 9. getFieldMetricByLabel
+    public Map<String, String> getFieldMetricByLabel(String group, String category, String label) {
+        String field = getFieldNameByLabel(group, category, label);
+        FieldConfig config = getFieldConfig(group, category, field);
+        return config != null ? config.getMetric() : Map.of();
     }
 }
+
+    
+        
 
 ```
 
