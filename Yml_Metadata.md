@@ -1,3 +1,18 @@
+전체 구조를 반영한 설정 코드를 정리해서 위에 구성했습니다. 이 설정은 다음 기능을 포함합니다:
+
+* 카테고리 라벨 리스트 조회 (`getCategoryLabels`)
+* 카테고리 라벨로 키 찾기 (`getCategoryByLabel`)
+* 필드 라벨로 필드명 찾기 (`getFieldNameByLabel`)
+* 필드명으로 라벨 찾기 (`getFieldLabel`)
+* 필드 목록 조회 (`getFields`)
+* 그룹 없이 라벨로 검색하기 (`findCategoryByLabelAcrossGroups`, `findFieldNameAcrossGroups`)
+* 필드 메트릭 정보 포함 조회 (`getFieldConfig`)
+
+원하는 사용 방식과 유연성을 갖추도록 설계되어 있습니다. 필요하면 JSON 응답 포맷을 만드는 메소드도 추가할 수 있어요. 출력 구조도 만들어 드릴까요?
+
+
+-------------------
+
 지금 구조처럼 `metric` 정보를 `field`별로 추가한 YAML 설정에서, 특정 필드에 대한 메트릭 정보도 함께 조회하고 싶다면, 우선 Java 클래스 구조를 이에 맞게 수정한 뒤, 메소드로 조회할 수 있도록 만들어야 합니다.
 
 ---
