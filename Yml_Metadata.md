@@ -1,3 +1,205 @@
+좋습니다. 아래에 전체 구성 코드를 다시 정리해서 올려드립니다. 다음 구조를 기준으로 합니다:
+
+---
+
+### ✅ `application.yml` 구조 예시
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model:
+          label: "Device Model"
+        device_id:
+          label: "Device ID"
+          metric:
+            sum: "Sum (EA)"
+        group_id:
+          label: "Group ID"
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name:
+          label: "App Name"
+        package_name:
+          label: "Package Name"
+        app_version:
+          label: "App Version"
+        app_usage:
+          label: "App Usage"
+          metric:
+            sum: "Sum (EA)"
+            avg: "Avg (%)"
+```
+
+---
+
+### ✅ Java Config 클래스: `DdeMetadataProperties`
+
+```java
+@Component
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+
+    private Map<String, Map<String, CategoryConfig>> dimension = new HashMap<>();
+    private Map<String, Map<String, CategoryConfig>> measure = new HashMap<>();
+
+    public Map<String, Map<String, CategoryConfig>> getDimension() {
+        return dimension;
+    }
+
+    public void setDimension(Map<String, Map<String, CategoryConfig>> dimension) {
+        this.dimension = dimension;
+    }
+
+    public Map<String, Map<String, CategoryConfig>> getMeasure() {
+        return measure;
+    }
+
+    public void setMeasure(Map<String, Map<String, CategoryConfig>> measure) {
+        this.measure = measure;
+    }
+
+    // Get group map based on group name
+    private Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension.getOrDefault("device", Map.of());
+            case "measure" -> measure.getOrDefault("package", Map.of());
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    // 🔹 Get category labels by group (dimension/measure)
+    public List<String> getCategoryLabels(String group) {
+        Map<String, Map<String, CategoryConfig>> groupMap = switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+        return groupMap.values().stream()
+                .flatMap(map -> map.values().stream())
+                .map(CategoryConfig::getLabel)
+                .toList();
+    }
+
+    // 🔹 Get category key by label
+    public String getCategoryKeyByLabel(String group, String label) {
+        return getGroupMap(group).entrySet().stream()
+                .filter(entry -> entry.getValue().getLabel().equalsIgnoreCase(label))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    // 🔹 Get field name by label
+    public String getFieldName(String group, String category, String label) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return null;
+        return config.getFields().entrySet().stream()
+                .filter(entry -> label.equalsIgnoreCase(entry.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    // 🔹 Get field label by name
+    public String getFieldLabel(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null ? field.getLabel() : null;
+    }
+
+    // 🔹 Get all field labels by group and category
+    public Map<String, String> getFieldLabels(String group, String category) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return Map.of();
+        return config.getFields().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getLabel()));
+    }
+
+    // 🔹 Get field's metric info
+    public Map<String, String> getFieldMetrics(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return Map.of();
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null ? field.getMetric() : Map.of();
+    }
+}
+```
+
+---
+
+### ✅ CategoryConfig 클래스
+
+```java
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public Map<String, FieldConfig> getFields() {
+        return fields;
+    }
+
+    public void setFields(Map<String, FieldConfig> fields) {
+        this.fields = fields;
+    }
+}
+```
+
+---
+
+### ✅ FieldConfig 클래스
+
+```java
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric = new HashMap<>();
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public Map<String, String> getMetric() {
+        return metric;
+    }
+
+    public void setMetric(Map<String, String> metric) {
+        this.metric = metric;
+    }
+}
+```
+
+---
+
+### ⚠️ 주의사항
+
+* `@ConfigurationPropertiesScan` 또는 `@EnableConfigurationProperties(DdeMetadataProperties.class)` 설정 필요.
+* yml 들여쓰기/문법 정확히 맞춰야 하며, `fields` 밑에 `label`, `metric` 꼭 중첩되어야 합니다.
+
+---
+
+이제 이 구성으로 `field name → label`, `label → field`, `metric`, `group/category label` 검색까지 다 됩니다.
+테스트용 예제 호출을 원하시나요?
+
+
+-----------------------
+
 전체 구조를 반영한 설정 코드를 정리해서 위에 구성했습니다. 이 설정은 다음 기능을 포함합니다:
 
 * 카테고리 라벨 리스트 조회 (`getCategoryLabels`)
