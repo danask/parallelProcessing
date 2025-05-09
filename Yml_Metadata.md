@@ -1,3 +1,48 @@
+group 없이 `"Device Name"` 같은 label을 검색해서 해당하는 `category key`를 찾고 싶다면, **dimension + measure**를 모두 뒤져서 일치하는 label을 찾는 로직이 필요합니다.
+
+---
+
+### ✅ `getCategoryKeyByLabel(String label)` (group 없이)
+
+```java
+public String getCategoryKeyByLabel(String label) {
+    // 먼저 dimension에서 찾기
+    Optional<String> fromDimension = dimension.entrySet().stream()
+            .filter(entry -> label.equals(entry.getValue().getLabel()))
+            .map(Map.Entry::getKey)
+            .findFirst();
+
+    if (fromDimension.isPresent()) {
+        return fromDimension.get();
+    }
+
+    // 그다음 measure에서 찾기
+    return measure.entrySet().stream()
+            .filter(entry -> label.equals(entry.getValue().getLabel()))
+            .map(Map.Entry::getKey)
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Label not found: " + label));
+}
+```
+
+---
+
+### ✅ 예시
+
+```java
+String key = ddeMetadataProperties.getCategoryKeyByLabel("Device Name");
+// 결과: "device"
+```
+
+---
+
+label이 중복되지 않는다는 전제에서 동작하며,
+만약 dimension과 measure에 동일한 label이 존재한다면, dimension 쪽이 우선됩니다.
+
+label 중복 가능성도 고려해야 할까요?
+
+
+---------------
 
 전체적으로 요구하신 구조에 맞춰 YAML, Java 클래스, 메서드 구조를 **정리**해서 제공드립니다.
 
