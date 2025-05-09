@@ -1,3 +1,116 @@
+지금 구조처럼 `metric` 정보를 `field`별로 추가한 YAML 설정에서, 특정 필드에 대한 메트릭 정보도 함께 조회하고 싶다면, 우선 Java 클래스 구조를 이에 맞게 수정한 뒤, 메소드로 조회할 수 있도록 만들어야 합니다.
+
+---
+
+### ✅ YAML 구조 예
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model: "Device Model"
+        device_id:
+          label: "Device ID"
+          metric:
+            sum: "Sum (EA)"
+        group_id: "Group ID"
+
+  measure:
+    package:
+      label: "Package Name"
+      fields:
+        app_name: "App Name"
+        package_name: "Package Name"
+        app_version: "App Version"
+        app_usage:
+          label: "App Usage"
+          metric:
+            sum: "Sum (EA)"
+            avg: "Avg (%)"
+```
+
+---
+
+### ✅ Java 클래스 구조
+
+```java
+@Data
+public class DDEMetadataProperties {
+
+    private Map<String, Map<String, CategoryConfig>> dde = new HashMap<>();
+
+    public Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dde.getOrDefault("dimension", Map.of());
+            case "measure" -> dde.getOrDefault("measure", Map.of());
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    public Optional<FieldConfig> getFieldConfig(String group, String category, String field) {
+        return Optional.ofNullable(getGroupMap(group).get(category))
+                .map(CategoryConfig::getFields)
+                .map(m -> m.get(field));
+    }
+}
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+}
+
+@Data
+public class FieldConfig {
+    private String label; // optional if simple string
+    private Map<String, String> metric; // sum, avg, etc.
+}
+```
+
+---
+
+### ✅ `@ConfigurationProperties` 바인딩 방식
+
+```java
+@Component
+@ConfigurationProperties(prefix = "dde")
+public class DDEMetadataProperties {
+    private Map<String, Map<String, CategoryConfig>> dimension = new HashMap<>();
+    private Map<String, Map<String, CategoryConfig>> measure = new HashMap<>();
+}
+```
+
+---
+
+### ✅ 메소드 예시
+
+```java
+public Map<String, String> getMetrics(String group, String category, String field) {
+    return getFieldConfig(group, category, field)
+            .map(FieldConfig::getMetric)
+            .orElse(Map.of());
+}
+```
+
+---
+
+### ✅ 사용 예
+
+```java
+Map<String, String> metrics = ddeMetadataProperties.getMetrics("measure", "package", "app_usage");
+// 출력: {sum=Sum (EA), avg=Avg (%)}
+```
+
+---
+
+필드 값이 단순한 문자열인 경우(`device_model: "Device Model"`), 바인딩 시 `FieldConfig`로 간주되도록 `CustomDeserializer`를 사용할 수도 있습니다. 그게 필요하면 알려주세요.
+
+JSON/YAML 자동 바인딩을 더 유연하게 처리할 수도 있어요. 필요하신가요?
+
+
+-----------
 group 없이 `"Device Name"` 같은 label을 검색해서 해당하는 `category key`를 찾고 싶다면, **dimension + measure**를 모두 뒤져서 일치하는 label을 찾는 로직이 필요합니다.
 
 ---
