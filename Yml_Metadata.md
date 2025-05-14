@@ -62,6 +62,88 @@ Java 모델 클래스들도 YML 변경 사항에 맞춰 업데이트해야 합�
 
 ```java
 
+// graph.java
+// JoinGraphUtil.java
+public class JoinGraphUtil {
+
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+        buildFromCategory("dimension", dde.getDimension(), graph);
+        buildFromCategory("filter", dde.getFilter(), graph);
+        buildFromCategory("measure", dde.getMeasure(), graph);
+        return graph;
+    }
+
+    private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String sourceKey, JoinTargets joins, Map<String, Set<String>> graph) {
+        addJoinList(sourceKey, joins.getMeasure(), graph);
+        addJoinList(sourceKey, joins.getDimension(), graph);
+        addJoinList(sourceKey, joins.getFilter(), graph);
+    }
+
+    private static void addJoinList(String sourceKey, List<String> targets, Map<String, Set<String>> graph) {
+        if (targets == null) return;
+        for (String target : targets) {
+            graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(target);
+        }
+    }
+
+    public static String toKey(String group, String category, String field) {
+        return group + ":" + category + ":" + field;
+    }
+
+    public static FieldConfig getFieldConfig(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        Map<String, CategoryConfig> groupMap = getGroupMap(group, dde);
+        if (groupMap == null) return null;
+        CategoryConfig categoryConfig = groupMap.get(category);
+        if (categoryConfig == null) return null;
+        return categoryConfig.getFields().get(field);
+    }
+
+    public static Map<String, Object> getFieldMetadata(String fullKey, DdeMetadataProperties dde) {
+        FieldConfig field = getFieldConfig(fullKey, dde);
+        if (field == null) return Map.of();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("label", field.getLabel());
+        result.put("operator", field.getOperator());
+        return result;
+    }
+
+    public static Map<String, CategoryConfig> getGroupMap(String group, DdeMetadataProperties dde) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dde.getDimension();
+            case "measure" -> dde.getMeasure();
+            case "filter" -> dde.getFilter();
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+}
+
+
 // DdeMetadataProperties.java
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
