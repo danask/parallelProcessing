@@ -1,4 +1,177 @@
 ```java
+
+// ++
+// === 고유키 기반으로 Join 그래프를 구성하는 구조 ===
+
+public class JoinGraphUtil {
+
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+
+        buildFromCategory("dimension", dde.getDimension(), graph);
+        buildFromCategory("filter", dde.getFilter(), graph);
+        buildFromMeasure("measure", dde.getMeasure(), graph);
+
+        return graph;
+    }
+
+    private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void buildFromMeasure(String group, Map<String, MeasureConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, MeasureConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String sourceKey, JoinTargets joins, Map<String, Set<String>> graph) {
+        addJoinList(sourceKey, "measure", joins.getMeasure(), graph);
+        addJoinList(sourceKey, "dimension", joins.getDimension(), graph);
+        addJoinList(sourceKey, "filter", joins.getFilter(), graph);
+    }
+
+    private static void addJoinList(String sourceKey, String targetGroup, List<JoinTarget> targets, Map<String, Set<String>> graph) {
+        for (JoinTarget jt : targets) {
+            String[] parts = jt.getTarget().split("\\.");
+            if (parts.length == 2) {
+                String category = parts[0];
+                String field = parts[1];
+                String targetKey = toKey(targetGroup, category, field);
+                graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(targetKey);
+            }
+        }
+    }
+
+    public static boolean isJoinable(String from, String to, Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        queue.add(from);
+        visited.add(from);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (current.equals(to)) return true;
+            for (String neighbor : graph.getOrDefault(current, Set.of())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                }
+            }
+        }
+        return false;
+    }
+
+    public static boolean hasCycleBFS(Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        for (String start : graph.keySet()) {
+            if (!visited.contains(start)) {
+                if (detectCycleFrom(start, graph, visited)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean detectCycleFrom(String start, Map<String, Set<String>> graph, Set<String> globalVisited) {
+        Map<String, String> parent = new HashMap<>();
+        Queue<String> queue = new LinkedList<>();
+        Set<String> visited = new HashSet<>();
+
+        queue.add(start);
+        visited.add(start);
+        globalVisited.add(start);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            for (String neighbor : graph.getOrDefault(current, Set.of())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    globalVisited.add(neighbor);
+                    parent.put(neighbor, current);
+                    queue.add(neighbor);
+                } else if (!neighbor.equals(parent.get(current))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static List<String> recommendJoinKeys(String from, Map<String, Set<String>> graph) {
+        return new ArrayList<>(graph.getOrDefault(from, Set.of()));
+    }
+
+    public static List<String> recommendJoinLabels(String from, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        List<String> keys = recommendJoinKeys(from, graph);
+        List<String> labels = new ArrayList<>();
+        for (String key : keys) {
+            String label = findLabelByKey(key, dde);
+            if (label != null) {
+                labels.add(label);
+            }
+        }
+        return labels;
+    }
+
+    public static String toKey(String group, String category, String field) {
+        return group + ":" + category + ":" + field;
+    }
+
+    private static String findLabelByKey(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        switch (group) {
+            case "measure":
+                MeasureConfig m = dde.getMeasure().get(category);
+                if (m != null && m.getFields().containsKey(field)) return m.getFields().get(field).getLabel();
+                break;
+            case "dimension":
+                CategoryConfig d = dde.getDimension().get(category);
+                if (d != null && d.getFields().containsKey(field)) return d.getFields().get(field).getLabel();
+                break;
+            case "filter":
+                CategoryConfig f = dde.getFilter().get(category);
+                if (f != null && f.getFields().containsKey(field)) return f.getFields().get(field).getLabel();
+                break;
+        }
+        return null;
+    }
+}
+
+
+
 // === application.yml 예시 ===
 dde:
   dimension:
