@@ -1,3 +1,442 @@
+
+
+---
+
+## 🎯 목표:
+
+`measure`, `dimension`, `filter` 세 가지 유형의 엔티티에 대해
+**조인 가능성 여부**를 각각 명시하고, 예시로 `background_usage`가
+
+* 다른 `measure`: `foreground_usage`
+* `dimension`: `app_name`
+* `filter`: `device_group`, `usage_date`
+
+과 조인 가능함을 표현할 수 있어야 합니다.
+
+---
+
+## ✅ 1. YAML 구조 설계 (구분된 join 대상 타입)
+
+```yaml
+dde:
+  measure:
+    background_usage:
+      label: "Background Usage"
+      fields:
+        device_id:
+          label: "Device ID"
+        usage_time:
+          label: "Usage Time"
+      joins:
+        measures:
+          - target: foreground_usage
+            on:
+              device_id: device_id
+        dimensions:
+          - target: app
+            on:
+              package_name: package_name
+        filters:
+          - target: device_group
+            on:
+              group_id: group_id
+          - target: usage_date
+            on:
+              date: date
+
+    foreground_usage:
+      label: "Foreground Usage"
+      fields:
+        device_id:
+          label: "Device ID"
+        usage_time:
+          label: "Usage Time"
+
+  dimension:
+    app:
+      label: "App Name"
+      fields:
+        package_name:
+          label: "Package Name"
+        app_name:
+          label: "App Name"
+
+  filter:
+    device_group:
+      label: "Device Group"
+      fields:
+        group_id:
+          label: "Group ID"
+
+    usage_date:
+      label: "Usage Date"
+      fields:
+        date:
+          label: "Date"
+```
+
+---
+
+## ✅ 2. Java 클래스 설계 (확장된 JoinConfig 포함)
+
+```java
+@Data
+public class MeasureConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+    private JoinGroups joins = new JoinGroups(); // NEW
+}
+
+@Data
+public class JoinGroups {
+    private List<JoinConfig> measures = new ArrayList<>();
+    private List<JoinConfig> dimensions = new ArrayList<>();
+    private List<JoinConfig> filters = new ArrayList<>();
+}
+
+@Data
+public class JoinConfig {
+    private String target;
+    private Map<String, String> on = new HashMap<>();
+}
+```
+
+→ `dde.measure.get("background_usage").getJoins().getFilters()` 로 접근 가능
+
+---
+
+## ✅ 3. 그래프 탐색 구성
+
+```java
+public Map<String, Set<String>> buildJoinGraphByType(
+    Map<String, MeasureConfig> measures,
+    Function<JoinGroups, List<JoinConfig>> joinSelector
+) {
+    Map<String, Set<String>> graph = new HashMap<>();
+
+    for (Map.Entry<String, MeasureConfig> entry : measures.entrySet()) {
+        String from = entry.getKey();
+        List<JoinConfig> joins = joinSelector.apply(entry.getValue().getJoins());
+        for (JoinConfig join : joins) {
+            String to = join.getTarget();
+            graph.computeIfAbsent(from, k -> new HashSet<>()).add(to);
+            graph.computeIfAbsent(to, k -> new HashSet<>()).add(from);
+        }
+    }
+    return graph;
+}
+```
+
+사용 예:
+
+```java
+Map<String, Set<String>> measureGraph = buildJoinGraphByType(measures, JoinGroups::getMeasures);
+Map<String, Set<String>> dimensionGraph = buildJoinGraphByType(measures, JoinGroups::getDimensions);
+Map<String, Set<String>> filterGraph = buildJoinGraphByType(measures, JoinGroups::getFilters);
+```
+
+---
+
+## ✅ 4. 장점
+
+| 항목       | 설명                                                   |
+| -------- | ---------------------------------------------------- |
+| 관계 대상 구분 | `measure`, `dimension`, `filter` 별로 분리               |
+| 탐색 유연성   | 필요한 관계 타입만 그래프로 구성 가능                                |
+| YAML 관리  | Git 기반으로 선언적 버전 관리 가능                                |
+| 향후 확장    | `join_type`, `optional`, `join_strength` 등도 쉽게 확장 가능 |
+
+---
+
+## ✅ 예시 시나리오 정리
+
+> `background_usage`는 다음과 같은 조인 관계를 갖는다:
+
+* **(measure)** `foreground_usage` — `device_id` 기준
+* **(dimension)** `app` — `package_name` 기준
+* **(filter)** `device_group`, `usage_date`
+
+모두 YAML로 선언 가능하고, Java 로직에서 안전하게 분리 탐색 가능.
+
+---
+
+필요하시면 이 구조 전체 YAML 샘플 + Java 클래스 + 탐색 유틸을 코드로 묶어서 제공해드릴게요. 바로 원하시나요?
+
+```java
+// === application.yml 예시 ===
+dde:
+  measure:
+    background_usage:
+      label: "Background Usage"
+      fields:
+        device_id:
+          label: "Device ID"
+        usage_time:
+          label: "Usage Time"
+      joins:
+        measures:
+          - target: foreground_usage
+            on:
+              device_id: device_id
+        dimensions:
+          - target: app
+            on:
+              package_name: package_name
+        filters:
+          - target: device_group
+            on:
+              group_id: group_id
+          - target: usage_date
+            on:
+              date: date
+
+    foreground_usage:
+      label: "Foreground Usage"
+      fields:
+        device_id:
+          label: "Device ID"
+        usage_time:
+          label: "Usage Time"
+
+  dimension:
+    app:
+      label: "App Name"
+      fields:
+        package_name:
+          label: "Package Name"
+        app_name:
+          label: "App Name"
+
+  filter:
+    device_group:
+      label: "Device Group"
+      fields:
+        group_id:
+          label: "Group ID"
+
+    usage_date:
+      label: "Usage Date"
+      fields:
+        date:
+          label: "Date"
+
+
+// === Java 클래스 구조 ===
+
+@Data
+public class DdeMetadataProperties {
+    private Map<String, MeasureConfig> measure = new HashMap<>();
+    private Map<String, CategoryConfig> dimension = new HashMap<>();
+    private Map<String, CategoryConfig> filter = new HashMap<>();
+}
+
+@Data
+public class MeasureConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+    private JoinGroups joins = new JoinGroups();
+}
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+}
+
+@Data
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric = new HashMap<>();
+}
+
+@Data
+public class JoinGroups {
+    private List<JoinConfig> measures = new ArrayList<>();
+    private List<JoinConfig> dimensions = new ArrayList<>();
+    private List<JoinConfig> filters = new ArrayList<>();
+}
+
+@Data
+public class JoinConfig {
+    private String target;
+    private Map<String, String> on = new HashMap<>();
+}
+
+
+// === Join 그래프 생성 유틸 ===
+
+public class JoinGraphBuilder {
+    public static Map<String, Set<String>> buildJoinGraphByType(
+            Map<String, MeasureConfig> measures,
+            Function<JoinGroups, List<JoinConfig>> joinSelector) {
+
+        Map<String, Set<String>> graph = new HashMap<>();
+
+        for (Map.Entry<String, MeasureConfig> entry : measures.entrySet()) {
+            String source = entry.getKey();
+            List<JoinConfig> joins = joinSelector.apply(entry.getValue().getJoins());
+            for (JoinConfig join : joins) {
+                String target = join.getTarget();
+                graph.computeIfAbsent(source, k -> new HashSet<>()).add(target);
+                graph.computeIfAbsent(target, k -> new HashSet<>()).add(source);
+            }
+        }
+
+        return graph;
+    }
+}
+
+-----+options------
+
+// === application.yml 예시 ===
+dde:
+  measure:
+    background_usage:
+      label: "Background Usage"
+      fields:
+        device_id:
+          label: "Device ID"
+        usage_time:
+          label: "Usage Time"
+      joins:
+        measures:
+          - target: foreground_usage
+            on:
+              device_id: device_id
+            join_type: inner
+            optional: false
+            direction: bidirectional
+        dimensions:
+          - target: app
+            on:
+              package_name: package_name
+            join_type: left
+            optional: true
+            direction: unidirectional
+        filters:
+          - target: device_group
+            on:
+              group_id: group_id
+            join_type: inner
+            optional: false
+            direction: unidirectional
+          - target: usage_date
+            on:
+              date: date
+            join_type: inner
+            optional: true
+            direction: unidirectional
+
+    foreground_usage:
+      label: "Foreground Usage"
+      fields:
+        device_id:
+          label: "Device ID"
+        usage_time:
+          label: "Usage Time"
+
+  dimension:
+    app:
+      label: "App Name"
+      fields:
+        package_name:
+          label: "Package Name"
+        app_name:
+          label: "App Name"
+
+  filter:
+    device_group:
+      label: "Device Group"
+      fields:
+        group_id:
+          label: "Group ID"
+
+    usage_date:
+      label: "Usage Date"
+      fields:
+        date:
+          label: "Date"
+
+
+// === Java 클래스 구조 ===
+
+@Data
+public class DdeMetadataProperties {
+    private Map<String, MeasureConfig> measure = new HashMap<>();
+    private Map<String, CategoryConfig> dimension = new HashMap<>();
+    private Map<String, CategoryConfig> filter = new HashMap<>();
+}
+
+@Data
+public class MeasureConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+    private JoinGroups joins = new JoinGroups();
+}
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+}
+
+@Data
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric = new HashMap<>();
+}
+
+@Data
+public class JoinGroups {
+    private List<JoinConfig> measures = new ArrayList<>();
+    private List<JoinConfig> dimensions = new ArrayList<>();
+    private List<JoinConfig> filters = new ArrayList<>();
+}
+
+@Data
+public class JoinConfig {
+    private String target;
+    private Map<String, String> on = new HashMap<>();
+    private String join_type; // inner, left, etc.
+    private Boolean optional = false; // true if optional
+    private String direction = "bidirectional"; // or unidirectional
+}
+
+
+// === Join 그래프 생성 유틸 ===
+
+public class JoinGraphBuilder {
+    public static Map<String, Set<String>> buildJoinGraphByType(
+            Map<String, MeasureConfig> measures,
+            Function<JoinGroups, List<JoinConfig>> joinSelector) {
+
+        Map<String, Set<String>> graph = new HashMap<>();
+
+        for (Map.Entry<String, MeasureConfig> entry : measures.entrySet()) {
+            String source = entry.getKey();
+            List<JoinConfig> joins = joinSelector.apply(entry.getValue().getJoins());
+            for (JoinConfig join : joins) {
+                String target = join.getTarget();
+                graph.computeIfAbsent(source, k -> new HashSet<>()).add(target);
+                if (!"unidirectional".equalsIgnoreCase(join.getDirection())) {
+                    graph.computeIfAbsent(target, k -> new HashSet<>()).add(source);
+                }
+            }
+        }
+
+        return graph;
+    }
+}
+
+
+
+
+```
+
+
+
+--------------------
+
 좋습니다. 아래에 전체 구성 코드를 다시 정리해서 올려드립니다. 다음 구조를 기준으로 합니다:
 
 ---
