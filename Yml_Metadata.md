@@ -1,6 +1,309 @@
+아주 현실적이고 중요한 질문입니다. 실제 데이터 모델링에서 **measure/dimension/filter에 같은 category 이름이나 같은 field name**이 존재할 수 있으며, **이들이 다른 물리 테이블**을 의미하는 경우가 많습니다.
+예: `dimension.device.event_type` ≠ `measure.device.event_type`
+
+---
+
+## ✅ 문제 요약
+
+| 문제            | 설명                                    |
+| ------------- | ------------------------------------- |
+| 카테고리 이름이 겹침   | `device`가 measure에도 있고 dimension에도 있음 |
+| 필드 이름이 겹침     | `event_type` 같은 필드명이 여러 카테고리에 존재      |
+| DB 실제 테이블은 다름 | 그런데 이름만 보면 구분이 안 됨                    |
+
+→ 이 상태로는 **조인 그래프, label 매핑, 쿼리 생성 등에서 충돌** 발생 가능
+
+---
+
+## ✅ 해결 전략
+
+### 🔹 1. **Unique Fully Qualified Key (고유 식별자 키) 사용**
+
+**구분 가능한 식별자 체계**를 만들어야 합니다.
+
+```text
+<group>:<category>:<field>
+예: measure:device:event_type
+     dimension:device:event_type
+```
+
+→ 그래프 key 및 조회 시 항상 **이 고유키로 관리**
+
+---
+
+### 🔹 2. YAML 구조는 그대로 두되, 내부 키 관리만 고유 키 사용
+
+예: YAML은 다음처럼 간결하게 유지하고,
+
+```yaml
+dde:
+  measure:
+    device:
+      fields:
+        event_type:
+          label: "Event Type"
+```
+
+Java 내부에서 이걸 처리할 때 다음 방식으로 변환:
+
+```java
+String fieldKey = "measure:device:event_type";
+```
+
+그래프 및 검색에서 이 키를 사용함으로써 **동명이인 문제를 방지**할 수 있습니다.
+
+---
+
+## ✅ 구현 예
+
+### 1. 그래프 노드 키를 `group:category:field` 형태로 생성
+
+```java
+String nodeKey = group + ":" + category + ":" + fieldName;
+```
+
+그래프는:
+
+```java
+graph.put("dimension:device:event_type", Set.of("measure:device:event_type"));
+```
+
+---
+
+### 2. label 조회 시도 시에도 이 키를 기준으로 처리
+
+```java
+String[] parts = key.split(":"); // [group, category, field]
+```
+
+* `group`으로 `dde.getMeasure()`/`getDimension()`/`getFilter()` 중 선택
+* `category`로 `get(category)`
+* `field`로 `getFields().get(field)`
+
+---
+
+### 3. join 관계도 고유 키 기반으로 생성
+
+join YAML은 여전히 간단히:
+
+```yaml
+joins:
+  measure:
+    - target: device.event_type
+      label: "Device Event Type"
+```
+
+Java에서 파싱 시 `target`을 `"measure:device:event_type"`으로 자동 변환
+
+---
+
+## ✅ 보너스: label 충돌 방지
+
+이렇게 되면 `"Event Type"`이 여러 군데 있어도 다음처럼 명확하게 라벨을 쓸 수 있습니다:
+
+| Key                           | Label                  |
+| ----------------------------- | ---------------------- |
+| `measure:device:event_type`   | Event Type (Measure)   |
+| `dimension:device:event_type` | Event Type (Dimension) |
+
+→ 필요 시 라벨에도 구분자를 자동 추가할 수 있습니다.
+
+---
+
+## ✅ 결론
+
+| 선택지                      | 추천 여부   | 설명         |
+| ------------------------ | ------- | ---------- |
+| 그룹/카테고리/필드명 조합으로 고유 키 생성 | ✅ 적극 추천 | 가장 안정적인 방식 |
+| YAML에서 직접 prefix 붙이기     | △       | 사람이 보기 불편함 |
+| 필드 이름만으로 처리              | ❌ 위험    | 충돌 확률 높음   |
+
+---
+
+### 원하시면
+
+* `group:category:field` 기반 키 생성기
+* 전체 그래프 구성 유틸 수정
+* `findLabel(...)` / `recommend...` 들을 고유 키 기반으로 리팩토링
+
+도 한번에 도와드릴 수 있습니다. 적용해볼까요?
+
+
 ```java
 
-// ++
+// === 고유키 기반으로 Join 그래프를 구성하는 구조 ===
+
+public class JoinGraphUtil {
+
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+
+        buildFromCategory("dimension", dde.getDimension(), graph);
+        buildFromCategory("filter", dde.getFilter(), graph);
+        buildFromMeasure("measure", dde.getMeasure(), graph);
+
+        return graph;
+    }
+
+    private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void buildFromMeasure(String group, Map<String, MeasureConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, MeasureConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String sourceKey, JoinTargets joins, Map<String, Set<String>> graph) {
+        addJoinList(sourceKey, "measure", joins.getMeasure(), graph);
+        addJoinList(sourceKey, "dimension", joins.getDimension(), graph);
+        addJoinList(sourceKey, "filter", joins.getFilter(), graph);
+    }
+
+    private static void addJoinList(String sourceKey, String targetGroup, List<JoinTarget> targets, Map<String, Set<String>> graph) {
+        for (JoinTarget jt : targets) {
+            String[] parts = jt.getTarget().split("\\.");
+            if (parts.length == 2) {
+                String category = parts[0];
+                String field = parts[1];
+                String targetKey = toKey(targetGroup, category, field);
+                graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(targetKey);
+            }
+        }
+    }
+
+    public static boolean isJoinable(String from, String to, Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        queue.add(from);
+        visited.add(from);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (current.equals(to)) return true;
+            for (String neighbor : graph.getOrDefault(current, Set.of())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                }
+            }
+        }
+        return false;
+    }
+
+    public static boolean hasCycleBFS(Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        for (String start : graph.keySet()) {
+            if (!visited.contains(start)) {
+                if (detectCycleFrom(start, graph, visited)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean detectCycleFrom(String start, Map<String, Set<String>> graph, Set<String> globalVisited) {
+        Map<String, String> parent = new HashMap<>();
+        Queue<String> queue = new LinkedList<>();
+        Set<String> visited = new HashSet<>();
+
+        queue.add(start);
+        visited.add(start);
+        globalVisited.add(start);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            for (String neighbor : graph.getOrDefault(current, Set.of())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    globalVisited.add(neighbor);
+                    parent.put(neighbor, current);
+                    queue.add(neighbor);
+                } else if (!neighbor.equals(parent.get(current))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static List<String> recommendJoinKeys(String from, Map<String, Set<String>> graph) {
+        return new ArrayList<>(graph.getOrDefault(from, Set.of()));
+    }
+
+    public static List<String> recommendJoinLabels(String from, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        List<String> keys = recommendJoinKeys(from, graph);
+        List<String> labels = new ArrayList<>();
+        for (String key : keys) {
+            String label = findLabelByKey(key, dde);
+            if (label != null) {
+                labels.add(label);
+            }
+        }
+        return labels;
+    }
+
+    public static String toKey(String group, String category, String field) {
+        return group + ":" + category + ":" + field;
+    }
+
+    private static String findLabelByKey(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        switch (group) {
+            case "measure":
+                MeasureConfig m = dde.getMeasure().get(category);
+                if (m != null && m.getFields().containsKey(field)) return m.getFields().get(field).getLabel();
+                break;
+            case "dimension":
+                CategoryConfig d = dde.getDimension().get(category);
+                if (d != null && d.getFields().containsKey(field)) return d.getFields().get(field).getLabel();
+                break;
+            case "filter":
+                CategoryConfig f = dde.getFilter().get(category);
+                if (f != null && f.getFields().containsKey(field)) return f.getFields().get(field).getLabel();
+                break;
+        }
+        return null;
+    }
+}
+```
+
+-------------------------
+```java
+
 // === 고유키 기반으로 Join 그래프를 구성하는 구조 ===
 
 public class JoinGraphUtil {
