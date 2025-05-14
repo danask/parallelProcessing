@@ -1,3 +1,193 @@
+
+`JoinGraphUtil` 클래스에 다음과 같은 메서드들을 모두 반영하여 개정했습니다:
+
+* `getGroupMap`: 그룹명에 따른 config 맵 반환
+* `getCategoryLabels`: 해당 group의 label 목록
+* `getCategoryKeyByLabel`: label을 기반으로 category 키 추출
+* `getFieldName`: label로부터 field 키 반환
+* `getFieldLabel`: field 키로 label 반환
+* `getFieldLabels`: category 내 모든 field 키-라벨 매핑
+* `getFieldMetrics`: metric 정보 반환 (`Map<String, String>` 구조로 간주)
+
+이제 이 유틸만으로 YML 기반의 메타데이터 탐색, label ↔ key 매핑, join graph 생성 등 대부분의 메타 처리 기능을 커버할 수 있습니다. 필요한 경우 테스트 유닛도 도와드릴 수 있습니다.
+
+
+```java
+
+// JoinGraphUtil.java
+public class JoinGraphUtil {
+
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+        buildFromCategory("dimension", dde.getDimension(), graph);
+        buildFromCategory("filter", dde.getFilter(), graph);
+        buildFromCategory("measure", dde.getMeasure(), graph);
+        return graph;
+    }
+
+    private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String sourceKey, JoinTargets joins, Map<String, Set<String>> graph) {
+        addJoinList(sourceKey, "measure", joins.getMeasure(), graph);
+        addJoinList(sourceKey, "dimension", joins.getDimension(), graph);
+        addJoinList(sourceKey, "filter", joins.getFilter(), graph);
+    }
+
+    private static void addJoinList(String sourceKey, String targetGroup, List<JoinTarget> targets, Map<String, Set<String>> graph) {
+        if (targets == null) return;
+        for (JoinTarget jt : targets) {
+            String[] parts = jt.getTarget().split("\\.");
+            if (parts.length == 2) {
+                String category = parts[0];
+                String field = parts[1];
+                String targetKey = toKey(targetGroup, category, field);
+                graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(targetKey);
+            }
+        }
+    }
+
+    public static boolean isJoinable(String from, String to, Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        queue.add(from);
+        visited.add(from);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (current.equals(to)) return true;
+            for (String neighbor : graph.getOrDefault(current, Set.of())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                }
+            }
+        }
+        return false;
+    }
+
+    public static List<String> recommendJoinKeys(String from, Map<String, Set<String>> graph) {
+        return new ArrayList<>(graph.getOrDefault(from, Set.of()));
+    }
+
+    public static Map<String, String> recommendLabelWithKey(String from, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : graph.getOrDefault(from, Set.of())) {
+            String label = findLabelByKey(key, dde);
+            if (label != null) {
+                result.put(key, label);
+            }
+        }
+        return result;
+    }
+
+    public static Map<String, String> recommendByGroup(String from, String targetGroup, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : graph.getOrDefault(from, Set.of())) {
+            if (key.startsWith(targetGroup + ":")) {
+                String label = findLabelByKey(key, dde);
+                if (label != null) {
+                    result.put(key, label);
+                }
+            }
+        }
+        return result;
+    }
+
+    public static String toKey(String group, String category, String field) {
+        return group + ":" + category + ":" + field;
+    }
+
+    public static Map<String, CategoryConfig> getGroupMap(String group, DdeMetadataProperties dde) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dde.getDimension();
+            case "measure" -> dde.getMeasure();
+            case "filter" -> dde.getFilter();
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    public static List<String> getCategoryLabels(String group, DdeMetadataProperties dde) {
+        return getGroupMap(group, dde).values().stream()
+                .map(CategoryConfig::getLabel)
+                .toList();
+    }
+
+    public static String getCategoryKeyByLabel(String group, String label, DdeMetadataProperties dde) {
+        return getGroupMap(group, dde).entrySet().stream()
+                .filter(entry -> entry.getValue().getLabel().equalsIgnoreCase(label))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public static String getFieldName(String group, String category, String label, DdeMetadataProperties dde) {
+        CategoryConfig config = getGroupMap(group, dde).get(category);
+        if (config == null) return null;
+        return config.getFields().entrySet().stream()
+                .filter(entry -> label.equalsIgnoreCase(entry.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public static String getFieldLabel(String group, String category, String fieldName, DdeMetadataProperties dde) {
+        CategoryConfig config = getGroupMap(group, dde).get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null ? field.getLabel() : null;
+    }
+
+    public static Map<String, String> getFieldLabels(String group, String category, DdeMetadataProperties dde) {
+        CategoryConfig config = getGroupMap(group, dde).get(category);
+        if (config == null || config.getFields() == null) return Map.of();
+        return config.getFields().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getLabel()));
+    }
+
+    public static Map<String, String> getFieldMetrics(String group, String category, String fieldName, DdeMetadataProperties dde) {
+        CategoryConfig config = getGroupMap(group, dde).get(category);
+        if (config == null) return Map.of();
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null && field.getMetric() != null ? field.getMetric().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)) : Map.of();
+    }
+
+    private static String findLabelByKey(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        Map<String, CategoryConfig> groupMap = getGroupMap(group, dde);
+        CategoryConfig config = groupMap.get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig fieldConfig = config.getFields().get(field);
+        return fieldConfig != null ? fieldConfig.getLabel() : null;
+    }
+}
+
+
+```
+
+-----------------------
+
 아주 현실적이고 중요한 질문입니다. 실제 데이터 모델링에서 **measure/dimension/filter에 같은 category 이름이나 같은 field name**이 존재할 수 있으며, **이들이 다른 물리 테이블**을 의미하는 경우가 많습니다.
 예: `dimension.device.event_type` ≠ `measure.device.event_type`
 
