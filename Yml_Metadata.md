@@ -1,4 +1,115 @@
-Java 쪽 코드를 다음 변경사항에 맞게 업데이트 완료했습니다:
+좋습니다. 요구사항을 정리하면:
+
+---
+
+## ✅ 입력 형식
+
+```json
+{
+  "group": "measure",
+  "category": "mv_app_usage",
+  "field": "totalRunTime"
+}
+```
+
+## ✅ 동작
+
+1. `group:category:field` → `"measure:mv_app_usage:totalRunTime"` 형태의 join key 구성
+2. `JoinGraphUtil.buildJoinGraph()` 으로 전체 join graph 생성
+3. 해당 키 기준으로 연결된 노드를 검색
+4. 연결된 키들을 각각 `group`, `category`, `field` 로 파싱
+5. 라벨 포함 정보로 응답
+
+---
+
+## ✅ 출력 예시
+
+```json
+{
+  "measure": [
+    {
+      "group": "measure",
+      "category": "mv_app_usage",
+      "field": "foregroundUsage",
+      "label": "Foreground Usage"
+    }
+  ],
+  "dimension": [
+    {
+      "group": "dimension",
+      "category": "device",
+      "field": "device_id",
+      "label": "Device ID"
+    }
+  ],
+  "filter": [
+    {
+      "group": "dimension",
+      "category": "app",
+      "field": "app_name",
+      "label": "App Name"
+    }
+  ]
+}
+```
+
+---
+
+## ✅ 구현 메서드 예시
+
+```java
+public static Map<String, List<Map<String, String>>> getJoinRecommendations(
+        String group, String category, String field,
+        Map<String, Set<String>> graph,
+        DdeMetadataProperties dde
+) {
+    String fromKey = JoinGraphUtil.toKey(group, category, field);
+    Set<String> connected = graph.getOrDefault(fromKey, Set.of());
+
+    Map<String, List<Map<String, String>>> result = new LinkedHashMap<>();
+    for (String targetKey : connected) {
+        String[] parts = targetKey.split(":");
+        if (parts.length != 3) continue;
+
+        String tg = parts[0];
+        String cat = parts[1];
+        String fld = parts[2];
+        FieldConfig fc = JoinGraphUtil.getFieldConfig(targetKey, dde);
+        if (fc == null) continue;
+
+        Map<String, String> entry = new LinkedHashMap<>();
+        entry.put("group", tg);
+        entry.put("category", cat);
+        entry.put("field", fld);
+        entry.put("label", fc.getLabel());
+
+        result.computeIfAbsent(tg, k -> new ArrayList<>()).add(entry);
+    }
+
+    return result;
+}
+```
+
+---
+
+## ✅ 사용 예시
+
+```java
+Map<String, Set<String>> graph = JoinGraphUtil.buildJoinGraph(dde);
+Map<String, List<Map<String, String>>> res = getJoinRecommendations(
+    "measure", "mv_app_usage", "totalRunTime", graph, dde
+);
+
+ObjectMapper mapper = new ObjectMapper();
+System.out.println(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(res));
+```
+
+---
+
+원하신 `group, category, field` 입력 → 관련된 group별 연결 리스트를 구조화된 JSON으로 리턴하는 로직입니다. 이걸 기반으로 API 응답 포맷도 구성 가능합니다.
+
+필요하시면 REST 컨트롤러 버전도 제공드릴게요.
+
 
 ---
 
