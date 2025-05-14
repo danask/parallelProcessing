@@ -1,4 +1,257 @@
+```java
+// === application.yml 예시 ===
+dde:
+  dimension:
+    device:
+      label: "Device Name"
+      fields:
+        device_model:
+          label: "Device Model"
+          joins:
+            measure:
+              - target: foreground_usage
+                label: "Foreground Usage"
+              - target: app_name
+                label: "App Name"
+            dimension:
+              - target: device_id
+                label: "Device ID"
+              - target: group_id
+                label: "Group ID"
+            filter:
+              - target: usage_date
+                label: "Usage Date"
 
+
+// === Java 클래스 구조 ===
+
+public class DdeMetadataProperties {
+    private Map<String, CategoryConfig> dimension = new HashMap<>();
+    private Map<String, MeasureConfig> measure = new HashMap<>();
+    private Map<String, CategoryConfig> filter = new HashMap<>();
+
+    public Map<String, CategoryConfig> getDimension() {
+        return dimension;
+    }
+
+    public Map<String, MeasureConfig> getMeasure() {
+        return measure;
+    }
+
+    public Map<String, CategoryConfig> getFilter() {
+        return filter;
+    }
+}
+
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+
+    public String getLabel() {
+        return label;
+    }
+
+    public Map<String, FieldConfig> getFields() {
+        return fields;
+    }
+}
+
+public class MeasureConfig {
+    private String label;
+    private Map<String, FieldConfig> fields = new HashMap<>();
+
+    public String getLabel() {
+        return label;
+    }
+
+    public Map<String, FieldConfig> getFields() {
+        return fields;
+    }
+}
+
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric = new HashMap<>();
+    private JoinTargets joins;
+
+    public String getLabel() {
+        return label;
+    }
+
+    public Map<String, String> getMetric() {
+        return metric;
+    }
+
+    public JoinTargets getJoins() {
+        return joins;
+    }
+}
+
+public class JoinTargets {
+    private List<JoinTarget> measure = new ArrayList<>();
+    private List<JoinTarget> dimension = new ArrayList<>();
+    private List<JoinTarget> filter = new ArrayList<>();
+
+    public List<JoinTarget> getMeasure() {
+        return measure;
+    }
+
+    public List<JoinTarget> getDimension() {
+        return dimension;
+    }
+
+    public List<JoinTarget> getFilter() {
+        return filter;
+    }
+}
+
+public class JoinTarget {
+    private String target;
+    private String label;
+
+    public String getTarget() {
+        return target;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+}
+
+
+// === Join 그래프 유틸 ===
+
+public class JoinGraphSimpleUtil {
+
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+
+        buildFromCategoryMap(dde.getDimension(), graph);
+        buildFromCategoryMap(dde.getFilter(), graph);
+
+        Map<String, MeasureConfig> measures = dde.getMeasure();
+        for (String categoryName : measures.keySet()) {
+            MeasureConfig config = measures.get(categoryName);
+            if (config.getFields() == null) continue;
+
+            for (String fieldName : config.getFields().keySet()) {
+                FieldConfig field = config.getFields().get(fieldName);
+                if (field.getJoins() == null) continue;
+                addJoinsToGraph(fieldName, field.getJoins(), graph);
+            }
+        }
+
+        return graph;
+    }
+
+    private static void buildFromCategoryMap(Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (String categoryName : map.keySet()) {
+            CategoryConfig config = map.get(categoryName);
+            if (config.getFields() == null) continue;
+
+            for (String fieldName : config.getFields().keySet()) {
+                FieldConfig field = config.getFields().get(fieldName);
+                if (field.getJoins() == null) continue;
+                addJoinsToGraph(fieldName, field.getJoins(), graph);
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String source, JoinTargets joins, Map<String, Set<String>> graph) {
+        for (JoinTarget jt : joins.getMeasure()) {
+            graph.computeIfAbsent(source, new Function<String, Set<String>>() {
+                public Set<String> apply(String k) {
+                    return new HashSet<>();
+                }
+            }).add(jt.getTarget());
+        }
+        for (JoinTarget jt : joins.getDimension()) {
+            graph.computeIfAbsent(source, new Function<String, Set<String>>() {
+                public Set<String> apply(String k) {
+                    return new HashSet<>();
+                }
+            }).add(jt.getTarget());
+        }
+        for (JoinTarget jt : joins.getFilter()) {
+            graph.computeIfAbsent(source, new Function<String, Set<String>>() {
+                public Set<String> apply(String k) {
+                    return new HashSet<>();
+                }
+            }).add(jt.getTarget());
+        }
+    }
+
+    public static boolean isJoinable(String from, String to, Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        queue.add(from);
+        visited.add(from);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (current.equals(to)) return true;
+            for (String neighbor : graph.getOrDefault(current, new HashSet<>())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                }
+            }
+        }
+        return false;
+    }
+
+    public static Set<String> recommendJoinTargets(String from, Map<String, Set<String>> graph) {
+        return graph.getOrDefault(from, new HashSet<>());
+    }
+
+    public static List<String> recommendJoinLabels(String from, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        Set<String> targets = recommendJoinTargets(from, graph);
+        List<String> labels = new ArrayList<>();
+        for (String target : targets) {
+            String label = findLabel(target, dde);
+            if (label != null) {
+                labels.add(label);
+            }
+        }
+        return labels;
+    }
+
+    public static List<String> recommendJoinKeys(String from, Map<String, Set<String>> graph) {
+        Set<String> targets = recommendJoinTargets(from, graph);
+        return new ArrayList<>(targets);
+    }
+
+    private static String findLabel(String key, DdeMetadataProperties dde) {
+        if (dde.getMeasure().containsKey(key)) {
+            return dde.getMeasure().get(key).getLabel();
+        }
+        if (dde.getDimension().containsKey(key)) {
+            return dde.getDimension().get(key).getLabel();
+        }
+        if (dde.getFilter().containsKey(key)) {
+            return dde.getFilter().get(key).getLabel();
+        }
+        for (CategoryConfig cat : dde.getDimension().values()) {
+            if (cat.getFields().containsKey(key)) {
+                return cat.getFields().get(key).getLabel();
+            }
+        }
+        for (CategoryConfig cat : dde.getFilter().values()) {
+            if (cat.getFields().containsKey(key)) {
+                return cat.getFields().get(key).getLabel();
+            }
+        }
+        for (MeasureConfig cat : dde.getMeasure().values()) {
+            if (cat.getFields().containsKey(key)) {
+                return cat.getFields().get(key).getLabel();
+            }
+        }
+        return null;
+    }
+}
+
+
+```
 
 ---
 
