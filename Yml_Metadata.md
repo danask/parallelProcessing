@@ -323,6 +323,127 @@ public class JoinGraphUtil {
     }
 }
 
+/////////////
+
+// DdeMetadataProperties.java
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+    private Map<String, CategoryConfig> dimension;
+    private Map<String, CategoryConfig> filter;
+    private Map<String, MeasureConfig> measure;
+
+    // getters and setters
+    public Map<String, CategoryConfig> getDimension() { return dimension; }
+    public void setDimension(Map<String, CategoryConfig> dimension) { this.dimension = dimension; }
+
+    public Map<String, CategoryConfig> getFilter() { return filter; }
+    public void setFilter(Map<String, CategoryConfig> filter) { this.filter = filter; }
+
+    public Map<String, MeasureConfig> getMeasure() { return measure; }
+    public void setMeasure(Map<String, MeasureConfig> measure) { this.measure = measure; }
+}
+
+// CategoryConfig.java
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+
+    // getters and setters
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+
+    public Map<String, FieldConfig> getFields() { return fields; }
+    public void setFields(Map<String, FieldConfig> fields) { this.fields = fields; }
+}
+
+// MeasureConfig.java
+public class MeasureConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+
+    // getters and setters
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+
+    public Map<String, FieldConfig> getFields() { return fields; }
+    public void setFields(Map<String, FieldConfig> fields) { this.fields = fields; }
+}
+
+// FieldConfig.java
+public class FieldConfig {
+    private String label;
+    private JoinTargets joins;
+    private MetricConfig metric;
+
+    // getters and setters
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+
+    public JoinTargets getJoins() { return joins; }
+    public void setJoins(JoinTargets joins) { this.joins = joins; }
+
+    public MetricConfig getMetric() { return metric; }
+    public void setMetric(MetricConfig metric) { this.metric = metric; }
+}
+
+// JoinTargets.java
+public class JoinTargets {
+    private List<JoinTarget> measure;
+    private List<JoinTarget> dimension;
+    private List<JoinTarget> filter;
+
+    // getters and setters
+    public List<JoinTarget> getMeasure() { return measure; }
+    public void setMeasure(List<JoinTarget> measure) { this.measure = measure; }
+
+    public List<JoinTarget> getDimension() { return dimension; }
+    public void setDimension(List<JoinTarget> dimension) { this.dimension = dimension; }
+
+    public List<JoinTarget> getFilter() { return filter; }
+    public void setFilter(List<JoinTarget> filter) { this.filter = filter; }
+}
+
+// JoinTarget.java
+public class JoinTarget {
+    private String target;
+    private String label;
+
+    // getters and setters
+    public String getTarget() { return target; }
+    public void setTarget(String target) { this.target = target; }
+
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+}
+
+// MetricConfig.java
+public class MetricConfig {
+    private Map<String, String> sum;
+    private Map<String, String> avg;
+    private List<JoinTarget> measure;
+    private List<JoinTarget> dimension;
+    private List<JoinTarget> filter;
+
+    // getters and setters
+    public Map<String, String> getSum() { return sum; }
+    public void setSum(Map<String, String> sum) { this.sum = sum; }
+
+    public Map<String, String> getAvg() { return avg; }
+    public void setAvg(Map<String, String> avg) { this.avg = avg; }
+
+    public List<JoinTarget> getMeasure() { return measure; }
+    public void setMeasure(List<JoinTarget> measure) { this.measure = measure; }
+
+    public List<JoinTarget> getDimension() { return dimension; }
+    public void setDimension(List<JoinTarget> dimension) { this.dimension = dimension; }
+
+    public List<JoinTarget> getFilter() { return filter; }
+    public void setFilter(List<JoinTarget> filter) { this.filter = filter; }
+}
+
+
+
+
 ```
 
 -------------------------
