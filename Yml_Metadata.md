@@ -429,7 +429,30 @@ public class JoinGraphBuilder {
 }
 
 
+    // === 조인 유효성 검사 ===
+    public static boolean isJoinable(String from, String to, Map<String, Set<String>> graph) {
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        queue.add(from);
+        visited.add(from);
 
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (current.equals(to)) return true;
+            for (String neighbor : graph.getOrDefault(current, Set.of())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                }
+            }
+        }
+        return false;
+    }
+
+    // === 조인 가능한 대상 추천 ===
+    public static Set<String> suggestJoinableTargets(String from, Map<String, Set<String>> graph) {
+        return graph.getOrDefault(from, Set.of());
+    }
 
 ```
 
