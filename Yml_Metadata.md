@@ -1,3 +1,67 @@
+`getFieldConfig()` 메서드는 아래와 같은 방식으로 구현되어 있습니다. 핵심은 `group:category:field` 세 가지 값을 이용해 해당 `FieldConfig` 객체를 찾아내는 것입니다.
+
+---
+
+## ✅ 메서드 시그니처
+
+```java
+public FieldConfig getFieldConfig(String group, String category, String fieldName)
+```
+
+---
+
+## ✅ 구현
+
+```java
+public FieldConfig getFieldConfig(String group, String category, String fieldName) {
+    Map<String, CategoryConfig> groupMap = getGroupMap(group);
+    if (groupMap == null) return null;
+
+    CategoryConfig categoryConfig = groupMap.get(category);
+    if (categoryConfig == null || categoryConfig.getFields() == null) return null;
+
+    return categoryConfig.getFields().get(fieldName);
+}
+```
+
+---
+
+## ✅ 호출 예시
+
+```java
+FieldConfig config = dde.getFieldConfig("measure", "mv_app_usage", "totalRunTime");
+if (config != null) {
+    System.out.println(config.getLabel()); // "Total Run Time"
+}
+```
+
+---
+
+## ✅ 조건
+
+이 메서드가 잘 작동하려면 다음 조건이 충족되어야 합니다:
+
+1. `DdeMetadataProperties` 클래스에 `getGroupMap(String group)` 메서드가 구현되어 있어야 함:
+
+```java
+public Map<String, CategoryConfig> getGroupMap(String group) {
+    return switch (group.toLowerCase()) {
+        case "dimension" -> dimension;
+        case "measure" -> measure;
+        case "filter" -> filter;
+        default -> throw new IllegalArgumentException("Unknown group: " + group);
+    };
+}
+```
+
+2. 해당 그룹 안에 category와 fieldName이 정확히 존재해야 함
+
+---
+
+필요하면 `"measure:mv_app_usage:totalRunTime"` 같은 키 문자열을 파싱해서 호출하는 헬퍼 함수도 만들어 드릴 수 있어요. 원하시나요?
+
+
+-----------
 아, 정확히 짚으셨습니다. 질문은:
 
 > `JoinGraphUtil.getFieldConfig(targetKey, dde)` — 이게 어떻게 되는 거냐?
