@@ -1,3 +1,196 @@
+Java 쪽 코드를 다음 변경사항에 맞게 업데이트 완료했습니다:
+
+---
+
+### ✅ 변경 요약
+
+1. **YAML 구조 변경에 따른 반영**
+
+   * `joins` 필드는 `List<String>` 형태로 단순화 (`target` 포함한 key 직접 기입)
+   * `operator` 필드 추가 → 각 필드 기준 비교 연산자 조회 가능
+   * `label` → 여전히 field 및 category 수준에 존재
+
+2. **Java 모델 변경**
+
+   * `FieldConfig`에 `Map<String, String> operator` 필드 추가
+   * `JoinTargets` → `List<String> measure`, `dimension`, `filter` 형태로 간소화
+
+3. **새 유틸 메서드**
+
+   * `getFieldConfig(String fullKey, DdeMetadataProperties dde)` – 필드 정보 조회
+   * `getFieldMetadata(String fullKey, DdeMetadataProperties dde)` – `label`, `operator` 반환
+
+---
+
+### 🛠 다음 작업
+
+* YML 구조도 이에 맞게 아래와 같이 변경해야 합니다:
+
+```yaml
+dde:
+  measure:
+    mv_app_usage:
+      label: "App Usage Daily"
+      fields:
+        totalRunTime:
+          label: "Total Run Time"
+          metric:
+            sum: "Sum (EA)"
+            avg: "Avg (%)"
+          operator:
+            lt: "<"
+            eq: "="
+            gt: ">"
+          joins:
+            measure:
+              - "measure:mv_app_usage:foreground_usage"
+            dimension:
+              - "dimension:device:device_id"
+              - "dimension:device:group_id"
+              - "dimension:app:app_name"
+            filter:
+              - "measure:appUsage:foreground_usage"
+              - "dimension:device:device_id"
+              - "dimension:device:group_id"
+              - "dimension:app:app_name"
+```
+
+---
+
+Java 모델 클래스들도 YML 변경 사항에 맞춰 업데이트해야 합니다. 원하신다면 해당 Java 클래스들 (`FieldConfig`, `JoinTargets` 등)도 새 구조에 맞게 리팩토링해 드릴게요. 진행할까요?
+
+
+```java
+
+// DdeMetadataProperties.java
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.Map;
+
+@Data
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+    private Map<String, CategoryConfig> dimension;
+    private Map<String, CategoryConfig> filter;
+    private Map<String, CategoryConfig> measure;
+
+    public Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            case "filter" -> filter;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    public String getCategoryKeyByLabel(String group, String label) {
+        return getGroupMap(group).entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+    }
+
+    public String getFieldName(String group, String category, String label) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        return config.getFields().entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+    }
+
+    public String getFieldLabel(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null ? field.getLabel() : null;
+    }
+
+    public Map<String, String> getFieldLabels(String group, String category) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return Map.of();
+        return config.getFields().entrySet().stream()
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getLabel()));
+    }
+
+    public Map<String, String> getFieldMetrics(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return Map.of();
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null && field.getMetric() != null ? field.getMetric() : Map.of();
+    }
+
+    public FieldConfig getFieldConfig(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        return config != null ? config.getFields().get(fieldName) : null;
+    }
+
+    public java.util.List<String> getCategoryLabels(String group) {
+        return getGroupMap(group).values().stream()
+                .map(CategoryConfig::getLabel)
+                .toList();
+    }
+
+    public String findCategoryByLabelAcrossGroups(String label) {
+        for (String group : java.util.List.of("dimension", "measure", "filter")) {
+            String match = getCategoryKeyByLabel(group, label);
+            if (match != null) return group + ":" + match;
+        }
+        return null;
+    }
+
+    public String findFieldNameAcrossGroups(String categoryLabel, String fieldLabel) {
+        for (String group : java.util.List.of("dimension", "measure", "filter")) {
+            Map<String, CategoryConfig> groupMap = getGroupMap(group);
+            for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                if (categoryLabel.equalsIgnoreCase(entry.getValue().getLabel())) {
+                    String fieldKey = entry.getValue().getFields().entrySet().stream()
+                            .filter(f -> fieldLabel.equalsIgnoreCase(f.getValue().getLabel()))
+                            .map(Map.Entry::getKey)
+                            .findFirst().orElse(null);
+                    if (fieldKey != null) return group + ":" + entry.getKey() + ":" + fieldKey;
+                }
+            }
+        }
+        return null;
+    }
+}
+
+// CategoryConfig.java
+import lombok.Data;
+import java.util.Map;
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+}
+
+// FieldConfig.java
+import lombok.Data;
+import java.util.Map;
+
+@Data
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric;
+    private Map<String, String> operator;
+    private JoinTargets joins;
+}
+
+// JoinTargets.java
+import lombok.Data;
+import java.util.List;
+
+@Data
+public class JoinTargets {
+    private List<String> measure;
+    private List<String> dimension;
+    private List<String> filter;
+}
+```
+--------------
 
 `JoinGraphUtil` 클래스에 다음과 같은 메서드들을 모두 반영하여 개정했습니다:
 
