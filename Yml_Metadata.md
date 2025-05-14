@@ -130,8 +130,7 @@ Java에서 파싱 시 `target`을 `"measure:device:event_type"`으로 자동 변
 
 
 ```java
-
-// === 고유키 기반으로 Join 그래프를 구성하는 구조 ===
+// === 고유키 기반 Join 추천 확장 ===
 
 public class JoinGraphUtil {
 
@@ -271,6 +270,30 @@ public class JoinGraphUtil {
         return labels;
     }
 
+    public static Map<String, String> recommendLabelWithKey(String from, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : graph.getOrDefault(from, Set.of())) {
+            String label = findLabelByKey(key, dde);
+            if (label != null) {
+                result.put(key, label);
+            }
+        }
+        return result;
+    }
+
+    public static Map<String, String> recommendByGroup(String from, String targetGroup, Map<String, Set<String>> graph, DdeMetadataProperties dde) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : graph.getOrDefault(from, Set.of())) {
+            if (key.startsWith(targetGroup + ":")) {
+                String label = findLabelByKey(key, dde);
+                if (label != null) {
+                    result.put(key, label);
+                }
+            }
+        }
+        return result;
+    }
+
     public static String toKey(String group, String category, String field) {
         return group + ":" + category + ":" + field;
     }
@@ -299,6 +322,7 @@ public class JoinGraphUtil {
         return null;
     }
 }
+
 ```
 
 -------------------------
