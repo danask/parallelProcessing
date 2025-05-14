@@ -1,3 +1,136 @@
+
+```java
+// DdeMetadataProperties.java
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.*;
+
+@Data
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+    private Map<String, CategoryConfig> dimension;
+    private Map<String, CategoryConfig> filter;
+    private Map<String, CategoryConfig> measure;
+
+    public Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            case "filter" -> filter;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    public FieldConfig getFieldConfig(String group, String category, String fieldName) {
+        Map<String, CategoryConfig> groupMap = getGroupMap(group);
+        if (groupMap == null) return null;
+        CategoryConfig categoryConfig = groupMap.get(category);
+        if (categoryConfig == null || categoryConfig.getFields() == null) return null;
+        return categoryConfig.getFields().get(fieldName);
+    }
+
+    public static FieldConfig getFieldConfig(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        return dde.getFieldConfig(parts[0], parts[1], parts[2]);
+    }
+
+    public static Map<String, List<Map<String, Object>>> getJoinRecommendationsByIntent(
+        String group, String category, String field,
+        Map<String, Set<String>> graph,
+        DdeMetadataProperties dde
+    ) {
+        String fromKey = group + ":" + category + ":" + field;
+        Set<String> connections = graph.getOrDefault(fromKey, Set.of());
+
+        Map<String, List<Map<String, Object>>> result = new LinkedHashMap<>();
+
+        for (String targetKey : connections) {
+            String[] parts = targetKey.split(":");
+            if (parts.length != 3) continue;
+
+            String actualGroup = parts[0];
+            String cat = parts[1];
+            String fld = parts[2];
+
+            FieldConfig fc = getFieldConfig(targetKey, dde);
+            if (fc == null) continue;
+
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("group", actualGroup);
+            entry.put("category", cat);
+            entry.put("field", fld);
+            entry.put("label", fc.getLabel());
+
+            result.computeIfAbsent(actualGroup, k -> new ArrayList<>()).add(entry);
+        }
+
+        // 추가: joins.filter → 실제 filter 그룹이 아님, 의도된 filter 필드로 구성
+        FieldConfig source = dde.getFieldConfig(group, category, field);
+        if (source != null && source.getJoins() != null && source.getJoins().getFilter() != null) {
+            List<Map<String, Object>> filterSection = new ArrayList<>();
+            for (String filterKey : source.getJoins().getFilter()) {
+                String[] parts = filterKey.split(":" );
+                if (parts.length != 3) continue;
+                String g = parts[0], cat = parts[1], fld = parts[2];
+
+                FieldConfig fc = dde.getFieldConfig(g, cat, fld);
+                if (fc == null) continue;
+
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("group", g);
+                entry.put("category", cat);
+                entry.put("field", fld);
+                entry.put("label", fc.getLabel());
+                entry.put("operator", fc.getOperator());
+                filterSection.add(entry);
+            }
+            result.put("filter", filterSection);
+        }
+
+        return result;
+    }
+}
+
+// CategoryConfig.java
+import lombok.Data;
+import java.util.Map;
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+}
+
+// FieldConfig.java
+import lombok.Data;
+import java.util.Map;
+
+@Data
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric;
+    private Map<String, String> operator;
+    private JoinTargets joins;
+}
+
+// JoinTargets.java
+import lombok.Data;
+import java.util.List;
+
+@Data
+public class JoinTargets {
+    private List<String> measure;
+    private List<String> dimension;
+    private List<String> filter;
+}
+
+
+```
+
+----------------
+
 `getFieldConfig()` 메서드는 아래와 같은 방식으로 구현되어 있습니다. 핵심은 `group:category:field` 세 가지 값을 이용해 해당 `FieldConfig` 객체를 찾아내는 것입니다.
 
 ---
