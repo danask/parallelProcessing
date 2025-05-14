@@ -1,4 +1,83 @@
 
+좋습니다. `group` 이름에 따라 `category`와 그 안의 `fields` 목록만 추출하고 싶다면 아래와 같은 메서드를 제공할 수 있습니다:
+
+---
+
+### ✅ 원하는 출력 형태
+
+예를 들어 `group = "dimension"`일 때:
+
+```json
+[
+  {
+    "category": "device",
+    "fields": [
+      { "field": "device_id", "label": "Device ID" },
+      { "field": "group_id", "label": "Group ID" }
+    ]
+  },
+  {
+    "category": "app",
+    "fields": [
+      { "field": "app_name", "label": "App Name" }
+    ]
+  }
+]
+```
+
+---
+
+### ✅ 메서드 구현
+
+```java
+public List<Map<String, Object>> getCategoryAndFields(String group) {
+    Map<String, CategoryConfig> groupMap = getGroupMap(group);
+    if (groupMap == null) return List.of();
+
+    List<Map<String, Object>> result = new ArrayList<>();
+
+    for (Map.Entry<String, CategoryConfig> categoryEntry : groupMap.entrySet()) {
+        String category = categoryEntry.getKey();
+        CategoryConfig categoryConfig = categoryEntry.getValue();
+
+        List<Map<String, String>> fields = categoryConfig.getFields().entrySet().stream()
+            .map(entry -> Map.of(
+                "field", entry.getKey(),
+                "label", entry.getValue().getLabel()
+            ))
+            .collect(Collectors.toList());
+
+        Map<String, Object> categoryMap = new LinkedHashMap<>();
+        categoryMap.put("category", category);
+        categoryMap.put("fields", fields);
+        result.add(categoryMap);
+    }
+
+    return result;
+}
+```
+
+---
+
+### ✅ 사용 예시
+
+```java
+List<Map<String, Object>> dimensionInfo = dde.getCategoryAndFields("dimension");
+```
+
+---
+
+### ✅ 필요한 클래스에 포함
+
+이 메서드는 `DdeMetadataProperties` 안에 넣으면 됩니다.
+`getGroupMap(group)`을 이미 구현해두었으니 간단히 붙일 수 있습니다.
+
+---
+
+원하신다면 이 메서드도 문서에 바로 추가해드릴게요. 추가할까요?
+
+
+
 ```java
 // DdeMetadataProperties.java
 import lombok.Data;
