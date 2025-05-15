@@ -37,8 +37,13 @@ public List<Map<String, Object>> getCategoryAndFields(String group) {
     List<Map<String, Object>> result = new ArrayList<>();
 
     for (Map.Entry<String, CategoryConfig> categoryEntry : groupMap.entrySet()) {
-        String category = categoryEntry.getKey();
+        String categoryKey = categoryEntry.getKey();
         CategoryConfig categoryConfig = categoryEntry.getValue();
+
+        Map<String, String> categoryMeta = Map.of(
+            "field", categoryKey,
+            "label", categoryConfig.getLabel()
+        );
 
         List<Map<String, String>> fields = categoryConfig.getFields().entrySet().stream()
             .map(entry -> Map.of(
@@ -47,14 +52,15 @@ public List<Map<String, Object>> getCategoryAndFields(String group) {
             ))
             .collect(Collectors.toList());
 
-        Map<String, Object> categoryMap = new LinkedHashMap<>();
-        categoryMap.put("category", category);
-        categoryMap.put("fields", fields);
-        result.add(categoryMap);
+        Map<String, Object> categoryBlock = new LinkedHashMap<>();
+        categoryBlock.put("category", categoryMeta);
+        categoryBlock.put("fields", fields);
+        result.add(categoryBlock);
     }
 
     return result;
 }
+
 ```
 
 ---
