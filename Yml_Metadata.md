@@ -1,4 +1,372 @@
 
+
+
+``` java
+
+// JoinQueryBuilder.java
+import jakarta.persistence.criteria.*;
+import java.util.Map;
+
+public class JoinQueryBuilder {
+
+    public static <T> void applyJoins(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb,
+                                      String sourceKey,
+                                      Map<String, List<DdeMetadataProperties.JoinEdge>> graph,
+                                      DdeMetadataProperties dde,
+                                      Map<String, Join<?, ?>> joinsOut) {
+
+        if (!graph.containsKey(sourceKey)) return;
+
+        for (DdeMetadataProperties.JoinEdge edge : graph.get(sourceKey)) {
+            String[] parts = edge.getTargetKey().split(":");
+            if (parts.length != 3) continue;
+            String group = parts[0], category = parts[1], field = parts[2];
+
+            String joinAlias = group + "_" + category + "_" + field;
+            Join<?, ?> join;
+
+            switch (edge.getJoinType().toUpperCase()) {
+                case "LEFT" -> join = root.join(category, JoinType.LEFT);
+                case "OUTER" -> join = root.join(category, JoinType.RIGHT);
+                case "INNER" -> join = root.join(category, JoinType.INNER);
+                default -> continue;
+            }
+
+            joinsOut.put(joinAlias, join);
+        }
+    }
+}
+
+// MetadataController.java
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/metadata")
+@RequiredArgsConstructor
+public class MetadataController {
+
+    private final DdeMetadataProperties dde;
+
+    @GetMapping("/{group}/fields")
+    public List<JoinFieldInfo> getFields(@PathVariable String group) {
+        return JoinUtil.getAllFieldsByGroup(group, dde);
+    }
+
+    @GetMapping("/field")
+    public JoinFieldInfo getField(@RequestParam String group,
+                                  @RequestParam String category,
+                                  @RequestParam String field) {
+        return JoinUtil.getFieldInfo(group, category, field, dde);
+    }
+
+    @GetMapping("/recommend")
+    public JoinRecommendationResponse getRecommendation(@RequestParam String group,
+                                                        @RequestParam String category,
+                                                        @RequestParam String field) {
+        var graph = DdeMetadataProperties.buildJoinGraph(dde);
+        return JoinUtil.getJoinRecommendations(group, category, field, graph, dde);
+    }
+}
+
+// JoinUtilTest.java (JUnit)
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
+
+import java.util.List;
+
+public class JoinUtilTest {
+
+    @Test
+    void testFindFieldByLabel() {
+        DdeMetadataProperties dde = TestUtil.loadSampleMetadata();
+        List<JoinFieldInfo> result = JoinUtil.findFieldsByLabel("Total Run Time", dde);
+        assertFalse(result.isEmpty());
+        assertEquals("totalRunTime", result.get(0).getField());
+    }
+
+    @Test
+    void testGetJoinRecommendations() {
+        DdeMetadataProperties dde = TestUtil.loadSampleMetadata();
+        var graph = DdeMetadataProperties.buildJoinGraph(dde);
+        var result = JoinUtil.getJoinRecommendations("measure", "app_usage", "totalRunTime", graph, dde);
+        assertNotNull(result);
+        assertFalse(result.getDimension().isEmpty());
+    }
+}
+
+// TestUtil.java
+public class TestUtil {
+    public static DdeMetadataProperties loadSampleMetadata() {
+        // In-memory setup or parse from YAML (e.g., SnakeYAML if loading real YAML)
+        // Simplified stub for now
+        DdeMetadataProperties dde = new DdeMetadataProperties();
+        // ... populate dde.measure, dimension, filter
+        return dde;
+    }
+}
+
+
+// JoinFieldInfo.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class JoinFieldInfo {
+    private String group;
+    private String category;
+    private String field;
+    private String label;
+    private Map<String, String> operator; // nullable
+}
+
+// JoinRecommendationResponse.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class JoinRecommendationResponse {
+    private List<JoinFieldInfo> measure = new ArrayList<>();
+    private List<JoinFieldInfo> dimension = new ArrayList<>();
+    private List<JoinFieldInfo> filter = new ArrayList<>();
+}
+
+// JoinUtil.java
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class JoinUtil {
+
+    public static JoinRecommendationResponse getJoinRecommendations(
+            String group, String category, String field,
+            Map<String, List<DdeMetadataProperties.JoinEdge>> graph,
+            DdeMetadataProperties dde
+    ) {
+        String fromKey = group + ":" + category + ":" + field;
+        List<DdeMetadataProperties.JoinEdge> connections = graph.getOrDefault(fromKey, List.of());
+
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        for (DdeMetadataProperties.JoinEdge edge : connections) {
+            JoinFieldInfo info = createJoinFieldInfo(edge.getTargetKey(), dde, false);
+            if (info == null) continue;
+
+            switch (info.getGroup()) {
+                case "measure" -> response.getMeasure().add(info);
+                case "dimension" -> response.getDimension().add(info);
+            }
+        }
+
+        // filter section by intent
+        FieldConfig source = dde.getFieldConfig(group, category, field);
+        if (source != null && source.getJoins() != null && source.getJoins().getFilter() != null) {
+            for (JoinTarget jt : source.getJoins().getFilter()) {
+                JoinFieldInfo info = createJoinFieldInfo(jt.getTarget(), dde, true);
+                if (info != null) {
+                    response.getFilter().add(info);
+                }
+            }
+        }
+
+        return response;
+    }
+
+    public static List<JoinFieldInfo> getAllFieldsByGroup(String group, DdeMetadataProperties dde) {
+        Map<String, CategoryConfig> groupMap = dde.getGroupMap(group);
+        if (groupMap == null) return List.of();
+
+        return groupMap.entrySet().stream()
+            .flatMap(entry -> entry.getValue().getFields().entrySet().stream()
+                .map(field -> new JoinFieldInfo(
+                    group,
+                    entry.getKey(),
+                    field.getKey(),
+                    field.getValue().getLabel(),
+                    field.getValue().getOperator()
+                ))
+            ).collect(Collectors.toList());
+    }
+
+    public static List<JoinFieldInfo> findFieldsByLabel(String label, DdeMetadataProperties dde) {
+        List<JoinFieldInfo> results = new ArrayList<>();
+        for (String group : List.of("dimension", "measure", "filter")) {
+            Map<String, CategoryConfig> groupMap = dde.getGroupMap(group);
+            for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                for (Map.Entry<String, FieldConfig> field : entry.getValue().getFields().entrySet()) {
+                    if (label.equalsIgnoreCase(field.getValue().getLabel())) {
+                        results.add(new JoinFieldInfo(
+                            group,
+                            entry.getKey(),
+                            field.getKey(),
+                            field.getValue().getLabel(),
+                            field.getValue().getOperator()
+                        ));
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    public static JoinFieldInfo getFieldInfo(String group, String category, String field, DdeMetadataProperties dde) {
+        FieldConfig fc = dde.getFieldConfig(group, category, field);
+        if (fc == null) return null;
+        return new JoinFieldInfo(group, category, field, fc.getLabel(), fc.getOperator());
+    }
+
+    public static JoinFieldInfo getFieldInfo(String fullKey, DdeMetadataProperties dde, boolean includeOperator) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        return createJoinFieldInfo(fullKey, dde, includeOperator);
+    }
+
+    private static JoinFieldInfo createJoinFieldInfo(String fullKey, DdeMetadataProperties dde, boolean includeOperator) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String g = parts[0], cat = parts[1], fld = parts[2];
+        FieldConfig fc = dde.getFieldConfig(g, cat, fld);
+        if (fc == null) return null;
+        return new JoinFieldInfo(g, cat, fld, fc.getLabel(), includeOperator ? fc.getOperator() : null);
+    }
+}
+
+```
+
+---
+
+### 🎯 목표
+
+**사용자 입력 기반으로 CriteriaBuilder에서 필요한 Join 구문을 자동으로 판단**하려는 것입니다.
+그런데 `app_usage`, `device`, `app_event` 등은 **조인 관계가 다릅니다:**
+
+| 관계                           | Join 방식      | 이유                  |
+| ---------------------------- | ------------ | ------------------- |
+| `app_usage.foreground_usage` | ❌ 조인 없음      | 같은 테이블 내 필드         |
+| `app_usage` ↔ `device`       | ✅ LEFT JOIN  | 외부 테이블, optional 관계 |
+| `app_usage` ↔ `app_event`    | ✅ OUTER JOIN | 외부 테이블, nullable 관계 |
+
+---
+
+### ✅ 표현 방법
+
+이런 조인 전략을 YAML 메타데이터에서 표현하기 위해서는 **join target에 joinType 필드를 명시**할 수 있습니다.
+
+---
+
+### ✅ 개선된 YAML 예시
+
+```yaml
+dde:
+  measure:
+    app_usage:
+      label: "App Usage"
+      fields:
+        background_usage:
+          label: "Background Usage"
+          joins:
+            dimension:
+              - target: dimension:device:device_id
+                joinType: LEFT
+            measure:
+              - target: measure:app_usage:foreground_usage  # 같은 테이블: No Join
+                joinType: NONE
+            filter:
+              - target: event:app_event:event_type
+                joinType: OUTER
+```
+
+---
+
+### ✅ JoinTarget 클래스 확장
+
+```java
+@Data
+public class JoinTarget {
+    private String target;
+    private String label;
+    private String joinType; // "LEFT", "OUTER", "INNER", "NONE" 등
+}
+```
+
+---
+
+### ✅ JoinGraph 생성 시 joinType도 포함시키기
+
+JoinGraph는 단순한 `Map<String, Set<String>>` 이 아니라, 다음처럼 바꿔야 이런 추가 속성을 유지할 수 있습니다:
+
+```java
+Map<String, List<JoinEdge>> graph;
+
+@Data
+public class JoinEdge {
+    private String targetKey;
+    private String joinType;
+}
+```
+
+이렇게 바꾸면 `CriteriaBuilder`를 생성할 때:
+
+```java
+for (JoinEdge edge : graph.get(fromKey)) {
+    switch (edge.getJoinType()) {
+        case "LEFT"  -> cb.leftJoin(...);
+        case "OUTER" -> cb.outerJoin(...);
+        case "INNER" -> cb.innerJoin(...);
+        default      -> // skip join
+    }
+}
+```
+
+---
+
+### ✅ CriteriaBuilder 내 적용 예
+
+```java
+Join<?, ?> join;
+if ("LEFT".equalsIgnoreCase(joinType)) {
+    join = root.join("device", JoinType.LEFT);
+} else if ("OUTER".equalsIgnoreCase(joinType)) {
+    join = root.join("app_event", JoinType.RIGHT); // or RIGHT OUTER depending on JPA provider
+} else if ("INNER".equalsIgnoreCase(joinType)) {
+    join = root.join("app_event", JoinType.INNER);
+} else {
+    join = null; // same-table reference, no join needed
+}
+```
+
+---
+
+### ✅ 요약
+
+| 구성 요소             | 설명                                                 |
+| ----------------- | -------------------------------------------------- |
+| `joinType`        | `LEFT`, `OUTER`, `INNER`, `NONE` 등의 문자열로 조인 방식 명시  |
+| `JoinTarget`      | `target`, `label`, `joinType` 포함                   |
+| `JoinEdge`        | join graph 를 표현할 때 `targetKey` + `joinType` 구조로 확장 |
+| `CriteriaBuilder` | 이 정보를 기반으로 동적 조인 수행 가능                             |
+
+---
+
+필요하시면 `JoinEdge` 기반의 `JoinGraphUtil` 업데이트 코드도 제공드릴게요. 진행할까요?
+
+
+
+
+--------------------------
+
 좋습니다. `group` 이름에 따라 `category`와 그 안의 `fields` 목록만 추출하고 싶다면 아래와 같은 메서드를 제공할 수 있습니다:
 
 ---
