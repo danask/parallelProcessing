@@ -1,3 +1,32 @@
+```yaml
+dde:
+  measure:
+    mv_app_usage:
+      label: "App Usage Daily"
+      fields:
+        totalRunTime:
+          label: "Total Run Time"
+          metric:
+            sum: "Sum (EA)"
+            avg: "Avg (%)"
+          operator:
+            lt: "<"
+            eq: "="
+            gt: ">"
+          joins:
+            measure:
+              - target: "measure:mv_app_usage:foreground_usage"
+                joinType: "left"
+                on: "app_id = app_id"
+            dimension:
+              - target: "dimension:device:device_id"
+                joinType: "inner"
+                on: "device_id = device_id"
+              - target: "dimension:app:app_name"
+                joinType: "left"
+                on: "app_name = app_name"
+
+```
 ```java
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
