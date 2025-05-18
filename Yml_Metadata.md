@@ -1,4 +1,216 @@
 
+``` java
+
+// JoinTarget.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinTarget {
+    private String target;    // 예: "dimension:device:device_id"
+    private String joinType;  // 예: "LEFT", "OUTER", "NONE"
+    private String on;        // 예: "app_usage:device_id = device:dev_id"
+}
+
+// JoinRelation.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinRelation {
+    private List<JoinTarget> measure;
+    private List<JoinTarget> dimension;
+    private List<JoinTarget> filter;
+}
+
+// FieldConfig.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class FieldConfig {
+    private String label;
+    private Map<String, String> operator;
+    private JoinRelation joins;
+}
+
+// JoinFieldInfo.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class JoinFieldInfo {
+    private String group;
+    private String category;
+    private String field;
+    private String label;
+    private Map<String, String> operator;
+
+    private String joinType; // 추가
+    private String on;       // 추가
+}
+
+// JoinRecommendationResponse.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class JoinRecommendationResponse {
+    private List<JoinFieldInfo> measure = new ArrayList<>();
+    private List<JoinFieldInfo> dimension = new ArrayList<>();
+    private List<JoinFieldInfo> filter = new ArrayList<>();
+}
+
+// JoinUtil.java
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class JoinUtil {
+
+    public static JoinRecommendationResponse getJoinRecommendations(
+            String group, String category, String field,
+            Map<String, List<DdeMetadataProperties.JoinEdge>> graph,
+            DdeMetadataProperties dde
+    ) {
+        String fromKey = group + ":" + category + ":" + field;
+        List<DdeMetadataProperties.JoinEdge> connections = graph.getOrDefault(fromKey, List.of());
+
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        for (DdeMetadataProperties.JoinEdge edge : connections) {
+            JoinFieldInfo info = createJoinFieldInfo(edge.getTargetKey(), dde, false);
+            if (info == null) continue;
+
+            switch (info.getGroup()) {
+                case "measure" -> response.getMeasure().add(info);
+                case "dimension" -> response.getDimension().add(info);
+            }
+        }
+
+        FieldConfig source = dde.getFieldConfig(group, category, field);
+        if (source != null && source.getJoins() != null && source.getJoins().getFilter() != null) {
+            for (JoinTarget jt : source.getJoins().getFilter()) {
+                JoinFieldInfo info = createJoinFieldInfo(jt.getTarget(), dde, true);
+                if (info != null) {
+                    info.setJoinType(jt.getJoinType());
+                    info.setOn(jt.getOn());
+                    response.getFilter().add(info);
+                }
+            }
+        }
+
+        return response;
+    }
+
+    public static List<JoinFieldInfo> getAllFieldsByGroup(String group, DdeMetadataProperties dde) {
+        Map<String, CategoryConfig> groupMap = dde.getGroupMap(group);
+        if (groupMap == null) return List.of();
+
+        return groupMap.entrySet().stream()
+            .flatMap(entry -> entry.getValue().getFields().entrySet().stream()
+                .map(field -> new JoinFieldInfo(
+                    group,
+                    entry.getKey(),
+                    field.getKey(),
+                    field.getValue().getLabel(),
+                    field.getValue().getOperator(),
+                    null,
+                    null
+                ))
+            ).collect(Collectors.toList());
+    }
+
+    public static List<JoinFieldInfo> findFieldsByLabel(String label, DdeMetadataProperties dde) {
+        List<JoinFieldInfo> results = new ArrayList<>();
+        for (String group : List.of("dimension", "measure", "filter")) {
+            Map<String, CategoryConfig> groupMap = dde.getGroupMap(group);
+            for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                for (Map.Entry<String, FieldConfig> field : entry.getValue().getFields().entrySet()) {
+                    if (label.equalsIgnoreCase(field.getValue().getLabel())) {
+                        results.add(new JoinFieldInfo(
+                            group,
+                            entry.getKey(),
+                            field.getKey(),
+                            field.getValue().getLabel(),
+                            field.getValue().getOperator(),
+                            null,
+                            null
+                        ));
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    public static JoinFieldInfo getFieldInfo(String group, String category, String field, DdeMetadataProperties dde) {
+        FieldConfig fc = dde.getFieldConfig(group, category, field);
+        if (fc == null) return null;
+        return new JoinFieldInfo(group, category, field, fc.getLabel(), fc.getOperator(), null, null);
+    }
+
+    public static JoinFieldInfo getFieldInfo(String fullKey, DdeMetadataProperties dde, boolean includeOperator) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        return createJoinFieldInfo(fullKey, dde, includeOperator);
+    }
+
+    private static JoinFieldInfo createJoinFieldInfo(String fullKey, DdeMetadataProperties dde, boolean includeOperator) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String g = parts[0], cat = parts[1], fld = parts[2];
+        FieldConfig fc = dde.getFieldConfig(g, cat, fld);
+        if (fc == null) return null;
+        return new JoinFieldInfo(g, cat, fld, fc.getLabel(), includeOperator ? fc.getOperator() : null, null, null);
+    }
+}
+```
+
+
+```yaml
+joins:
+  measure:
+    - target: "measure:app_usage:foreground_usage"
+      joinType: NONE
+      on: "app_usage.device_id = device.dev_id"
+  dimension:
+    - target: "dimension:device:device_id"
+      joinType: LEFT
+      on: "app_usage.device_id = device.dev_id"
+  filter:
+    - target: "event:app_event:event_type"
+      joinType: OUTER
+      on: "app_usage.device_id = app_event.device_id"
+
+
+```
+
+--------------------
+
 ```java
 import lombok.Data;
 import lombok.AllArgsConstructor;
