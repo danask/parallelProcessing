@@ -1,3 +1,525 @@
+
+알겠어요!
+기존에 빠진 `getJoinRecommendations` 메서드와 `getCategoryAndFields` 메서드를 포함하고, `getFieldMetadata` 결과도 DTO로 처리하도록 리팩토링한 완전한 예시를 만들어드릴게요.
+
+---
+
+## 1. DTO 클래스들 추가
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+import java.util.Map;
+
+// JoinRecommendationResponse DTO
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinRecommendationResponse {
+    private List<String> target;
+    private String joinType;
+    private List<String> on;
+}
+
+// Field DTO (기존 FieldConfig에 UI나 API용 필드명 추가)
+@Data
+@AllArgsConstructor
+public class Field {
+    private String field;  // 필드 키
+    private String label;
+    private Map<String, String> metric;
+    private Map<String, String> operator;
+    private JoinTargets joins;
+}
+
+// CategoryWithFields DTO
+@Data
+@AllArgsConstructor
+public class CategoryWithFields {
+    private String category;
+    private String label;
+    private List<Field> fields;
+}
+
+// FieldMetadataResponse DTO (getFieldMetadata 결과용)
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class FieldMetadataResponse {
+    private String label;
+    private Map<String, String> operator;
+}
+```
+
+---
+
+## 2. JoinGraphUtil.java 수정 (메서드 포함)
+
+```java
+public class JoinGraphUtil {
+
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+        buildFromCategory("dimension", dde.getDimension(), graph);
+        buildFromCategory("filter", dde.getFilter(), graph);
+        buildFromCategory("measure", dde.getMeasure(), graph);
+        return graph;
+    }
+
+    private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String sourceKey, JoinTargets joins, Map<String, Set<String>> graph) {
+        addJoinList(sourceKey, joins.getMeasure(), graph);
+        addJoinList(sourceKey, joins.getDimension(), graph);
+        addJoinList(sourceKey, joins.getFilter(), graph);
+    }
+
+    private static void addJoinList(String sourceKey, List<String> targets, Map<String, Set<String>> graph) {
+        if (targets == null) return;
+        for (String target : targets) {
+            graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(target);
+        }
+    }
+
+    public static String toKey(String group, String category, String field) {
+        return group + ":" + category + ":" + field;
+    }
+
+    public static FieldConfig getFieldConfig(String group, String category, String field) {
+        Map<String, CategoryConfig> groupMap = getGroupMap(group);
+        if (groupMap == null) return null;
+        CategoryConfig categoryConfig = groupMap.get(category);
+        if (categoryConfig == null) return null;
+        return categoryConfig.getFields() != null ? categoryConfig.getFields().get(field) : null;
+    }
+
+    public static Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> DdeMetadataHolder.getInstance().getDdeMetadataProperties().getDimension();
+            case "measure" -> DdeMetadataHolder.getInstance().getDdeMetadataProperties().getMeasure();
+            case "filter" -> DdeMetadataHolder.getInstance().getDdeMetadataProperties().getFilter();
+            default -> null;
+        };
+    }
+
+    /** getFieldMetadata 메서드 DTO 리턴용으로 변경 */
+    public static FieldMetadataResponse getFieldMetadata(String group, String category, String field) {
+        FieldConfig field = getFieldConfig(group, category, field);
+        if (field == null) return new FieldMetadataResponse();
+        return new FieldMetadataResponse(field.getLabel(), field.getOperator());
+    }
+
+    /**
+     * 누락된 getJoinRecommendations 메서드 추가
+     * 필드의 join 추천 정보를 DTO로 반환
+     */
+    public JoinRecommendationResponse getJoinRecommendations(String group, String category, String field) {
+        FieldConfig fieldConfig = getFieldConfig(group, category, field);
+        if (fieldConfig == null || fieldConfig.getJoins() == null) {
+            return new JoinRecommendationResponse();
+        }
+
+        JoinTargets joins = fieldConfig.getJoins();
+        // 예시로 on 조건 변환 (convertOnCondition은 구현 필요)
+        List<String> convertedOn = joins.getOn() != null ?
+                joins.getOn().stream()
+                        .map(this::convertOnCondition)
+                        .toList() : List.of();
+
+        return new JoinRecommendationResponse(joins.getTarget(), joins.getJoinType(), convertedOn);
+    }
+
+    /** 
+     * 예시용 on 조건 변환 메서드 (실제 구현 필요)
+     */
+    private String convertOnCondition(String onCondition) {
+        // 여기서 변환 작업 진행
+        return onCondition;
+    }
+
+    /**
+     * getCategoryAndFields 메서드도 DTO로 반환하도록 수정
+     */
+    public List<CategoryWithFields> getCategoryAndFields(String group) {
+        Map<String, CategoryConfig> groupMap = getGroupMap(group);
+        if (groupMap == null) return Collections.emptyList();
+
+        return groupMap.entrySet().stream()
+                .map(e -> {
+                    String category = e.getKey();
+                    CategoryConfig catConfig = e.getValue();
+                    List<Field> fields = catConfig.getFields() != null ?
+                            catConfig.getFields().entrySet().stream()
+                                    .map(entry -> {
+                                        FieldConfig f = entry.getValue();
+                                        return new Field(
+                                                entry.getKey(),
+                                                f.getLabel(),
+                                                f.getMetric(),
+                                                f.getOperator(),
+                                                f.getJoins()
+                                        );
+                                    }).toList()
+                            : Collections.emptyList();
+                    return new CategoryWithFields(category, catConfig.getLabel(), fields);
+                }).toList();
+    }
+}
+```
+
+---
+
+### 주의:
+
+* `DdeMetadataHolder.getInstance().getDdeMetadataProperties()`는 싱글톤 또는 DI를 통해 `DdeMetadataProperties`를 얻는 예시로, 실제 환경에 맞게 바꾸세요.
+* `convertOnCondition` 내부 로직은 필요에 따라 구현해야 합니다.
+* `joins.getOn()`과 `joins.getTarget()`, `joins.getJoinType()` 필드는 기존에 DTO `JoinTargets`에 없던 필드라면 추가해야 합니다. (아래 참고)
+
+---
+
+## 3. JoinTargets.java 수정 (필요한 필드 추가)
+
+```java
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+public class JoinTargets {
+    private List<String> measure;
+    private List<String> dimension;
+    private List<String> filter;
+
+    // 추가 필드 예시
+    private List<String> on;       // 조인 조건 리스트
+    private List<String> target;   // 조인 대상
+    private String joinType;       // 조인 타입 (예: INNER, LEFT 등)
+}
+```
+
+---
+
+필요한 모든 기능 포함해서 완전한 코드 형태로 정리해 드렸습니다.
+필요하면 더 구체적으로 도와드릴 수 있어요!
+이대로 적용해 보시고 궁금한 점 알려주세요.
+
+
+
+네, 주신 기존 그래프 유틸리티(`JoinGraphUtil`) 코드와 메타데이터 설정(`DdeMetadataProperties` 및 관련 DTO들)을 포함한 전체 구조를 다시 정리해서,
+**Lombok 생성자 포함, full path 기준 조인 키 처리, 그래프 빌드 로직 모두 완전 통합한 파일들**로 깔끔하게 만들어 드리겠습니다.
+
+---
+
+# 1. DdeMetadataProperties.java (메타데이터 + 기능 포함)
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+
+    private Map<String, CategoryConfig> dimension;
+    private Map<String, CategoryConfig> filter;
+    private Map<String, CategoryConfig> measure;
+
+    /**
+     * group별 Map 가져오기
+     */
+    public Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            case "filter" -> filter;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    /**
+     * 카테고리 key 조회 by label
+     */
+    public String getCategoryKeyByLabel(String group, String label) {
+        return getGroupMap(group).entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+    }
+
+    /**
+     * 필드명 조회 by label
+     */
+    public String getFieldName(String group, String category, String label) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        return config.getFields().entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+    }
+
+    /**
+     * 필드 라벨 조회
+     */
+    public String getFieldLabel(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null ? field.getLabel() : null;
+    }
+
+    /**
+     * 필드 라벨 Map 조회
+     */
+    public Map<String, String> getFieldLabels(String group, String category) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return Map.of();
+        return config.getFields().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getLabel()));
+    }
+
+    /**
+     * 필드 메트릭 조회
+     */
+    public Map<String, String> getFieldMetrics(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return Map.of();
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null && field.getMetric() != null ? field.getMetric() : Map.of();
+    }
+
+    /**
+     * FieldConfig 조회
+     */
+    public FieldConfig getFieldConfig(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        return config != null ? config.getFields().get(fieldName) : null;
+    }
+
+    /**
+     * 그룹의 카테고리 라벨 리스트
+     */
+    public List<String> getCategoryLabels(String group) {
+        return getGroupMap(group).values().stream()
+                .map(CategoryConfig::getLabel)
+                .toList();
+    }
+
+    /**
+     * label로 그룹+카테고리 key 찾기 (전체 그룹 조회)
+     */
+    public String findCategoryByLabelAcrossGroups(String label) {
+        for (String group : List.of("dimension", "measure", "filter")) {
+            String match = getCategoryKeyByLabel(group, label);
+            if (match != null) return group + ":" + match;
+        }
+        return null;
+    }
+
+    /**
+     * label로 그룹+카테고리+필드 key 찾기
+     */
+    public String findFieldNameAcrossGroups(String categoryLabel, String fieldLabel) {
+        for (String group : List.of("dimension", "measure", "filter")) {
+            Map<String, CategoryConfig> groupMap = getGroupMap(group);
+            for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                if (categoryLabel.equalsIgnoreCase(entry.getValue().getLabel())) {
+                    String fieldKey = entry.getValue().getFields().entrySet().stream()
+                            .filter(f -> fieldLabel.equalsIgnoreCase(f.getValue().getLabel()))
+                            .map(Map.Entry::getKey)
+                            .findFirst().orElse(null);
+                    if (fieldKey != null) return group + ":" + entry.getKey() + ":" + fieldKey;
+                }
+            }
+        }
+        return null;
+    }
+}
+```
+
+---
+
+# 2. CategoryConfig.java
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+}
+```
+
+---
+
+# 3. FieldConfig.java
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric;
+    private Map<String, String> operator;
+    private JoinTargets joins;
+}
+```
+
+---
+
+# 4. JoinTargets.java
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinTargets {
+    private List<String> measure;
+    private List<String> dimension;
+    private List<String> filter;
+}
+```
+
+---
+
+# 5. JoinGraphUtil.java (그래프 빌드 및 메타데이터 접근 유틸)
+
+```java
+import java.util.*;
+
+public class JoinGraphUtil {
+
+    /**
+     * 전체 그룹(dimension, filter, measure)으로부터 조인 그래프 생성
+     * key: group:category:field
+     * value: set of 연결된 조인 대상 full key (string)
+     */
+    public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+        Map<String, Set<String>> graph = new HashMap<>();
+        buildFromCategory("dimension", dde.getDimension(), graph);
+        buildFromCategory("filter", dde.getFilter(), graph);
+        buildFromCategory("measure", dde.getMeasure(), graph);
+        return graph;
+    }
+
+    private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                String sourceKey = toKey(group, category, field);
+
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                if (fieldConfig.getJoins() != null) {
+                    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+                }
+            }
+        }
+    }
+
+    private static void addJoinsToGraph(String sourceKey, JoinTargets joins, Map<String, Set<String>> graph) {
+        addJoinList(sourceKey, joins.getMeasure(), graph);
+        addJoinList(sourceKey, joins.getDimension(), graph);
+        addJoinList(sourceKey, joins.getFilter(), graph);
+    }
+
+    private static void addJoinList(String sourceKey, List<String> targets, Map<String, Set<String>> graph) {
+        if (targets == null) return;
+        for (String target : targets) {
+            graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(target);
+        }
+    }
+
+    /**
+     * group:category:field 형식 키 생성
+     */
+    public static String toKey(String group, String category, String field) {
+        return group + ":" + category + ":" + field;
+    }
+
+    /**
+     * fullKey 기준 FieldConfig 조회
+     */
+    public static FieldConfig getFieldConfig(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        Map<String, CategoryConfig> groupMap = getGroupMap(group, dde);
+        if (groupMap == null) return null;
+        CategoryConfig categoryConfig = groupMap.get(category);
+        if (categoryConfig == null) return null;
+        return categoryConfig.getFields().get(field);
+    }
+
+    /**
+     * fullKey 기준 메타데이터 간단 조회 (label, operator)
+     */
+    public static Map<String, Object> getFieldMetadata(String fullKey, DdeMetadataProperties dde) {
+        FieldConfig field = getFieldConfig(fullKey, dde);
+        if (field == null) return Map.of();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("label", field.getLabel());
+        result.put("operator", field.getOperator());
+        return result;
+    }
+
+   
+```
+
+
 ```yaml
 dde:
   measure:
