@@ -1,5 +1,201 @@
 
+```java
+import lombok.Data;
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
 
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Data
+public class JoinAll {
+
+    // ===== JoinFieldInfo =====
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class JoinFieldInfo {
+        private String group;
+        private String category;
+        private String field;
+        private String label;
+        private Map<String, String> operator; // nullable
+    }
+
+    // ===== JoinRecommendationResponse =====
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class JoinRecommendationResponse {
+        private List<JoinFieldInfo> measure = new ArrayList<>();
+        private List<JoinFieldInfo> dimension = new ArrayList<>();
+        private List<JoinFieldInfo> filter = new ArrayList<>();
+    }
+
+    // ===== JoinUtil =====
+    public static class JoinUtil {
+
+        public static JoinRecommendationResponse getJoinRecommendations(
+                String group, String category, String field,
+                Map<String, List<DdeMetadataProperties.JoinEdge>> graph,
+                DdeMetadataProperties dde
+        ) {
+            String fromKey = group + ":" + category + ":" + field;
+            List<DdeMetadataProperties.JoinEdge> connections = graph.getOrDefault(fromKey, List.of());
+
+            JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+            for (DdeMetadataProperties.JoinEdge edge : connections) {
+                JoinFieldInfo info = createJoinFieldInfo(edge.getTargetKey(), dde, false);
+                if (info == null) continue;
+
+                switch (info.getGroup()) {
+                    case "measure" -> response.getMeasure().add(info);
+                    case "dimension" -> response.getDimension().add(info);
+                    case "filter" -> response.getFilter().add(info);
+                }
+            }
+
+            FieldConfig source = dde.getFieldConfig(group, category, field);
+            if (source != null && source.getJoins() != null && source.getJoins().getFilter() != null) {
+                for (JoinTarget jt : source.getJoins().getFilter()) {
+                    JoinFieldInfo info = createJoinFieldInfo(jt.getTarget(), dde, true);
+                    if (info != null) {
+                        response.getFilter().add(info);
+                    }
+                }
+            }
+
+            return response;
+        }
+
+        public static List<JoinFieldInfo> getAllFieldsByGroup(String group, DdeMetadataProperties dde) {
+            Map<String, CategoryConfig> groupMap = dde.getGroupMap(group);
+            if (groupMap == null) return List.of();
+
+            return groupMap.entrySet().stream()
+                    .flatMap(entry -> entry.getValue().getFields().entrySet().stream()
+                            .map(field -> new JoinFieldInfo(
+                                    group,
+                                    entry.getKey(),
+                                    field.getKey(),
+                                    field.getValue().getLabel(),
+                                    field.getValue().getOperator()
+                            ))
+                    ).collect(Collectors.toList());
+        }
+
+        public static List<JoinFieldInfo> findFieldsByLabel(String label, DdeMetadataProperties dde) {
+            List<JoinFieldInfo> results = new ArrayList<>();
+            for (String group : List.of("dimension", "measure", "filter")) {
+                Map<String, CategoryConfig> groupMap = dde.getGroupMap(group);
+                if (groupMap == null) continue;
+                for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                    for (Map.Entry<String, FieldConfig> field : entry.getValue().getFields().entrySet()) {
+                        if (label.equalsIgnoreCase(field.getValue().getLabel())) {
+                            results.add(new JoinFieldInfo(
+                                    group,
+                                    entry.getKey(),
+                                    field.getKey(),
+                                    field.getValue().getLabel(),
+                                    field.getValue().getOperator()
+                            ));
+                        }
+                    }
+                }
+            }
+            return results;
+        }
+
+        public static JoinFieldInfo getFieldInfo(String group, String category, String field, DdeMetadataProperties dde) {
+            FieldConfig fc = dde.getFieldConfig(group, category, field);
+            if (fc == null) return null;
+            return new JoinFieldInfo(group, category, field, fc.getLabel(), fc.getOperator());
+        }
+
+        public static JoinFieldInfo getFieldInfo(String fullKey, DdeMetadataProperties dde, boolean includeOperator) {
+            String[] parts = fullKey.split(":");
+            if (parts.length != 3) return null;
+            return createJoinFieldInfo(fullKey, dde, includeOperator);
+        }
+
+        private static JoinFieldInfo createJoinFieldInfo(String fullKey, DdeMetadataProperties dde, boolean includeOperator) {
+            String[] parts = fullKey.split(":");
+            if (parts.length != 3) return null;
+            String g = parts[0], cat = parts[1], fld = parts[2];
+            FieldConfig fc = dde.getFieldConfig(g, cat, fld);
+            if (fc == null) return null;
+            return new JoinFieldInfo(g, cat, fld, fc.getLabel(), includeOperator ? fc.getOperator() : null);
+        }
+    }
+
+    // ===== DdeMetadataProperties =====
+    @Data
+    public static class DdeMetadataProperties {
+        private Map<String, Map<String, CategoryConfig>> groups;
+
+        public Map<String, CategoryConfig> getGroupMap(String group) {
+            return groups.get(group);
+        }
+
+        public FieldConfig getFieldConfig(String group, String category, String field) {
+            if (groups == null) return null;
+            Map<String, CategoryConfig> categoryMap = groups.get(group);
+            if (categoryMap == null) return null;
+            CategoryConfig catConfig = categoryMap.get(category);
+            if (catConfig == null) return null;
+            return catConfig.getFields().get(field);
+        }
+
+        @Data
+        public static class JoinEdge {
+            private String sourceKey;
+            private String targetKey;
+
+            public JoinEdge() {}
+
+            public JoinEdge(String sourceKey, String targetKey) {
+                this.sourceKey = sourceKey;
+                this.targetKey = targetKey;
+            }
+        }
+    }
+
+    // ===== CategoryConfig =====
+    @Data
+    public static class CategoryConfig {
+        private Map<String, FieldConfig> fields;
+    }
+
+    // ===== FieldConfig =====
+    @Data
+    public static class FieldConfig {
+        private String label;
+        private Map<String, String> operator;
+        private JoinTargets joins;
+    }
+
+    // ===== JoinTargets =====
+    @Data
+    public static class JoinTargets {
+        private List<JoinTarget> filter;
+        private List<JoinTarget> measure;
+        private List<JoinTarget> dimension;
+    }
+
+    // ===== JoinTarget =====
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class JoinTarget {
+        private String target;
+    }
+}
+
+
+```
+
+--------------
 
 ``` java
 
