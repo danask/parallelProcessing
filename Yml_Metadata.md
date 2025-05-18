@@ -1,4 +1,175 @@
+```java
+// JoinFieldInfo.java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class JoinFieldInfo {
+    private String group;
+    private String category;
+    private String field;
+    private String label;
+    private Map<String, String> operator; // nullable
+    private String joinType;              // nullable
+    private String on;                    // nullable
+}
+
+
+// JoinTarget.java
+import lombok.Data;
+
+@Data
+public class JoinTarget {
+    private String target;     // e.g., "dimension:device:device_id"
+    private String joinType;   // e.g., "LEFT"
+    private String on;         // e.g., "app_usage:device_id = device:dev_id"
+}
+
+
+// JoinConfig.java
+import lombok.Data;
+
+import java.util.List;
+
+@Data
+public class JoinConfig {
+    private List<JoinTarget> measure;
+    private List<JoinTarget> dimension;
+    private List<JoinTarget> filter;
+}
+
+
+// FieldConfig.java
+import lombok.Data;
+
+import java.util.Map;
+
+@Data
+public class FieldConfig {
+    private String label;
+    private Map<String, String> operator;
+    private Map<String, String> metric;
+    private JoinConfig joins;
+}
+
+
+// CategoryConfig.java
+import lombok.Data;
+
+import java.util.Map;
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+}
+
+
+// DdeMetadataProperties.java
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Data
+@ConfigurationProperties(prefix = "dde")
+public class DdeMetadataProperties {
+    private Map<String, CategoryConfig> dimension;
+    private Map<String, CategoryConfig> filter;
+    private Map<String, CategoryConfig> measure;
+
+    public Map<String, CategoryConfig> getGroupMap(String group) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dimension;
+            case "measure" -> measure;
+            case "filter" -> filter;
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+
+    public String getCategoryKeyByLabel(String group, String label) {
+        return getGroupMap(group).entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+    }
+
+    public String getFieldName(String group, String category, String label) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        return config.getFields().entrySet().stream()
+                .filter(e -> label.equalsIgnoreCase(e.getValue().getLabel()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+    }
+
+    public String getFieldLabel(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return null;
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null ? field.getLabel() : null;
+    }
+
+    public Map<String, String> getFieldLabels(String group, String category) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null || config.getFields() == null) return Map.of();
+        return config.getFields().entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getLabel()));
+    }
+
+    public Map<String, String> getFieldMetrics(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        if (config == null) return Map.of();
+        FieldConfig field = config.getFields().get(fieldName);
+        return field != null && field.getMetric() != null ? field.getMetric() : Map.of();
+    }
+
+    public FieldConfig getFieldConfig(String group, String category, String fieldName) {
+        CategoryConfig config = getGroupMap(group).get(category);
+        return config != null ? config.getFields().get(fieldName) : null;
+    }
+
+    public List<String> getCategoryLabels(String group) {
+        return getGroupMap(group).values().stream()
+                .map(CategoryConfig::getLabel)
+                .toList();
+    }
+
+    public String findCategoryByLabelAcrossGroups(String label) {
+        for (String group : List.of("dimension", "measure", "filter")) {
+            String match = getCategoryKeyByLabel(group, label);
+            if (match != null) return group + ":" + match;
+        }
+        return null;
+    }
+
+    public String findFieldNameAcrossGroups(String categoryLabel, String fieldLabel) {
+        for (String group : List.of("dimension", "measure", "filter")) {
+            Map<String, CategoryConfig> groupMap = getGroupMap(group);
+            for (Map.Entry<String, CategoryConfig> entry : groupMap.entrySet()) {
+                if (categoryLabel.equalsIgnoreCase(entry.getValue().getLabel())) {
+                    String fieldKey = entry.getValue().getFields().entrySet().stream()
+                            .filter(f -> fieldLabel.equalsIgnoreCase(f.getValue().getLabel()))
+                            .map(Map.Entry::getKey)
+                            .findFirst().orElse(null);
+                    if (fieldKey != null) return group + ":" + entry.getKey() + ":" + fieldKey;
+                }
+            }
+        }
+        return null;
+    }
+}
+
+
+```
+--------------------
 ``` java
 
 // JoinTarget.java
