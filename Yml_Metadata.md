@@ -1,81 +1,8 @@
 ```java
-// JoinFieldInfo.java
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-import java.util.Map;
-
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class JoinFieldInfo {
-    private String group;
-    private String category;
-    private String field;
-    private String label;
-    private Map<String, String> operator; // nullable
-    private String joinType;              // nullable
-    private String on;                    // nullable
-}
-
-
-// JoinTarget.java
-import lombok.Data;
-
-@Data
-public class JoinTarget {
-    private String target;     // e.g., "dimension:device:device_id"
-    private String joinType;   // e.g., "LEFT"
-    private String on;         // e.g., "app_usage:device_id = device:dev_id"
-}
-
-
-// JoinConfig.java
-import lombok.Data;
-
-import java.util.List;
-
-@Data
-public class JoinConfig {
-    private List<JoinTarget> measure;
-    private List<JoinTarget> dimension;
-    private List<JoinTarget> filter;
-}
-
-
-// FieldConfig.java
-import lombok.Data;
-
-import java.util.Map;
-
-@Data
-public class FieldConfig {
-    private String label;
-    private Map<String, String> operator;
-    private Map<String, String> metric;
-    private JoinConfig joins;
-}
-
-
-// CategoryConfig.java
-import lombok.Data;
-
-import java.util.Map;
-
-@Data
-public class CategoryConfig {
-    private String label;
-    private Map<String, FieldConfig> fields;
-}
-
-
-// DdeMetadataProperties.java
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Data
@@ -164,6 +91,81 @@ public class DdeMetadataProperties {
             }
         }
         return null;
+    }
+
+    public List<CategoryFieldsDto> getCategoryAndFields(String group) {
+        Map<String, CategoryConfig> groupMap = getGroupMap(group);
+        List<CategoryFieldsDto> result = new ArrayList<>();
+        for (Map.Entry<String, CategoryConfig> categoryEntry : groupMap.entrySet()) {
+            String category = categoryEntry.getKey();
+            CategoryConfig config = categoryEntry.getValue();
+            Map<String, FieldConfig> fields = config.getFields();
+            if (fields == null) continue;
+
+            List<FieldDto> fieldList = new ArrayList<>();
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                FieldConfig fc = fieldEntry.getValue();
+                fieldList.add(new FieldDto(fieldEntry.getKey(), fc.getLabel(), fc.getMetric(), fc.getOperator(), fc.getJoins()));
+            }
+            result.add(new CategoryFieldsDto(category, config.getLabel(), fieldList));
+        }
+        return result;
+    }
+
+    public JoinRecommendationResponse getJoinRecommendations(String group, String category, String fieldName) {
+        FieldConfig config = getFieldConfig(group, category, fieldName);
+        if (config == null || config.getJoins() == null) return new JoinRecommendationResponse();
+        JoinTargets joins = config.getJoins();
+        return new JoinRecommendationResponse(joins.getTarget(), joins.getJoinType(), joins.getOn());
+    }
+}
+
+@Data
+class JoinRecommendationResponse {
+    private List<String> target;
+    private List<String> joinType;
+    private List<String> on;
+
+    public JoinRecommendationResponse() {
+        this.target = new ArrayList<>();
+        this.joinType = new ArrayList<>();
+        this.on = new ArrayList<>();
+    }
+
+    public JoinRecommendationResponse(List<String> target, List<String> joinType, List<String> on) {
+        this.target = target != null ? target : new ArrayList<>();
+        this.joinType = joinType != null ? joinType : new ArrayList<>();
+        this.on = on != null ? on : new ArrayList<>();
+    }
+}
+
+@Data
+class CategoryFieldsDto {
+    private String category;
+    private String label;
+    private List<FieldDto> fields;
+
+    public CategoryFieldsDto(String category, String label, List<FieldDto> fields) {
+        this.category = category;
+        this.label = label;
+        this.fields = fields;
+    }
+}
+
+@Data
+class FieldDto {
+    private String field;
+    private String label;
+    private Map<String, String> metric;
+    private List<String> operator;
+    private JoinTargets joins;
+
+    public FieldDto(String field, String label, Map<String, String> metric, List<String> operator, JoinTargets joins) {
+        this.field = field;
+        this.label = label;
+        this.metric = metric;
+        this.operator = operator;
+        this.joins = joins;
     }
 }
 
