@@ -1,3 +1,123 @@
+```java
+
+import java.util.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinRecommendation {
+    private String from;  // e.g., "dimension:device:device_id"
+    private String to;    // e.g., "dimension:app:app_name"
+    private String joinType;
+    private String on;
+}
+
+public class JoinGraphUtil {
+
+    public static List<JoinRecommendation> getJoinRecommendations(List<String> startKeys, Map<String, Set<String>> graph) {
+        List<JoinRecommendation> recommendations = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>(startKeys);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            if (visited.contains(current)) continue;
+            visited.add(current);
+
+            FieldConfig currentField = getFieldConfig(current);
+            if (currentField == null || currentField.getJoins() == null) continue;
+
+            for (Map.Entry<String, List<JoinDetail>> entry : currentField.getJoins().asMap().entrySet()) {
+                String group = entry.getKey();
+                List<JoinDetail> joinList = entry.getValue();
+                if (joinList == null) continue;
+
+                for (JoinDetail join : joinList) {
+                    String target = join.getTarget();
+                    if (!visited.contains(target)) queue.add(target);
+
+                    String on = convertToFullPathOn(current, target, join.getOn());
+
+                    recommendations.add(new JoinRecommendation(
+                            current,
+                            target,
+                            join.getJoinType(),
+                            on
+                    ));
+                }
+            }
+
+            Set<String> neighbors = graph.getOrDefault(current, Set.of());
+            for (String neighbor : neighbors) {
+                if (!visited.contains(neighbor)) queue.add(neighbor);
+            }
+        }
+
+        return recommendations;
+    }
+
+    private static String convertToFullPathOn(String from, String to, String on) {
+        // Example: "device_id = device_id" => "dimension:device:device_id = dimension:app:device_id"
+        String[] parts = on.split("=");
+        if (parts.length != 2) return on;
+        String left = parts[0].trim();
+        String right = parts[1].trim();
+
+        String fromLeft = from.substring(0, from.lastIndexOf(":")) + ":" + left;
+        String toRight = to.substring(0, to.lastIndexOf(":")) + ":" + right;
+
+        return fromLeft + " = " + toRight;
+    }
+
+    // Dummy stub: Replace this with your actual implementation
+    public static FieldConfig getFieldConfig(String fullKey) {
+        return null;
+    }
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+class JoinDetail {
+    private String target;     // full path: e.g., "dimension:app:app_name"
+    private String joinType;   // e.g., "inner", "left"
+    private String on;         // e.g., "device_id = device_id"
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+class JoinTargets {
+    private List<JoinDetail> measure;
+    private List<JoinDetail> dimension;
+    private List<JoinDetail> filter;
+
+    public Map<String, List<JoinDetail>> asMap() {
+        Map<String, List<JoinDetail>> map = new LinkedHashMap<>();
+        if (measure != null) map.put("measure", measure);
+        if (dimension != null) map.put("dimension", dimension);
+        if (filter != null) map.put("filter", filter);
+        return map;
+    }
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+class FieldConfig {
+    private String label;
+    private Map<String, String> metric;
+    private Map<String, String> operator;
+    private JoinTargets joins;
+}
+
+
+```
+
+------
 
 좋아요! `getJoinRecommendations` 메소드에서 깊이 우선 탐색(DFS)을 너비 우선 탐색(BFS)으로 변경한 버전을 아래에 전체 코드로 제공드릴게요.
 
