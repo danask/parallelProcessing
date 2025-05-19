@@ -1,3 +1,124 @@
+
+빌드 에러가 발생하는 이유는 거의 확실히 **YAML 구조와 Java 클래스(`FieldConfig`, `JoinTargets`) 간의 불일치** 때문입니다. 특히 이 부분이 문제입니다:
+
+```yaml
+joins:
+  measure:
+    - target: "measure:mv_app_usage:foreground_usage"
+      joinType: "left"
+      on: "measure:mv_app_usage:app_id = dimension:package:app_id"
+```
+
+Java에서 `FieldConfig.joins` 필드는 `JoinTargets` 타입인데, 이 클래스는 내부에 이렇게 되어 있죠:
+
+```java
+private List<JoinDetail> measure;
+private List<JoinDetail> dimension;
+private List<JoinDetail> filter;
+```
+
+즉, YAML에선 `joins.measure`가 `List<JoinDetail>` 여야 합니다.
+**하지만 YAML에서 `joins.measure`가 `Map<String, Object>`처럼 해석되고 있을 가능성**이 높습니다. 이유는 다음과 같습니다:
+
+---
+
+### 🔍 문제 요약
+
+```yaml
+joins:
+  measure:
+    - target: ...
+```
+
+이 구조는 Spring Boot 또는 Jackson이 파싱할 때 문제 없이 `List<JoinDetail>`로 바꾸는 게 맞지만, 문제는 상위 구조입니다. `joins`는 `JoinTargets`이고, 이 객체를 Jackson이 직렬화할 때 예상하는 형식은 다음과 같아야 합니다:
+
+```yaml
+joins:
+  measure:
+    - target: ...
+      joinType: ...
+      on: ...
+  dimension:
+    - ...
+```
+
+이 경우 일반적으로 **`JoinTargets` 클래스가 정확히 등록되어야 하고, 파서가 이를 `FieldConfig`에 바인딩 가능해야** 합니다. 하지만 `FieldConfig.getJoins()`가 `JoinTargets`가 아닌 `Map`을 리턴하도록 오버라이드하면 타입 매칭이 안 되어 빌드 에러 또는 런타임 오류가 납니다.
+
+---
+
+### ✅ 해결 방법
+
+#### 1. `FieldConfig.getJoins()` 메서드 잘못된 부분 확인
+
+지금 `getJoinRecommendations()`에서는 다음과 같이 사용 중입니다:
+
+```java
+if (currentField == null || currentField.getJoins() == null) continue;
+
+for (Map.Entry<String, List<JoinDetail>> entry : currentField.getJoins().asMap().entrySet()) {
+```
+
+즉, `joins`는 반드시 `JoinTargets` 타입이어야 하고, 그 내부 필드는 `List<JoinDetail>` 여야 합니다.
+
+**→ `FieldConfig.getJoins()`를 `Map<String, List<JoinDetail>>`로 만들면 안 됩니다.**
+
+#### 2. YAML 구조가 잘못되었을 가능성
+
+지금 이 부분을 보세요:
+
+```yaml
+on: "dimension:device:device_id = dimension:device:device_id"
+```
+
+위 표현도 문제가 될 수 있습니다. 일반적으로 `"x = x"`는 쓸모가 없거나, 의미가 모호할 수 있습니다. **동일한 값을 비교하는 조인은 대부분 의미 없는 동등조건**으로 간주될 수 있어 필터링 대상이 됩니다. 더군다나 값에 `:`이 들어가면 YAML 해석에서 혼란을 줄 수 있으니 꼭 **문자열 전체를 쌍따옴표로 감싸주세요.**
+
+---
+
+### 🧪 정리된 예시 YAML
+
+```yaml
+dde:
+  measure:
+    mv_app_usage:
+      label: "App Usage Daily"
+      fields:
+        totalRunTime:
+          label: "Total Run Time"
+          metric:
+            sum: "Sum (EA)"
+            avg: "Avg (%)"
+          operator:
+            lt: "<"
+            eq: "="
+            gt: ">"
+          joins:
+            measure:
+              - target: "measure:mv_app_usage:foreground_usage"
+                joinType: "left"
+                on: "measure:mv_app_usage:app_id = dimension:package:app_id"
+            dimension:
+              - target: "dimension:device:device_id"
+                joinType: "inner"
+                on: "dimension:device:device_id = dimension:device:device_id"
+              - target: "dimension:app:app_name"
+                joinType: "left"
+                on: "dimension:app:app_name = dimension:app:app_name"
+```
+
+---
+
+### ✅ 점검 포인트
+
+* `FieldConfig.joins` → `JoinTargets` 타입인지 확인
+* `JoinTargets` 내부는 `List<JoinDetail>`인지 확인
+* YAML 구조가 그에 맞게 `joins.measure`, `joins.dimension`이 배열로 돼 있는지 확인
+* `application.yml` 전체에 `tabs` 대신 `spaces`만 사용하고 있는지 확인
+
+---
+
+필요하면 해당 YAML에 맞춰 전체 DTO 구조를 다시 정리해드릴게요. 원하시면 말씀 주세요!
+
+
 ```java
 
 import java.util.*;
