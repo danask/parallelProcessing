@@ -1,4 +1,114 @@
 
+YAML 빌드 시 에러가 나는 기준은 **메서드가 아니라 DTO 클래스의 필드 구조**입니다. 즉, YAML을 Java 객체로 매핑하는 과정에서 스프링이나 SnakeYAML은 다음을 기준으로 에러 여부를 판단합니다:
+
+---
+
+### ✅ 빌드 오류 판단 기준
+
+1. **타겟 클래스 (예: `@ConfigurationProperties`로 바인딩되는 DTO)**
+   → `FieldConfig`, `CategoryConfig`, `DdeMetadataProperties` 같은 DTO 클래스
+
+2. **DTO 내부의 필드 이름과 타입이 YAML 구조와 일치하는지**
+   → 예: YAML에 `joins: { measure: [...] }`인데 DTO가 `Map<String, List<JoinDetail>>`가 아니면 에러
+
+3. **중첩 구조가 DTO에 없는데 YAML에 있는 경우**
+   → 예: DTO에 `joins` 필드가 없는데 YAML에 `joins:`가 있으면 "unrecognized field" 오류 발생
+
+4. **잘못된 리스트 구조**
+   → 예: YAML에 리스트가 필요한데 객체처럼 정의하거나, 객체가 필요한데 리스트로 쓰면 오류
+
+5. **타입 불일치**
+   → 예: YAML에서 `sum: 123`인데 Java에서 `Map<String, String>`이면 타입 미스매치 오류
+
+---
+
+### ⚠️ 예시로 보는 문제 구조
+
+#### ❌ 잘못된 경우: YAML
+
+```yaml
+joins:
+  measure:
+    target: "..."
+    joinType: "..."
+    on: "..."
+```
+
+#### 🧨 에러 메시지 예측
+
+> `Cannot construct instance of java.util.List` (expected list but found object)
+
+---
+
+### ✅ 올바른 DTO 매핑 구조 예시
+
+#### YAML 구조
+
+```yaml
+dde:
+  measure:
+    mv_app_usage:
+      fields:
+        totalRunTime:
+          label: "Total Run Time"
+          metric:
+            sum: "Sum (EA)"
+          joins:
+            measure:
+              - target: "..."
+                joinType: "left"
+                on: "..."
+            dimension:
+              - target: "..."
+                joinType: "inner"
+                on: "..."
+```
+
+#### DTO 구조
+
+```java
+@Data
+public class DdeMetadataProperties {
+    private Map<String, Map<String, CategoryConfig>> dde;
+}
+
+@Data
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+}
+
+@Data
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric;
+    private Map<String, String> operator;
+
+    // YAML에 맞게 수정
+    private Map<String, List<JoinDetail>> joins;
+}
+
+@Data
+public class JoinDetail {
+    private String target;
+    private String joinType;
+    private String on;
+}
+```
+
+---
+
+### ✅ 결론: 어디서 판단하는가?
+
+* **YAML 바인딩 시점**에 DTO 클래스 기준으로 오류 판단
+* DTO 클래스에 정의되지 않은 필드가 있거나, 타입 불일치가 있으면 **build 시 실패**
+* 메서드는 전혀 상관없음
+
+---
+
+필요하시면 현재 사용하는 `DdeMetadataProperties`, `CategoryConfig`, `FieldConfig` 구조를 전체 점검해서 YAML과 완전히 매칭되도록 만들어 드릴 수 있습니다. 원하시면 YAML 구조 예시와 함께 다시 알려주세요.
+
+
 빌드 에러가 발생하는 이유는 거의 확실히 **YAML 구조와 Java 클래스(`FieldConfig`, `JoinTargets`) 간의 불일치** 때문입니다. 특히 이 부분이 문제입니다:
 
 ```yaml
