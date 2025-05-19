@@ -1,4 +1,112 @@
 
+좋아요. 현재 YAML 구조에 맞춰서 매핑할 수 있는 **DTO 클래스들 전체 구조**를 정리해드릴게요.
+
+---
+
+### ✅ 최종 DTO 구조 (YAML 매핑 전용)
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+import java.util.Map;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class DdeMetadataProperties {
+    private Map<String, Map<String, CategoryConfig>> dde;
+}
+```
+
+---
+
+### ✅ CategoryConfig
+
+```java
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class CategoryConfig {
+    private String label;
+    private Map<String, FieldConfig> fields;
+}
+```
+
+---
+
+### ✅ FieldConfig
+
+```java
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class FieldConfig {
+    private String label;
+    private Map<String, String> metric;            // e.g., sum, avg 등
+    private Map<String, String> operator;          // e.g., lt, gt 등
+    private Map<String, List<JoinConfig>> joins;   // key: measure, dimension, filter
+}
+```
+
+---
+
+### ✅ JoinConfig
+
+```java
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinConfig {
+    private String target;     // e.g., "measure:device:deviceCount"
+    private String joinType;   // e.g., "left", "inner"
+    private String on;         // e.g., "dimension:device:deviceId = measure:device:deviceCount.deviceId"
+}
+```
+
+---
+
+### ✅ 바인딩 예시 (정상적으로 매핑되는 구조)
+
+```yaml
+dde:
+  dimension:
+    device:
+      label: "Device"
+      fields:
+        deviceId:
+          label: "Device ID"
+          metric: {}
+          operator:
+            eq: "="
+          joins:
+            measure:
+              - target: "measure:device:deviceCount"
+                joinType: "left"
+                on: "dimension:device:deviceId = measure:device:deviceCount.deviceId"
+            dimension:
+              - target: "measure:device:deviceModel"
+                joinType: "left"
+                on: "dimension:device:deviceId = measure:device:deviceCount.deviceId"
+```
+
+---
+
+### ⚠️ 주의사항
+
+* `JoinConfig` 필드명은 YAML 키와 **정확히 일치**해야 합니다 (`target`, `joinType`, `on`)
+* `joins`는 반드시 `Map<String, List<JoinConfig>>` 형태여야 하며, `measure`, `dimension`, `filter` 키가 들어감
+* `deviceId`, `deviceModel`은 `fields` 아래에 오고 그 안에 `joins`가 들어가야 함
+
+---
+
+이 구조로 맞춰도 여전히 문제가 있다면, 정확한 **에러 메시지**나 **스택 트레이스**를 보여주시면 원인을 더 정확히 짚어드릴 수 있습니다.
+
+
+-----
+
 YAML 빌드 시 에러가 나는 기준은 **메서드가 아니라 DTO 클래스의 필드 구조**입니다. 즉, YAML을 Java 객체로 매핑하는 과정에서 스프링이나 SnakeYAML은 다음을 기준으로 에러 여부를 판단합니다:
 
 ---
