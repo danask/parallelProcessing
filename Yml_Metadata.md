@@ -1,3 +1,56 @@
+
+```java
+public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+    Map<String, Set<String>> graph = new HashMap<>();
+    buildFromCategory("dimension", dde.getDimension(), graph);
+    buildFromCategory("filter", dde.getFilter(), graph);
+    buildFromCategory("measure", dde.getMeasure(), graph);
+    return graph;
+}
+
+private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+    if (map == null) return;
+
+    for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+        String category = categoryEntry.getKey();
+        Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+        if (fields == null) continue;
+
+        for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+            String field = fieldEntry.getKey();
+            String sourceKey = toKey(group, category, field);
+
+            FieldConfig fieldConfig = fieldEntry.getValue();
+            if (fieldConfig.getJoins() != null) {
+                addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+            }
+        }
+    }
+}
+
+private static void addJoinsToGraph(String sourceKey, Map<String, List<JoinConfig>> joins, Map<String, Set<String>> graph) {
+    if (joins == null) return;
+
+    for (Map.Entry<String, List<JoinConfig>> entry : joins.entrySet()) {
+        List<JoinConfig> joinList = entry.getValue();
+        if (joinList == null) continue;
+
+        for (JoinConfig join : joinList) {
+            String target = join.getTarget();
+            if (target != null && !target.isEmpty()) {
+                graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(target);
+            }
+        }
+    }
+}
+
+public static String toKey(String group, String category, String field) {
+    return group + ":" + category + ":" + field;
+}
+
+
+```
+
 지금 구조에서 `FieldConfig`는 `joins`를 다음과 같이 정의하고 있습니다:
 
 ```java
