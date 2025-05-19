@@ -1,4 +1,123 @@
 
+좋습니다. `getJoinRecommendations` 메소드에서 `Map<String, Object>` 같은 구조를 사용하지 않고, 전용 엔티티 클래스를 사용하는 방식으로 리팩토링한 전체 코드를 아래에 정리했습니다.
+
+---
+
+### 🔧 1. `JoinRecommendation.java`
+
+```java
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@Data
+@AllArgsConstructor
+public class JoinRecommendation {
+    private String source;
+    private String target;
+    private String joinType;
+    private String on;
+}
+```
+
+---
+
+### 🔧 2. `JoinGraphUtil.java` (업데이트된 부분 포함)
+
+```java
+public class JoinGraphUtil {
+
+    public static List<JoinRecommendation> getJoinRecommendations(List<String> keys, DdeMetadataProperties dde) {
+        Set<String> visited = new HashSet<>();
+        Set<String> result = new LinkedHashSet<>();
+        List<JoinRecommendation> recommendations = new ArrayList<>();
+
+        for (String key : keys) {
+            dfsWithRecommendation(key, dde, visited, result, recommendations);
+        }
+        return recommendations;
+    }
+
+    private static void dfsWithRecommendation(
+            String currentKey,
+            DdeMetadataProperties dde,
+            Set<String> visited,
+            Set<String> result,
+            List<JoinRecommendation> recommendations
+    ) {
+        if (visited.contains(currentKey)) return;
+        visited.add(currentKey);
+
+        FieldConfig field = getFieldConfig(currentKey, dde);
+        if (field != null && field.getJoins() != null) {
+            if (field.getJoins().getMeasure() != null) {
+                for (JoinConfig join : field.getJoins().getMeasure()) {
+                    recommendations.add(new JoinRecommendation(
+                            currentKey, join.getTarget(), join.getJoinType(), join.getOn()));
+                    dfsWithRecommendation(join.getTarget(), dde, visited, result, recommendations);
+                }
+            }
+            if (field.getJoins().getDimension() != null) {
+                for (JoinConfig join : field.getJoins().getDimension()) {
+                    recommendations.add(new JoinRecommendation(
+                            currentKey, join.getTarget(), join.getJoinType(), join.getOn()));
+                    dfsWithRecommendation(join.getTarget(), dde, visited, result, recommendations);
+                }
+            }
+            if (field.getJoins().getFilter() != null) {
+                for (JoinConfig join : field.getJoins().getFilter()) {
+                    recommendations.add(new JoinRecommendation(
+                            currentKey, join.getTarget(), join.getJoinType(), join.getOn()));
+                    dfsWithRecommendation(join.getTarget(), dde, visited, result, recommendations);
+                }
+            }
+        }
+    }
+
+    // toKey, getFieldConfig 등 기존 메서드는 그대로 유지
+}
+```
+
+---
+
+### 🔧 3. `JoinTargets.java` (구조 변경)
+
+```java
+import lombok.Data;
+import java.util.List;
+
+@Data
+public class JoinTargets {
+    private List<JoinConfig> measure;
+    private List<JoinConfig> dimension;
+    private List<JoinConfig> filter;
+}
+```
+
+---
+
+### 🔧 4. `JoinConfig.java` (새 클래스)
+
+```java
+import lombok.Data;
+
+@Data
+public class JoinConfig {
+    private String target;
+    private String joinType;
+    private String on;
+}
+```
+
+---
+
+이제 YAML에서 설정한 `target`, `joinType`, `on`이 정상적으로 바인딩되고, `getJoinRecommendations(...)` 호출 시에도 `Map<String, Object>` 대신 구조화된 `JoinRecommendation` 객체 리스트가 반환됩니다.
+
+빌드가 되지 않던 원인은 `JoinTargets`의 리스트 항목이 `String`이 아닌 복합 객체여야 했기 때문이며, 지금 구조에서는 YAML 파싱도 `JoinConfig` 객체로 잘 매핑됩니다.
+
+필요하면 테스트 코드도 같이 만들어드릴게요.
+
+-----------------
+
 알겠어요!
 기존에 빠진 `getJoinRecommendations` 메서드와 `getCategoryAndFields` 메서드를 포함하고, `getFieldMetadata` 결과도 DTO로 처리하도록 리팩토링한 완전한 예시를 만들어드릴게요.
 
