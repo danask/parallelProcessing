@@ -1,3 +1,89 @@
+지금 구조에서 `FieldConfig`는 `joins`를 다음과 같이 정의하고 있습니다:
+
+```java
+private Map<String, List<JoinConfig>> joins; // key: "measure", "dimension", "filter"
+```
+
+그런데 `JoinTargets` 클래스는 아래처럼 **명확한 필드 구조**를 갖고 있습니다:
+
+```java
+class JoinTargets {
+    private List<JoinDetail> measure;
+    private List<JoinDetail> dimension;
+    private List<JoinDetail> filter;
+}
+```
+
+---
+
+## ✅ 해결 방향
+
+지금처럼 `FieldConfig`에서 `Map<String, List<JoinConfig>>`로 되어 있다면 `JoinTargets` 클래스를 따로 둘 필요가 없습니다.
+
+**즉, 두 개는 같은 역할을 하며, `JoinTargets`는 제거하거나 대체하는 것이 좋습니다.**
+
+---
+
+## ✨ 리팩토링 방법 제안
+
+### 👉 방법 1: **`JoinTargets` 삭제하고 FieldConfig의 joins만 사용**
+
+`addJoinsToGraph()` 메서드를 아래처럼 `Map<String, List<JoinConfig>>` 기반으로 수정:
+
+```java
+private static void addJoinsToGraph(String sourceKey, Map<String, List<JoinConfig>> joins, Map<String, Set<String>> graph) {
+    if (joins == null) return;
+
+    for (Map.Entry<String, List<JoinConfig>> entry : joins.entrySet()) {
+        List<JoinConfig> joinList = entry.getValue();
+        if (joinList == null) continue;
+        for (JoinConfig join : joinList) {
+            graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(join.getTarget());
+        }
+    }
+}
+```
+
+그리고 기존 코드도 아래처럼 사용:
+
+```java
+FieldConfig fieldConfig = fieldEntry.getValue();
+if (fieldConfig.getJoins() != null) {
+    addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+}
+```
+
+---
+
+### 👉 방법 2: **`JoinTargets` 구조로 유지하고 변환 로직 추가** (비추천)
+
+만약 꼭 `JoinTargets` 클래스를 써야 한다면 `Map<String, List<JoinConfig>>` → `JoinTargets`로 변환하는 별도 로직이 필요합니다:
+
+```java
+public static JoinTargets mapToJoinTargets(Map<String, List<JoinConfig>> joins) {
+    JoinTargets targets = new JoinTargets();
+    if (joins == null) return targets;
+
+    targets.setMeasure(joins.getOrDefault("measure", Collections.emptyList()));
+    targets.setDimension(joins.getOrDefault("dimension", Collections.emptyList()));
+    targets.setFilter(joins.getOrDefault("filter", Collections.emptyList()));
+
+    return targets;
+}
+```
+
+하지만 이 방식은 **중복과 부자연스러운 변환**이 많기 때문에 추천하지 않습니다.
+
+---
+
+## ✅ 결론
+
+**FieldConfig에 이미 필요한 정보가 다 있으므로, `JoinTargets` 클래스를 제거하고 `Map<String, List<JoinConfig>>`를 그대로 사용하는 게 깔끔하고 명확합니다.**
+
+필요 시 전체 구조 리팩토링 예도 도와드릴게요.
+
+
+------------
 
 좋습니다. 지금 `yml` 구조에 따라 리팩토링하려면 `joins` 항목이 아래처럼 `List<JoinConfig>` 구조로 되어 있고:
 
