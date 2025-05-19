@@ -1,4 +1,86 @@
 
+좋습니다. 지금 `yml` 구조에 따라 리팩토링하려면 `joins` 항목이 아래처럼 `List<JoinConfig>` 구조로 되어 있고:
+
+```yaml
+joins:
+  measure:
+    - target: "measure:device:deviceCount"
+      joinType: "left"
+      on: "..."
+```
+
+기존 `addJoinList()` 메서드는 `List<String>`을 처리하도록 되어 있으니, `List<JoinConfig>`에 맞게 리팩토링이 필요합니다.
+
+---
+
+### ✅ 리팩토링된 코드 (`JoinConfig` 구조 반영)
+
+```java
+public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
+    Map<String, Set<String>> graph = new HashMap<>();
+    buildFromCategory("dimension", dde.getDimension(), graph);
+    buildFromCategory("filter", dde.getFilter(), graph);
+    buildFromCategory("measure", dde.getMeasure(), graph);
+    return graph;
+}
+
+private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+    if (map == null) return;
+
+    for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+        String category = categoryEntry.getKey();
+        Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+        if (fields == null) continue;
+
+        for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+            String field = fieldEntry.getKey();
+            String sourceKey = toKey(group, category, field);
+
+            FieldConfig fieldConfig = fieldEntry.getValue();
+            if (fieldConfig.getJoins() != null) {
+                addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+            }
+        }
+    }
+}
+
+private static void addJoinsToGraph(String sourceKey, Joins joins, Map<String, Set<String>> graph) {
+    addJoinList(sourceKey, joins.getMeasure(), graph);
+    addJoinList(sourceKey, joins.getDimension(), graph);
+    addJoinList(sourceKey, joins.getFilter(), graph);
+}
+
+private static void addJoinList(String sourceKey, List<JoinConfig> joinList, Map<String, Set<String>> graph) {
+    if (joinList == null) return;
+
+    for (JoinConfig join : joinList) {
+        String target = join.getTarget();
+        graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(target);
+    }
+}
+
+public static String toKey(String group, String category, String field) {
+    return group + ":" + category + ":" + field;
+}
+```
+
+---
+
+### 🔄 변경 요점
+
+| 변경 전                              | 변경 후                                      |
+| --------------------------------- | ----------------------------------------- |
+| `List<String> targets`            | `List<JoinConfig> joinList`               |
+| `target` 값 직접 사용                  | `join.getTarget()` 으로 추출                  |
+| `JoinTargets` → `Joins`로 이름 변경 가정 | `getMeasure()`, `getDimension()` 등 그대로 사용 |
+
+---
+
+필요하다면 `JoinGraph`를 양방향 그래프로 만들거나, `JoinConfig`의 `joinType`, `on` 등도 그래프에 포함해 확장할 수 있습니다. 필요하시면 그것도 도와드릴게요!
+
+
+----------------
+
 좋아요. 현재 YAML 구조에 맞춰서 매핑할 수 있는 **DTO 클래스들 전체 구조**를 정리해드릴게요.
 
 ---
