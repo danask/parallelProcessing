@@ -1,4 +1,106 @@
 
+좋아요! `getJoinRecommendations` 메소드에서 깊이 우선 탐색(DFS)을 너비 우선 탐색(BFS)으로 변경한 버전을 아래에 전체 코드로 제공드릴게요.
+
+---
+
+### ✅ 변경 사항 요약:
+
+* **탐색 방식**: `DFS → BFS`
+* **클래스 구조**는 그대로 (`JoinRecommendation`, `JoinConfig`, `JoinTargets` 등)
+
+---
+
+### 🔧 `JoinGraphUtil.java` (BFS 적용)
+
+```java
+import java.util.*;
+
+public class JoinGraphUtil {
+
+    public static List<JoinRecommendation> getJoinRecommendations(List<String> startKeys, DdeMetadataProperties dde) {
+        Set<String> visited = new HashSet<>();
+        Queue<String> queue = new LinkedList<>();
+        List<JoinRecommendation> recommendations = new ArrayList<>();
+
+        queue.addAll(startKeys);
+        visited.addAll(startKeys);
+
+        while (!queue.isEmpty()) {
+            String currentKey = queue.poll();
+            FieldConfig field = getFieldConfig(currentKey, dde);
+            if (field == null || field.getJoins() == null) continue;
+
+            processJoinList(currentKey, field.getJoins().getMeasure(), dde, visited, queue, recommendations);
+            processJoinList(currentKey, field.getJoins().getDimension(), dde, visited, queue, recommendations);
+            processJoinList(currentKey, field.getJoins().getFilter(), dde, visited, queue, recommendations);
+        }
+
+        return recommendations;
+    }
+
+    private static void processJoinList(
+            String sourceKey,
+            List<JoinConfig> joins,
+            DdeMetadataProperties dde,
+            Set<String> visited,
+            Queue<String> queue,
+            List<JoinRecommendation> recommendations
+    ) {
+        if (joins == null) return;
+
+        for (JoinConfig join : joins) {
+            String targetKey = join.getTarget();
+            recommendations.add(new JoinRecommendation(
+                    sourceKey, targetKey, join.getJoinType(), join.getOn()
+            ));
+            if (!visited.contains(targetKey)) {
+                visited.add(targetKey);
+                queue.add(targetKey);
+            }
+        }
+    }
+
+    public static FieldConfig getFieldConfig(String fullKey, DdeMetadataProperties dde) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        Map<String, CategoryConfig> groupMap = getGroupMap(group, dde);
+        if (groupMap == null) return null;
+        CategoryConfig categoryConfig = groupMap.get(category);
+        if (categoryConfig == null) return null;
+        return categoryConfig.getFields().get(field);
+    }
+
+    public static Map<String, CategoryConfig> getGroupMap(String group, DdeMetadataProperties dde) {
+        return switch (group.toLowerCase()) {
+            case "dimension" -> dde.getDimension();
+            case "measure" -> dde.getMeasure();
+            case "filter" -> dde.getFilter();
+            default -> throw new IllegalArgumentException("Unknown group: " + group);
+        };
+    }
+}
+```
+
+---
+
+필요한 보조 클래스들은 이전에 작성해드린 내용에서 그대로 사용하시면 됩니다.
+
+* `JoinRecommendation.java`
+* `JoinConfig.java`
+* `JoinTargets.java`
+
+---
+
+이제 `getJoinRecommendations`는 BFS 방식으로 탐색하여 조인 경로를 순차적으로 추천하며, 동일 노드의 중복 방문 없이 처리됩니다.
+필요하시면 전체 파일 구조를 다시 `.zip` 형태로 묶거나, 테스트 코드까지 확장해드릴 수 있어요.
+
+
+-----
+
 좋습니다. `getJoinRecommendations` 메소드에서 `Map<String, Object>` 같은 구조를 사용하지 않고, 전용 엔티티 클래스를 사용하는 방식으로 리팩토링한 전체 코드를 아래에 정리했습니다.
 
 ---
