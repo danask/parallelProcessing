@@ -1,4 +1,109 @@
 
+좋아, 요청한 대로 `getJoinRecommendations` 메서드를 아래와 같이 리팩토링할 수 있어. 핵심은:
+
+* 기존의 `graph` 및 `dde`를 이용해 연결된 필드들을 `measure`, `dimension`, `filter` 그룹으로 구분
+* 각 필드에 대해 `JoinFieldInfo`를 생성하여, `label`, `joinType`, `on` 등의 정보를 담아 반환
+
+다음은 리팩토링된 `getJoinRecommendations` 메서드와 필요한 클래스 정의 예시야:
+
+---
+
+### ✅ `JoinRecommendationResponse` 클래스
+
+```java
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinRecommendationResponse {
+    private List<JoinFieldInfo> measure = new ArrayList<>();
+    private List<JoinFieldInfo> dimension = new ArrayList<>();
+    private List<JoinFieldInfo> filter = new ArrayList<>();
+}
+```
+
+---
+
+### ✅ `JoinFieldInfo` 클래스
+
+```java
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class JoinFieldInfo {
+    private String group;
+    private String category;
+    private String field;
+    private String label;
+    private String joinType;
+    private String on;
+}
+```
+
+---
+
+### ✅ 리팩토링된 `getJoinRecommendations` 메서드
+
+```java
+public static JoinRecommendationResponse getJoinRecommendations(
+        String group, String category, String field,
+        Map<String, Set<String>> graph,
+        DdeMetadataProperties dde
+) {
+    String fromKey = group + ":" + category + ":" + field;
+    Set<String> connectedKeys = graph.getOrDefault(fromKey, Set.of());
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+    for (String targetKey : connectedKeys) {
+        FieldConfig targetField = JoinGraphUtil.getFieldConfig(targetKey, dde);
+        if (targetField == null) continue;
+
+        String[] parts = targetKey.split(":");
+        if (parts.length != 3) continue;
+
+        String g = parts[0];
+        String c = parts[1];
+        String f = parts[2];
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setGroup(g);
+        info.setCategory(c);
+        info.setField(f);
+        info.setLabel(targetField.getLabel());
+
+        // joinType, on은 원래 source field에 있는 join 정보에서 가져와야 함
+        List<JoinConfig> joinConfigs = Optional.ofNullable(
+            dde.getFieldConfig(group, category, field).getJoins()
+        ).map(map -> map.get(g)).orElse(null);
+
+        if (joinConfigs != null) {
+            for (JoinConfig jc : joinConfigs) {
+                if (jc.getTarget().equals(targetKey)) {
+                    info.setJoinType(jc.getJoinType());
+                    info.setOn(jc.getOn());
+                    break;
+                }
+            }
+        }
+
+        switch (g) {
+            case "measure" -> response.getMeasure().add(info);
+            case "dimension" -> response.getDimension().add(info);
+            case "filter" -> response.getFilter().add(info);
+        }
+    }
+
+    return response;
+}
+```
+
+---
+
+이 구조를 사용하면, 라벨이 포함된 추천 결과를 `measure`, `dimension`, `filter` 별로 정리해서 프론트로 넘겨줄 수 있어.
+
+필요하면 이 구조에 맞게 `JoinGraphUtil.getFieldConfig`나 `DdeMetadataProperties` 쪽도 맞춰줄 수 있어. 계속 이어서 도와줄게.
+
+
+
 ```java
 public static Map<String, Set<String>> buildJoinGraph(DdeMetadataProperties dde) {
     Map<String, Set<String>> graph = new HashMap<>();
