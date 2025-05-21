@@ -94,6 +94,48 @@ public static JoinRecommendationResponse getJoinRecommendations(
 
     return response;
 }
+
+public static JoinRecommendationResponse getJoinRecommendations(
+        String group, String category, String field,
+        Map<String, List<DdeMetadataProperties.JoinEdge>> graph,
+        DdeMetadataProperties dde
+) {
+    String fromKey = group + ":" + category + ":" + field;
+    List<DdeMetadataProperties.JoinEdge> connections = graph.getOrDefault(fromKey, List.of());
+
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+    for (DdeMetadataProperties.JoinEdge edge : connections) {
+        JoinFieldInfo info = createJoinFieldInfo(edge.getTargetKey(), dde, false);
+        if (info == null) continue;
+
+        switch (info.getGroup()) {
+            case "measure" -> response.getMeasure().add(info);
+            case "dimension" -> response.getDimension().add(info);
+            // ❌ "filter"는 여기서 처리 안 함
+        }
+    }
+
+    // ✅ filter 는 여기서 직접 꺼냄
+    FieldConfig source = dde.getFieldConfig(group, category, field);
+    if (source != null && source.getJoins() != null) {
+        List<JoinConfig> filterJoins = source.getJoins().get("filter");
+        if (filterJoins != null) {
+            for (JoinConfig jc : filterJoins) {
+                JoinFieldInfo info = createJoinFieldInfo(jc.getTarget(), dde, true);
+                if (info != null) {
+                    info.setJoinType(jc.getJoinType());
+                    info.setOn(jc.getOn());
+                    response.getFilter().add(info);
+                }
+            }
+        }
+    }
+
+    return response;
+}
+
+
 ```
 
 ---
