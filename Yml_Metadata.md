@@ -94,7 +94,37 @@ public JoinRecommendationResponse getJoinRecommendations(
         }
     }
 
-    // 2. filter (sourceField.getJoins().get("filter")에서 직접 추출)
+    // 2. dimension
+    List<JoinConfig> dimensionJoins = Optional.ofNullable(sourceField.getJoins())
+            .map(map -> map.get(REPORT_DIMENSION))
+            .orElse(null);
+    
+    if (dimensionJoins != null) {
+        for (JoinConfig jc : dimensionJoins) {
+            String targetKey = jc.getTarget();
+            FieldConfig targetField = getFieldConfig(targetKey);
+            if (targetField == null) continue;
+    
+            String[] parts = targetKey.split(":");
+            if (parts.length != 3) continue;
+    
+            JoinFieldInfo info = new JoinFieldInfo();
+            info.setGroup(parts[0]);
+            info.setCategory(parts[1]);
+            info.setField(parts[2]);
+            info.setLabel(targetField.getLabel());
+            info.setOperator(targetField.getOperator());
+            info.setJoinType(jc.getJoinType());
+            info.setOn(jc.getJoinOn());
+            info.setTarget(targetKey);
+    
+            response.getDimension().add(info); // ✅ 무조건 포함
+        }
+    }
+
+
+
+    // 3. filter (sourceField.getJoins().get("filter")에서 직접 추출)
     List<JoinConfig> filterJoins = Optional.ofNullable(sourceField.getJoins())
             .map(map -> map.get(REPORT_FILTER))
             .orElse(null);
