@@ -95,45 +95,104 @@ public static JoinRecommendationResponse getJoinRecommendations(
     return response;
 }
 
+좋아, 이 코드를 기반으로 리팩토링해줄게. 핵심 포인트는 다음과 같아:
+
+---
+
+## ✅ 변경 포인트 정리
+
+1. `filter`는 **`graph`에서 나오는 대상이 아님** → `case "filter"` 제거
+2. 대신 `joins.filter`는 **`source field`에서 직접 수집해서 `response.getFilter()`에 추가**해야 함
+3. 나머지(`measure`, `dimension`)는 기존처럼 `graph` 탐색으로 처리
+
+---
+
+## ✅ 리팩토링된 코드
+
+```java
 public static JoinRecommendationResponse getJoinRecommendations(
         String group, String category, String field,
-        Map<String, List<DdeMetadataProperties.JoinEdge>> graph,
+        Map<String, Set<String>> graph,
         DdeMetadataProperties dde
 ) {
     String fromKey = group + ":" + category + ":" + field;
-    List<DdeMetadataProperties.JoinEdge> connections = graph.getOrDefault(fromKey, List.of());
-
+    Set<String> connectedKeys = graph.getOrDefault(fromKey, Set.of());
     JoinRecommendationResponse response = new JoinRecommendationResponse();
 
-    for (DdeMetadataProperties.JoinEdge edge : connections) {
-        JoinFieldInfo info = createJoinFieldInfo(edge.getTargetKey(), dde, false);
-        if (info == null) continue;
+    // 1. measure / dimension: graph 기반 탐색
+    for (String targetKey : connectedKeys) {
+        FieldConfig targetField = JoinGraphUtil.getFieldConfig(targetKey, dde);
+        if (targetField == null) continue;
 
-        switch (info.getGroup()) {
+        String[] parts = targetKey.split(":");
+        if (parts.length != 3) continue;
+
+        String g = parts[0];
+        String c = parts[1];
+        String f = parts[2];
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setGroup(g);
+        info.setCategory(c);
+        info.setField(f);
+        info.setLabel(targetField.getLabel());
+
+        // joinType, on: source field의 joins에서 찾아야 함
+        List<JoinConfig> joinConfigs = Optional.ofNullable(
+            dde.getFieldConfig(group, category, field).getJoins()
+        ).map(map -> map.get(g)).orElse(null);
+
+        if (joinConfigs != null) {
+            for (JoinConfig jc : joinConfigs) {
+                if (jc.getTarget().equals(targetKey)) {
+                    info.setJoinType(jc.getJoinType());
+                    info.setOn(jc.getOn());
+                    break;
+                }
+            }
+        }
+
+        // "filter"는 graph 대상이 아님 → 제외
+        switch (g) {
             case "measure" -> response.getMeasure().add(info);
             case "dimension" -> response.getDimension().add(info);
-            // ❌ "filter"는 여기서 처리 안 함
         }
     }
 
-    // ✅ filter 는 여기서 직접 꺼냄
+    // 2. filter: source field의 joins.filter에서 직접 수집
     FieldConfig source = dde.getFieldConfig(group, category, field);
     if (source != null && source.getJoins() != null) {
         List<JoinConfig> filterJoins = source.getJoins().get("filter");
         if (filterJoins != null) {
             for (JoinConfig jc : filterJoins) {
-                JoinFieldInfo info = createJoinFieldInfo(jc.getTarget(), dde, true);
-                if (info != null) {
-                    info.setJoinType(jc.getJoinType());
-                    info.setOn(jc.getOn());
-                    response.getFilter().add(info);
-                }
+                String[] parts = jc.getTarget().split(":");
+                if (parts.length != 3) continue;
+
+                String g = parts[0];
+                String c = parts[1];
+                String f = parts[2];
+
+                FieldConfig filterField = JoinGraphUtil.getFieldConfig(jc.getTarget(), dde);
+                if (filterField == null) continue;
+
+                JoinFieldInfo info = new JoinFieldInfo();
+                info.setGroup(g);
+                info.setCategory(c);
+                info.setField(f);
+                info.setLabel(filterField.getLabel());
+                info.setJoinType(jc.getJoinType());
+                info.setOn(jc.getOn());
+
+                response.getFilter().add(info);
             }
         }
     }
 
     return response;
 }
+```
+
+
 
 
 ```
