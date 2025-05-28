@@ -1,4 +1,272 @@
 
+쿼리 응답을 받은 후 **데이터 후처리(데이터 추가, 필터링, 변형 등)** 를 해야 한다면, 가장 적합한 방식은 목적과 데이터 크기에 따라 달라집니다. 아래는 목적별 Best Practice를 **Spring 기반 시스템 (JPA, JDBC, Native Query)** 에 맞춰 설명한 것입니다.
+
+---
+
+## ✅ 목적별 Best Practice
+
+| 목적              | 추천 처리 방식                                   |
+| --------------- | ------------------------------------------ |
+| 단순한 필터링, 추가 필드  | `Java Stream` 으로 후처리                       |
+| 매핑이나 계산이 복잡한 경우 | DTO 변환 후 서비스 계층에서 처리                       |
+| 대용량 집계 후 후처리    | DB 단계에서 최대한 처리 + Java에서 최소 후처리             |
+| 후처리가 반복 재사용된다면  | 공통 유틸 또는 Pipeline 구성 (ex: `PostProcessor`) |
+
+---
+
+## ✅ 예시 1: `JdbcTemplate` 후 Java Stream 으로 처리
+
+```java
+public List<Map<String, Object>> getFilteredAndEnhancedResult(String sql) {
+    List<Map<String, Object>> raw = jdbcTemplate.queryForList(sql);
+
+    return raw.stream()
+        .filter(row -> ((int) row.get("usage_count")) > 10)
+        .map(row -> {
+            row.put("status", ((int) row.get("usage_count") > 50) ? "heavy" : "normal");
+            return row;
+        })
+        .collect(Collectors.toList());
+}
+```
+
+---
+
+## ✅ 예시 2: DTO 로 변환 후 후처리
+
+```java
+@Data
+@AllArgsConstructor
+public class UsageDTO {
+    private String deviceId;
+    private int usageCount;
+    private String status; // added field
+}
+
+public List<UsageDTO> getProcessedResult(String sql) {
+    List<Map<String, Object>> raw = jdbcTemplate.queryForList(sql);
+
+    return raw.stream()
+        .map(row -> {
+            int count = ((Number) row.get("usage_count")).intValue();
+            String status = count > 50 ? "heavy" : "normal";
+            return new UsageDTO((String) row.get("device_id"), count, status);
+        })
+        .collect(Collectors.toList());
+}
+```
+
+---
+
+## ✅ 예시 3: 후처리 전용 인터페이스 설계 (재사용 가능하게)
+
+```java
+@FunctionalInterface
+public interface ResultPostProcessor {
+    List<Map<String, Object>> process(List<Map<String, Object>> rows);
+}
+```
+
+```java
+public class AddStatusFieldProcessor implements ResultPostProcessor {
+    @Override
+    public List<Map<String, Object>> process(List<Map<String, Object>> rows) {
+        for (Map<String, Object> row : rows) {
+            int count = ((Number) row.get("usage_count")).intValue();
+            row.put("status", count > 50 ? "heavy" : "normal");
+        }
+        return rows;
+    }
+}
+```
+
+```java
+List<Map<String, Object>> result = processor.process(jdbcTemplate.queryForList(sql));
+```
+
+> ✅ 이 구조는 유연하고 재사용 가능하며, 테스트도 쉬움
+
+---
+
+## ✅ 후처리가 DB에서 가능한 경우는 DB에서!
+
+```sql
+SELECT device_id, COUNT(*) AS usage_count,
+       CASE WHEN COUNT(*) > 50 THEN 'heavy' ELSE 'normal' END AS status
+FROM app_usage
+GROUP BY device_id
+```
+
+> 후처리가 단순한 경우 쿼리 자체에서 처리하는 것이 성능과 유지보수 측면에서 좋습니다.
+
+---
+
+## ✅ 대용량 처리 시 주의사항
+
+* 결과가 10만 건 이상이면 **Java 후처리는 GC, 메모리 병목** 발생 가능
+  → 반드시 **Redshift UNLOAD → S3** 방식으로 처리하고 후처리는 Lambda/Fargate/Glue 추천
+
+---
+
+## ✅ 결론
+
+| 조건              | 추천                    |
+| --------------- | --------------------- |
+| 필드 추가, 필터링이 단순함 | `Stream + Map` 처리     |
+| 타입 안정성이 필요함     | DTO 변환                |
+| 재사용 또는 테스트 용이성  | `PostProcessor 인터페이스` |
+| 대용량 또는 복잡한 조건   | DB에서 처리 or S3 + Spark |
+
+---
+
+### 필요시 도와드릴 수 있는 항목:
+
+* `List<Map>` 결과에서 특정 필드 기준 정렬, 그룹핑 유틸
+* `Map → DTO` 자동 매핑 도구 (ModelMapper, MapStruct 등)
+* Redshift UNLOAD 후 Lambda에서 후처리 & 필터링 예시
+
+도움이 필요하신 방향 알려주시면 이어서 도와드릴게요.
+
+
+---
+---
+
+네, `native query`로 동적 쿼리를 수행하고 `List<Map<String, Object>>` 형태로 결과를 받는 것은 **Spring JPA 또는 일반 JDBC 기반**에서 충분히 가능합니다. 다만 약간의 주의사항과 구현 방식이 달라집니다. 아래에 각각 설명과 예제를 드릴게요.
+
+---
+
+## ✅ 1. Native Query를 통한 `List<Map<String, Object>>` 반환 방식
+
+### ✔️ 구현 방식 1: **`EntityManager` + `getResultList()` + `Tuple` or `Object[]`**
+
+```java
+@Service
+@RequiredArgsConstructor
+public class QueryService {
+
+    private final EntityManager entityManager;
+
+    public List<Map<String, Object>> getDynamicResult(String sql) {
+        Query query = entityManager.createNativeQuery(sql);
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> results = query.getResultList();
+
+        // 컬럼 이름 얻기 (주의: 이건 Dialect마다 다를 수 있음)
+        List<String> columnNames = getColumnNamesFromSql(sql); // 직접 파싱하거나 메타데이터 접근
+
+        return results.stream().map(row -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            for (int i = 0; i < columnNames.size(); i++) {
+                map.put(columnNames.get(i), row[i]);
+            }
+            return map;
+        }).collect(Collectors.toList());
+    }
+}
+```
+
+> ✅ 이 방식은 **가볍고 유연**하지만, **컬럼 이름을 추적**해야 하기 때문에 SQL 파서나 `ResultSetMetaData` 기반 도구가 필요할 수 있습니다.
+
+---
+
+### ✔️ 구현 방식 2: **JdbcTemplate 사용 (더 쉬움)**
+
+```java
+@Service
+@RequiredArgsConstructor
+public class QueryService {
+
+    private final JdbcTemplate jdbcTemplate;
+
+    public List<Map<String, Object>> getDynamicResult(String sql) {
+        return jdbcTemplate.queryForList(sql);
+    }
+}
+```
+
+> ✅ `queryForList()`는 자동으로 컬럼 이름을 Map 키로 변환해줍니다.
+> 📌 `WHERE`, `LIMIT`, `OFFSET` 같은 변수를 바인딩할 때는 `queryForList(String sql, Object... args)` 사용.
+
+---
+
+## ✅ 쿼리 예시
+
+```java
+String sql = "SELECT device_id, COUNT(*) AS usage_count FROM app_usage GROUP BY device_id";
+List<Map<String, Object>> result = queryService.getDynamicResult(sql);
+```
+
+**결과:**
+
+```json
+[
+  { "device_id": "abc123", "usage_count": 5 },
+  { "device_id": "xyz789", "usage_count": 8 }
+]
+```
+
+---
+
+## ✅ 동적 쿼리 생성 → 응답까지
+
+1. 프론트에서 DSL 또는 필터 기반 요청 전송
+2. 백엔드에서 Native SQL 생성 (`JoinGraphUtil` 등으로)
+3. `getDynamicResult(sql)` 호출
+4. 결과를 `List<Map<String, Object>>` 로 프론트에 JSON으로 응답
+
+```java
+@GetMapping("/query")
+public ResponseEntity<List<Map<String, Object>>> runDynamicQuery(@RequestParam String sql) {
+    List<Map<String, Object>> result = queryService.getDynamicResult(sql);
+    return ResponseEntity.ok(result);
+}
+```
+
+---
+
+## ✅ 추가 팁: 컬럼 이름 자동 추출 (고급)
+
+`ResultSetMetaData`가 필요한 경우 다음과 같이 `JdbcTemplate`로 가능:
+
+```java
+jdbcTemplate.query(sql, rs -> {
+    ResultSetMetaData meta = rs.getMetaData();
+    int colCount = meta.getColumnCount();
+    while (rs.next()) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        for (int i = 1; i <= colCount; i++) {
+            row.put(meta.getColumnLabel(i), rs.getObject(i));
+        }
+        resultList.add(row);
+    }
+    return resultList;
+});
+```
+
+---
+
+## ✅ 결론 (Best Practice 요약)
+
+| 조건                  | 추천 방식                           |
+| ------------------- | ------------------------------- |
+| 컬럼명이 명확하거나 고정됨      | `EntityManager` + Object\[] 변환  |
+| 컬럼명이 유동적이거나 자유로운 쿼리 | ✅ `JdbcTemplate.queryForList()` |
+| 고급 제어가 필요한 경우       | `ResultSetExtractor`로 수동 처리     |
+
+---
+
+원하신다면:
+
+* `JdbcTemplate`를 활용한 쿼리 DSL 기반 동적 SQL 예제
+* `JoinGraph + 필드 그룹` 기반 Native SQL 생성 예제
+
+도 제공해드릴 수 있습니다.
+
+
+----
+----
+
 좋습니다! 아래에 요청하신 세 가지 방식 모두 실용 예제로 정리해드릴게요. 각각 실무에 맞춰 최소 단위로 구성하였고, 필요에 따라 확장 가능하도록 설계했습니다.
 
 ---
