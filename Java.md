@@ -1,4 +1,91 @@
 
+좋은 아이디어야, Daniel. 실제로 `label: "Device ID"`처럼 사용자 친화적인 이름(`deviceId`, `DeviceId`)과 DB 친화적인 이름(`device_id`) 사이를 변환해주는 **converting method**를 하나 만들어두면 여러 곳에서 유용하게 재사용할 수 있어. 특히 다음과 같은 경우에 효과적이야:
+
+* **검색 시**: 사용자 입력값을 DB 필드로 변환
+* **응답 시**: 내부 필드를 사용자 보기 좋게 변환
+* **동적 쿼리 생성 시**: label 기반 필드를 정확한 DB 컬럼 이름으로 매핑
+
+---
+
+## ✅ 1. Converting Method 예시
+
+```java
+public class FieldNameConverter {
+
+    // label → dbField: "Device ID" → "device_id", "deviceId" → "device_id"
+    public static String toDbField(String label) {
+        if (label == null) return null;
+        return label
+                .replaceAll("([a-z])([A-Z])", "$1_$2")  // camelCase → snake_case
+                .replaceAll("\\s+", "_")                // 공백 → _
+                .toLowerCase();
+    }
+
+    // dbField → Label: "device_id" → "Device Id"
+    public static String toLabel(String dbField) {
+        if (dbField == null) return null;
+        String[] parts = dbField.split("_");
+        return Arrays.stream(parts)
+                .map(part -> part.substring(0, 1).toUpperCase() + part.substring(1))
+                .collect(Collectors.joining(" "));
+    }
+}
+```
+
+---
+
+## ✅ 2. 사용 예시
+
+### 🔍 검색 시
+
+```java
+String keyword = "Device ID";  // 또는 "deviceId"
+String normalized = FieldNameConverter.toDbField(keyword);
+
+if (normalized.equals(fieldConfig.getDbLabel()) ||
+    normalized.equals(FieldNameConverter.toDbField(fieldConfig.getLabel()))) {
+    // match
+}
+```
+
+### 🧾 응답 만들 때
+
+```java
+info.setDbLabel(FieldNameConverter.toDbField(fieldConfig.getLabel()));
+info.setLabel(FieldNameConverter.toLabel(fieldConfig.getDbLabel()));
+```
+
+---
+
+## ✅ 3. 장점
+
+| 장점     | 설명                                            |
+| ------ | --------------------------------------------- |
+| ✅ 일관성  | `label`, `dbLabel`, 사용자 입력이 다르게 생겨도 통일된 처리 가능 |
+| ✅ 유연성  | YAML에 `dbLabel` 없어도 자동 추출 가능                  |
+| ✅ 유지보수 | 중복 필드 없이 변환 메서드 하나로 관리 가능                     |
+
+---
+
+## ✅ 결론
+
+> `dbLabel`을 직접 YAML에 넣는 방식도 명시적이라 좋은데,
+> `FieldNameConverter` 방식은 **자동화 + 유연성** 면에서 매우 유리해.
+> → 둘을 병행하거나 fallback 처리하는 것도 좋아:
+
+```java
+String dbLabel = fieldConfig.getDbLabel() != null
+        ? fieldConfig.getDbLabel()
+        : FieldNameConverter.toDbField(fieldConfig.getLabel());
+```
+
+---
+
+필요하면 `FieldNameConverter` 전체 유닛 테스트 코드도 줄 수 있어.
+이대로 적용해볼래, 아니면 `dbLabel` 명시 방식으로 가고 싶어?
+
+----
+----
 
 CSV 파일의 한 줄에 `"abc", 1, "\"baba", "wer"`와 같은 데이터가 있을 경우, 문제는 `\"baba`처럼 인용 부호(`"`)가 제대로 escape 처리되지 않아서 발생합니다. 이 상황에서 Apache Commons CSV 파서가 `"` 문자를 인용 부호로 인식하고, 그 뒤의 내용을 제대로 파싱하지 못해 오류를 발생시키는 것입니다.
 
