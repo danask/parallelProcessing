@@ -1,4 +1,110 @@
 
+너가 새롭게 정의한 YAML 구조에서는 `metric`이 더 이상 단순 문자열이 아니라 다음과 같은 구조를 가지고 있어:
+
+```yaml
+metric:
+  sum:
+    label: "Sum (EA)"
+    name: "sum_device_id"
+```
+
+따라서 `getMetricName(...)` 메서드에서 단순히 field label만 비교해서 key를 반환하는 기존 방식은 맞지 않아. 새 구조에 맞춰 다음과 같이 메서드를 리팩토링해야 해.
+
+---
+
+## ✅ 목표
+
+label → 정확한 metric name (예: `"Sum (EA)"` → `"sum_device_id"`)
+
+---
+
+## ✅ 리팩토링 예시
+
+```java
+public String getMetricName(String group, String category, String label) {
+    CategoryConfig config = getGroupMap(group).get(category);
+    if (config == null || config.getFields() == null) return null;
+
+    for (FieldConfig field : config.getFields().values()) {
+        Map<String, MetricConfig> metricMap = field.getMetric(); // Map<String, MetricConfig>
+        if (metricMap == null) continue;
+
+        for (MetricConfig metric : metricMap.values()) {
+            if (label.equalsIgnoreCase(metric.getLabel())) {
+                return metric.getName(); // <- 여기서 metric name 반환
+            }
+        }
+    }
+    return null;
+}
+```
+
+---
+
+## ✅ 필요한 클래스 구조 예시
+
+```java
+public class FieldConfig {
+    private String label;
+    private String dbLabel;
+    private Map<String, MetricConfig> metric;
+    private Map<String, String> operator;
+    private Map<String, List<JoinConfig>> joins;
+    // ... getters, setters
+}
+
+public class MetricConfig {
+    private String label; // ex: "Sum (EA)"
+    private String name;  // ex: "sum_device_id"
+    // ... getters, setters
+}
+```
+
+---
+
+## ✅ 예시 YAML 매칭
+
+```yaml
+device_id:
+  label: "Device ID"
+  dbLabel: "device_id"
+  metric:
+    sum:
+      label: "Sum (EA)"
+      name: "sum_device_id"
+    avg:
+      label: "Avg (EA)"
+      name: "avg_device_id"
+```
+
+---
+
+## 🔁 보완 아이디어
+
+입력값이 `label`이 아니라 `sum`, `avg` 같은 metric key로 들어오면:
+
+```java
+public String getMetricNameByKey(String group, String category, String fieldKey, String metricKey) {
+    FieldConfig field = getGroupMap(group).get(category).getFields().get(fieldKey);
+    if (field == null || field.getMetric() == null) return null;
+    MetricConfig metric = field.getMetric().get(metricKey);
+    return (metric != null) ? metric.getName() : null;
+}
+```
+
+---
+
+## ✅ 결론
+
+YAML 구조를 정교하게 만들었으니, Java 쪽도 이에 맞춰 `label → name` 매핑을 정확히 따라가야 해.
+지금 리팩토링한 메서드 방식이면 label 기반 사용자 선택도 문제 없이 동작할 거야.
+
+필요하면 reverse 매핑이나 list 반환도 도와줄게. 적용해보고 어떤지 알려줘.
+
+
+----
+-----
+
 좋아, 요청한 대로 `getJoinRecommendations` 메서드를 아래와 같이 리팩토링할 수 있어. 핵심은:
 
 * 기존의 `graph` 및 `dde`를 이용해 연결된 필드들을 `measure`, `dimension`, `filter` 그룹으로 구분
