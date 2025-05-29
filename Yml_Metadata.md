@@ -1,4 +1,91 @@
 
+너가 새롭게 정의한 YAML 구조 (`metric`이 단순 문자열이 아닌 객체(map)로 바뀐 구조)에 맞게, `getCategoryAndFields` 메서드도 타입을 정확히 맞춰서 리턴할 수 있게 바꿔야 해. 핵심은 `Field` DTO가 `Map<String, MetricConfig>`를 포함하도록 바뀌었는지 확인하는 것부터야.
+
+---
+
+### ✅ 새로 정의된 구조에 맞게 필요한 클래스 정리
+
+#### 1. `MetricConfig`
+
+```java
+public class MetricConfig {
+    private String label; // 예: "Sum (EA)"
+    private String name;  // 예: "sum_device_id"
+    // getters/setters
+}
+```
+
+#### 2. `Field`
+
+```java
+public class Field {
+    private String name;
+    private String label;
+    private Map<String, MetricConfig> metric; // 이전에는 String 이었음
+    private Map<String, String> operator;
+    private Map<String, List<JoinConfig>> joins;
+
+    public Field(String name, String label,
+                 Map<String, MetricConfig> metric,
+                 Map<String, String> operator,
+                 Map<String, List<JoinConfig>> joins) {
+        this.name = name;
+        this.label = label;
+        this.metric = metric;
+        this.operator = operator;
+        this.joins = joins;
+    }
+
+    // getters/setters
+}
+```
+
+---
+
+### ✅ 리팩토링된 `getCategoryAndFields` 메서드
+
+```java
+public List<CategoryWithFields> getCategoryAndFields(String group) {
+    Map<String, CategoryConfig> groupMap = getGroupMap(group);
+    if (groupMap == null) return Collections.emptyList();
+
+    return groupMap.entrySet().stream()
+            .map(e -> {
+                String category = e.getKey();
+                CategoryConfig catConfig = e.getValue();
+                List<Field> fields = catConfig.getFields() != null ?
+                        catConfig.getFields().entrySet().stream()
+                                .map(entry -> {
+                                    FieldConfig f = entry.getValue();
+                                    return new Field(
+                                            entry.getKey(),
+                                            f.getLabel(),
+                                            f.getMetric(),     // Map<String, MetricConfig>
+                                            f.getOperator(),
+                                            f.getJoins()
+                                    );
+                                }).toList()
+                        : Collections.emptyList();
+                return new CategoryWithFields(category, catConfig.getLabel(), fields);
+            }).toList();
+}
+```
+
+---
+
+### ✅ 정리
+
+* `FieldConfig.getMetric()`이 `Map<String, MetricConfig>` 타입으로 선언되어 있어야 하고
+* `Field` 클래스도 동일하게 `Map<String, MetricConfig>`로 받아줘야 해
+
+이렇게 하면 새로운 구조로부터 모든 필드와 metric 정보를 `CategoryWithFields` 리스트로 잘 가져올 수 있어.
+
+필요하면 `MetricConfig` 안에 `dbLabel`도 추가해서 사용할 수 있어.
+테스트 후 문제 생기면 예시 JSON 출력 같이 보여주면 더 구체적으로 도와줄게.
+
+
+----
+
 너가 새롭게 정의한 YAML 구조에서는 `metric`이 더 이상 단순 문자열이 아니라 다음과 같은 구조를 가지고 있어:
 
 ```yaml
