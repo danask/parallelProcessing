@@ -1,3 +1,105 @@
+좋은 접근입니다! `WebClient` 기반 API call을 사용할 예정이고, 대상 API 서버가 정상적으로 **연결 가능한 상태인지 주기적으로 헬스체크**하고 싶다면, `Spring Scheduler`와 `WebClient`를 함께 사용해 다음과 같은 구조로 구현할 수 있습니다.
+
+---
+
+## ✅ 목표 요약
+
+* `WebClient`를 사용해 외부 API의 연결 상태 확인
+* `@Scheduled`을 활용하여 주기적으로 호출
+* 예외 발생 시 로그로 기록하거나, 재시도/알림 등의 로직 추가 가능
+
+---
+
+## ✅ 구현 예시
+
+### 1. WebClient Bean 정의
+
+```java
+@Configuration
+public class WebClientConfig {
+
+    @Bean
+    public WebClient externalApiWebClient() {
+        return WebClient.builder()
+                .baseUrl("https://external-api.example.com")  // 대상 서버 주소
+                .build();
+    }
+}
+```
+
+---
+
+### 2. Scheduler + 헬스체크 구현
+
+```java
+@Slf4j
+@Component
+public class ExternalApiHealthChecker {
+
+    private final WebClient externalApiWebClient;
+
+    public ExternalApiHealthChecker(WebClient externalApiWebClient) {
+        this.externalApiWebClient = externalApiWebClient;
+    }
+
+    @Scheduled(fixedDelay = 300000) // 5분마다
+    public void checkExternalApiHealth() {
+        externalApiWebClient.get()
+                .uri("/health")  // 또는 ping 엔드포인트
+                .retrieve()
+                .toBodilessEntity()
+                .doOnSuccess(response -> log.info("External API is reachable: status={}", response.getStatusCode()))
+                .doOnError(error -> log.error("External API health check failed", error))
+                .subscribe();
+    }
+}
+```
+
+---
+
+### 📌 보완 포인트
+
+* `/health`, `/ping`, 또는 `/status` 와 같은 엔드포인트가 외부 API에 있는지 확인
+* `timeout`, `retry` 정책을 함께 구성해두면 좋습니다:
+
+```java
+WebClient.builder()
+    .baseUrl("https://external-api.example.com")
+    .clientConnector(
+        new ReactorClientHttpConnector(
+            HttpClient.create()
+                      .responseTimeout(Duration.ofSeconds(3))
+        )
+    )
+    .build();
+```
+
+---
+
+## ✅ 에러 감지 및 알림 확장 (옵션)
+
+* 실패 횟수 누적 시 슬랙/메일 알림 전송
+* Circuit Breaker (resilience4j 등)와 연동 가능
+
+---
+
+## ✅ 정리
+
+| 항목       | 설명                                      |
+| -------- | --------------------------------------- |
+| 헬스 체크 도구 | `WebClient`                             |
+| 실행 주기    | `@Scheduled(fixedDelay = …)`            |
+| 연결 실패 처리 | `doOnError`, `retry`, 알림 등 확장 가능        |
+| 병렬 확장    | 여러 API 대상이면 `@Scheduled` 여러 개 or 리스트 순회 |
+
+---
+
+필요하시면 `resilience4j`와 통합한 예제, 에러 누적 카운터 로직, 슬랙 알림 연동 예제도 추가로 드릴 수 있어요.
+
+
+
+----------
+
 좋습니다! 위의 RestTemplate 코드와 같은 기능을 Spring WebClient로 구현한 버전을 아래에 정리해드릴게요.
 
 
