@@ -1,3 +1,76 @@
+좋은 포인트입니다! `WebClient`에서 API를 헬스체크할 때 HTTP **401 (Unauthorized)** 와 같은 클라이언트 오류는 **정상적으로 API가 응답한 것**으로 간주하고, 반면 **500 (Internal Server Error)** 와 같은 서버 오류는 **실제로 문제가 있는 상태**로 판단하고 싶으신 거죠.
+
+이를 위해서는 `WebClient`의 `onStatus()` 조건에 따라 오류 처리 기준을 커스터마이징하면 됩니다.
+
+---
+
+## ✅ 구현 예시: 401은 성공으로, 500은 실패로 처리
+
+```java
+@Slf4j
+@Component
+public class ExternalApiHealthChecker {
+
+    private final WebClient externalApiWebClient;
+
+    public ExternalApiHealthChecker(WebClient externalApiWebClient) {
+        this.externalApiWebClient = externalApiWebClient;
+    }
+
+    @Scheduled(fixedDelay = 300000) // 5분마다
+    public void checkExternalApiHealth() {
+        externalApiWebClient.get()
+                .uri("/health") // or your health check endpoint
+                .retrieve()
+                .onStatus(status -> status.is5xxServerError(), clientResponse -> {
+                    // 서버 에러는 실패로 처리
+                    return Mono.error(new RuntimeException("Server error: " + clientResponse.statusCode()));
+                })
+                .onStatus(status -> status.value() == 401, clientResponse -> {
+                    // 401은 에러로 처리하지 않음
+                    log.warn("Received 401 Unauthorized - treat as healthy");
+                    return Mono.empty();
+                })
+                .toBodilessEntity()
+                .doOnSuccess(response -> {
+                    if (response != null) {
+                        log.info("✅ External API health OK. Status: {}", response.getStatusCode());
+                    } else {
+                        log.info("✅ External API health OK with handled 401 Unauthorized.");
+                    }
+                })
+                .doOnError(error -> log.error("❌ External API health check failed", error))
+                .subscribe();
+    }
+}
+```
+
+---
+
+## ✅ 핵심 설명
+
+* `onStatus`를 여러 번 사용해 **상태코드에 따라 다르게 처리**함.
+* `401` 응답은 에러로 throw하지 않고 `Mono.empty()` 반환으로 간주.
+* `500` 응답은 명시적으로 예외로 전환.
+
+---
+
+## 🔧 옵션: 조건부 성공 범위를 유연하게 지정하려면
+
+```java
+.onStatus(HttpStatus::is5xxServerError, clientResponse -> Mono.error(...))
+.onStatus(status -> List.of(401, 403).contains(status.value()), clientResponse -> {
+    log.warn("Handled status {} as OK", clientResponse.statusCode());
+    return Mono.empty();
+})
+```
+
+---
+
+필요하시면 `resilience4j`와 조합해서 실패 횟수 누적 시 알림 보내는 로직이나, `CircuitBreaker` 와 통합하는 것도 도와드릴 수 있어요.
+
+---
+
 좋은 접근입니다! `WebClient` 기반 API call을 사용할 예정이고, 대상 API 서버가 정상적으로 **연결 가능한 상태인지 주기적으로 헬스체크**하고 싶다면, `Spring Scheduler`와 `WebClient`를 함께 사용해 다음과 같은 구조로 구현할 수 있습니다.
 
 ---
