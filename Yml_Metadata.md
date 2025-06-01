@@ -1,4 +1,135 @@
 
+좋습니다. `selectedMeasures`와 `selectedDimensions`에 각각 하나 이상의 항목이 있는 경우에 어떻게 dimension 교집합과 filter 합집합을 만들어 추천이 되는지 예시로 보여드릴게요.
+
+---
+
+### ✅ 선택된 값
+
+```java
+Set<CategoryFieldKey> selectedMeasures = Set.of(
+    new CategoryFieldKey("mv_app_usage", "foreground_usage"),
+    new CategoryFieldKey("mv_battery", "battery_consumption")
+);
+
+Set<CategoryFieldKey> selectedDimensions = Set.of(
+    new CategoryFieldKey("device", "device_id"),
+    new CategoryFieldKey("package", "app_id")
+);
+```
+
+---
+
+### 📘 가정된 YAML 구조 (FieldConfig 내부 `joins` 기준)
+
+```yaml
+# measure:mv_app_usage:foreground_usage
+joins:
+  dimension:
+    - target: dimension:device:device_id
+    - target: dimension:package:app_id
+  filter:
+    - target: filter:device:country
+    - target: filter:package:category
+
+# measure:mv_battery:battery_consumption
+joins:
+  dimension:
+    - target: dimension:device:device_id
+    - target: dimension:package:app_id
+    - target: dimension:user:user_id
+  filter:
+    - target: filter:device:country
+    - target: filter:user:age
+```
+
+---
+
+### 🔍 로직 설명
+
+1. **dimension 교집합**
+
+   * `mv_app_usage.foreground_usage` → device.device\_id, package.app\_id
+   * `mv_battery.battery_consumption` → device.device\_id, package.app\_id, user.user\_id
+     → **교집합: `device.device_id`, `package.app_id`**
+
+2. **filter 합집합**
+
+   * `mv_app_usage.foreground_usage` → device.country, package.category
+   * `mv_battery.battery_consumption` → device.country, user.age
+     → **합집합: `device.country`, `package.category`, `user.age`**
+
+3. **추가 measure 추천**
+
+   * dimension 쪽에서 연결된 measure 탐색 (device.device\_id, package.app\_id → 다른 measure 들 탐색)
+   * `mv_session`, `mv_crash` 등 연결된 measure 가 있다면 추천 대상
+
+---
+
+### 🎯 최종 JoinRecommendationResponse 예시
+
+```json
+{
+  "measure": [
+    {
+      "group": "measure",
+      "category": "mv_session",
+      "field": "session_duration",
+      "label": "Session Duration",
+      "target": "measure:mv_session:session_duration",
+      "joinType": "left",
+      "on": "dimension:device:device_id = measure:mv_session:device_id"
+    }
+  ],
+  "dimension": [
+    {
+      "group": "dimension",
+      "category": "device",
+      "field": "device_id",
+      "label": "Device ID",
+      "target": "dimension:device:device_id"
+    },
+    {
+      "group": "dimension",
+      "category": "package",
+      "field": "app_id",
+      "label": "App ID",
+      "target": "dimension:package:app_id"
+    }
+  ],
+  "filter": [
+    {
+      "group": "filter",
+      "category": "device",
+      "field": "country",
+      "label": "Country",
+      "target": "filter:device:country"
+    },
+    {
+      "group": "filter",
+      "category": "package",
+      "field": "category",
+      "label": "App Category",
+      "target": "filter:package:category"
+    },
+    {
+      "group": "filter",
+      "category": "user",
+      "field": "age",
+      "label": "User Age",
+      "target": "filter:user:age"
+    }
+  ]
+}
+```
+
+---
+
+필요하다면 이 값들을 기반으로 하는 테스트 코드도 만들어 드릴게요.
+테스트 JSON 기반 mock field map 도 구현할 수 있고요. 원하시는 방식 알려주세요.
+
+
+----
+
 ```java
 public class JoinRecommendationService {
 
