@@ -1,5 +1,5 @@
 
-``java
+```java
 public class JoinRecommendationService {
 
     public JoinRecommendationResponse getJoinRecommendations(
@@ -176,7 +176,195 @@ public class JoinRecommendationService {
 } 
 
 
-``
+```
+좋습니다. 지금의 핵심은 **이미 선택된 measure 또는 dimension 이 있다면** 이를 기준으로 다음 추천을 교집합 (dimension), 합집합 (filter) 으로 제한해야 한다는 점입니다. 아래는 이를 위한 로직 구조를 포함한 전체적인 리팩토링 방향입니다.
+
+---
+
+## ✅ 핵심 규칙 요약
+
+| 현재 선택 항목                    | 다음 추천 항목     | 추천 방식                       |
+| --------------------------- | ------------ | --------------------------- |
+| Measure A 선택 후 Measure B 선택 | Dimension    | **교집합**(A, B)               |
+| Measure A 선택 후 Dimension 선택 | Dimension    | A와 선택된 Dimension의 **가능 연결** |
+| Dimension A, B 선택된 상태       | 다음 Dimension | **교집합**                     |
+| Measure 여러 개 선택             | Filter       | **합집합**                     |
+| Dimension 여러 개 선택           | Filter       | **합집합**                     |
+
+---
+
+## ✅ 필요한 추가 정보
+
+* `Set<String> selectedMeasures` 예: `"measure:usage:app_usage"`
+* `Set<String> selectedDimensions` 예: `"dimension:device:device_model"`
+* `Set<String> selectedFilters`
+
+→ 이 정보를 통해 추천 로직의 **기준 축소**가 가능해짐.
+
+---
+
+## ✅ 수정된 메서드 시그니처
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+    String startKey,
+    Map<String, Set<String>> graph,
+    Set<String> selectedMeasures,
+    Set<String> selectedDimensions
+)
+```
+
+---
+
+## ✅ 개선된 로직 구조
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+        String startKey,
+        Map<String, Set<String>> graph,
+        Set<String> selectedMeasures,
+        Set<String> selectedDimensions
+) {
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+    FieldConfig sourceField = getFieldConfig(startKey);
+    if (sourceField == null) return response;
+
+    // 1. Measure 추천: 단일 선택된 measure -> 연결된 measure 추천 (graph 기반)
+    if (isMeasure(startKey)) {
+        Set<String> connectedKeys = graph.getOrDefault(startKey, Set.of());
+
+        for (String targetKey : connectedKeys) {
+            if (isMeasure(targetKey) && !selectedMeasures.contains(targetKey)) {
+                response.getMeasure().add(makeJoinInfo(startKey, targetKey));
+            }
+        }
+    }
+
+    // 2. Dimension 추천
+    Set<String> candidateDimensions = null;
+
+    if (!selectedMeasures.isEmpty()) {
+        // 여러 measure 간의 dimension 교집합 구함
+        candidateDimensions = getIntersectedTargets(selectedMeasures, REPORT_DIMENSION);
+    } else if (!selectedDimensions.isEmpty()) {
+        candidateDimensions = getIntersectedTargets(selectedDimensions, REPORT_DIMENSION);
+    } else {
+        // 최초 요청이라면 startKey 기준
+        candidateDimensions = getTargetsByGroup(startKey, REPORT_DIMENSION);
+    }
+
+    for (String dimKey : candidateDimensions) {
+        if (!selectedDimensions.contains(dimKey)) {
+            response.getDimension().add(makeJoinInfo(startKey, dimKey));
+        }
+    }
+
+    // 3. Filter 추천 - 선택된 모든 measure, dimension 기준 filter의 합집합
+    Set<String> filterUnion = new HashSet<>();
+    for (String measureKey : selectedMeasures) {
+        filterUnion.addAll(getTargetsByGroup(measureKey, REPORT_FILTER));
+    }
+    for (String dimensionKey : selectedDimensions) {
+        filterUnion.addAll(getTargetsByGroup(dimensionKey, REPORT_FILTER));
+    }
+    for (String filterKey : filterUnion) {
+        response.getFilter().add(makeJoinInfo(startKey, filterKey));
+    }
+
+    return response;
+}
+```
+
+---
+
+## ✅ 보조 메서드들
+
+```java
+private boolean isMeasure(String key) {
+    return key.startsWith(REPORT_MEASURE + ":");
+}
+
+private boolean isDimension(String key) {
+    return key.startsWith(REPORT_DIMENSION + ":");
+}
+
+private Set<String> getTargetsByGroup(String sourceKey, String targetGroup) {
+    FieldConfig config = getFieldConfig(sourceKey);
+    if (config == null) return Set.of();
+
+    return Optional.ofNullable(config.getJoins())
+            .map(map -> map.get(targetGroup))
+            .orElse(List.of())
+            .stream()
+            .map(JoinConfig::getTarget)
+            .collect(Collectors.toSet());
+}
+
+private Set<String> getIntersectedTargets(Set<String> sources, String targetGroup) {
+    Set<String> intersection = null;
+
+    for (String sourceKey : sources) {
+        Set<String> targets = getTargetsByGroup(sourceKey, targetGroup);
+        if (intersection == null) {
+            intersection = new HashSet<>(targets);
+        } else {
+            intersection.retainAll(targets);
+        }
+    }
+    return intersection != null ? intersection : Set.of();
+}
+
+private JoinFieldInfo makeJoinInfo(String sourceKey, String targetKey) {
+    FieldConfig targetField = getFieldConfig(targetKey);
+    if (targetField == null) return null;
+
+    String[] parts = targetKey.split(":");
+    if (parts.length != 3) return null;
+
+    JoinFieldInfo info = new JoinFieldInfo();
+    info.setGroup(parts[0]);
+    info.setCategory(parts[1]);
+    info.setField(parts[2]);
+    info.setLabel(targetField.getLabel());
+    info.setOperator(targetField.getOperator());
+    info.setTarget(targetKey);
+
+    FieldConfig sourceField = getFieldConfig(sourceKey);
+    if (sourceField != null) {
+        List<JoinConfig> joins = Optional.ofNullable(sourceField.getJoins())
+                .map(map -> map.get(parts[0]))
+                .orElse(List.of());
+
+        for (JoinConfig jc : joins) {
+            if (jc.getTarget().equals(targetKey)) {
+                info.setJoinType(jc.getJoinType());
+                info.setOn(jc.getJoinOn());
+                break;
+            }
+        }
+    }
+    return info;
+}
+```
+
+---
+
+## ✅ 예시
+
+**선택된 measure: app\_usage**
+**후보 measure: battery\_consumption**
+→ `dimension` 추천은 `app_usage`과 `battery_consumption` 의 **dimension 교집합**
+→ `filter` 추천은 둘의 **filter 합집합**
+
+---
+
+이 구조는 다양한 경우를 처리하면서 확장 가능합니다. 다음 단계에서 원하면:
+
+* 선택 순서를 반영해 우선순위를 주는 정렬
+* 추천 우선순위 점수화
+* yml 기준 변경 동적 반영
+
+도 도와드릴 수 있습니다.
 
 ----
 -----
