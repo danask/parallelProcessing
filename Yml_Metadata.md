@@ -1,4 +1,186 @@
 
+``java
+public class JoinRecommendationService {
+
+    public JoinRecommendationResponse getJoinRecommendations(
+            Set<CategoryFieldKey> selectedMeasures,
+            Set<CategoryFieldKey> selectedDimensions,
+            Map<String, Set<String>> graph
+    ) {
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        // Determine base set of keys to intersect
+        Set<String> dimensionIntersection = null;
+        Set<String> filterUnion = new HashSet<>();
+
+        for (CategoryFieldKey measureKey : selectedMeasures) {
+            String fullKey = toFullKey("measure", measureKey);
+            FieldConfig measureField = getFieldConfig(fullKey);
+            if (measureField == null) continue;
+
+            List<JoinConfig> dimJoins = Optional.ofNullable(measureField.getJoins())
+                    .map(m -> m.get("dimension")).orElse(List.of());
+            List<JoinConfig> filterJoins = Optional.ofNullable(measureField.getJoins())
+                    .map(m -> m.get("filter")).orElse(List.of());
+
+            Set<String> dimTargets = dimJoins.stream().map(JoinConfig::getTarget).collect(Collectors.toSet());
+            if (dimensionIntersection == null) {
+                dimensionIntersection = new HashSet<>(dimTargets);
+            } else {
+                dimensionIntersection.retainAll(dimTargets);
+            }
+
+            filterJoins.stream().map(JoinConfig::getTarget).forEach(filterUnion::add);
+        }
+
+        // Add intersected dimensions
+        if (dimensionIntersection != null) {
+            for (String dimKey : dimensionIntersection) {
+                JoinFieldInfo info = createJoinFieldInfo("dimension", dimKey);
+                if (info != null) response.getDimension().add(info);
+            }
+        }
+
+        // Add unioned filters
+        for (String filterKey : filterUnion) {
+            JoinFieldInfo info = createJoinFieldInfo("filter", filterKey);
+            if (info != null) response.getFilter().add(info);
+        }
+
+        // Recommend additional measures from the selected dimensions
+        Set<String> recommendedMeasures = new HashSet<>();
+        for (CategoryFieldKey dimKey : selectedDimensions) {
+            String fullKey = toFullKey("dimension", dimKey);
+            FieldConfig dimField = getFieldConfig(fullKey);
+            if (dimField == null) continue;
+
+            List<JoinConfig> measureJoins = Optional.ofNullable(dimField.getJoins())
+                    .map(m -> m.get("measure")).orElse(List.of());
+            for (JoinConfig jc : measureJoins) {
+                String targetKey = jc.getTarget();
+                CategoryFieldKey key = fromFullKey(targetKey);
+                if (!selectedMeasures.contains(key)) {
+                    recommendedMeasures.add(targetKey);
+                }
+            }
+        }
+
+        for (String mKey : recommendedMeasures) {
+            JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+            if (info != null) response.getMeasure().add(info);
+        }
+
+        return response;
+    }
+
+    private String toFullKey(String group, CategoryFieldKey key) {
+        return group + ":" + key.getCategory() + ":" + key.getField();
+    }
+
+    private CategoryFieldKey fromFullKey(String fullKey) {
+        String[] parts = fullKey.split(":");
+        return new CategoryFieldKey(parts[1], parts[2]);
+    }
+
+    private JoinFieldInfo createJoinFieldInfo(String group, String fullKey) {
+        FieldConfig field = getFieldConfig(fullKey);
+        if (field == null) return null;
+
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setGroup(group);
+        info.setCategory(parts[1]);
+        info.setField(parts[2]);
+        info.setLabel(field.getLabel());
+        info.setOperator(field.getOperator());
+        info.setTarget(fullKey);
+
+        List<JoinConfig> joins = Optional.ofNullable(field.getJoins())
+                .map(m -> m.get(group)).orElse(List.of());
+
+        for (JoinConfig jc : joins) {
+            if (jc.getTarget().equals(fullKey)) {
+                info.setJoinType(jc.getJoinType());
+                info.setOn(jc.getJoinOn());
+                break;
+            }
+        }
+
+        return info;
+    }
+
+    // Placeholder methods
+    private FieldConfig getFieldConfig(String key) {
+        // Implement this to get config from YAML structure
+        return null;
+    }
+
+    // --- DTOs ---
+
+    public static class JoinRecommendationResponse {
+        private List<JoinFieldInfo> measure = new ArrayList<>();
+        private List<JoinFieldInfo> dimension = new ArrayList<>();
+        private List<JoinFieldInfo> filter = new ArrayList<>();
+        public List<JoinFieldInfo> getMeasure() { return measure; }
+        public List<JoinFieldInfo> getDimension() { return dimension; }
+        public List<JoinFieldInfo> getFilter() { return filter; }
+    }
+
+    public static class JoinFieldInfo {
+        private String group, category, field, label, operator, joinType, on, target;
+        // Getters and setters omitted for brevity
+    }
+
+    public static class CategoryFieldKey {
+        private final String category;
+        private final String field;
+
+        public CategoryFieldKey(String category, String field) {
+            this.category = category;
+            this.field = field;
+        }
+        public String getCategory() { return category; }
+        public String getField() { return field; }
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            CategoryFieldKey that = (CategoryFieldKey) o;
+            return Objects.equals(category, that.category) && Objects.equals(field, that.field);
+        }
+        @Override
+        public int hashCode() {
+            return Objects.hash(category, field);
+        }
+    }
+
+    public static class FieldConfig {
+        private String label;
+        private String operator;
+        private Map<String, List<JoinConfig>> joins;
+        public String getLabel() { return label; }
+        public String getOperator() { return operator; }
+        public Map<String, List<JoinConfig>> getJoins() { return joins; }
+    }
+
+    public static class JoinConfig {
+        private String target;
+        private String joinType;
+        private String joinOn;
+        public String getTarget() { return target; }
+        public String getJoinType() { return joinType; }
+        public String getJoinOn() { return joinOn; }
+    }
+} 
+
+
+``
+
+----
+-----
+
 너가 새롭게 정의한 YAML 구조 (`metric`이 단순 문자열이 아닌 객체(map)로 바뀐 구조)에 맞게, `getCategoryAndFields` 메서드도 타입을 정확히 맞춰서 리턴할 수 있게 바꿔야 해. 핵심은 `Field` DTO가 `Map<String, MetricConfig>`를 포함하도록 바뀌었는지 확인하는 것부터야.
 
 ---
