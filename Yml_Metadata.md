@@ -1,4 +1,126 @@
 
+```java
+public class JoinRecommendationService {
+
+    public JoinRecommendationResponse getJoinRecommendations(
+            String startKey,
+            Map<String, Set<String>> graph,
+            Set<CategoryFieldKey> selectedMeasures,
+            Set<CategoryFieldKey> selectedDimensions
+    ) {
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        Set<String> selectedMeasureKeys = selectedMeasures.stream()
+                .map(k -> "measure:" + k.getCategory() + ":" + k.getField())
+                .collect(Collectors.toSet());
+
+        Set<String> selectedDimensionKeys = selectedDimensions.stream()
+                .map(k -> "dimension:" + k.getCategory() + ":" + k.getField())
+                .collect(Collectors.toSet());
+
+        // 1. 교집합 dimension 찾기 (선택된 measure 기준)
+        Set<String> intersectionDimensions = null;
+        for (String measureKey : selectedMeasureKeys) {
+            FieldConfig fc = getFieldConfig(measureKey);
+            if (fc == null) continue;
+            List<JoinConfig> dimensionJoins = Optional.ofNullable(fc.getJoins())
+                    .map(map -> map.get(REPORT_DIMENSION))
+                    .orElse(List.of());
+            Set<String> dimensionTargets = dimensionJoins.stream()
+                    .map(JoinConfig::getTarget)
+                    .collect(Collectors.toSet());
+            if (intersectionDimensions == null) {
+                intersectionDimensions = new HashSet<>(dimensionTargets);
+            } else {
+                intersectionDimensions.retainAll(dimensionTargets);
+            }
+        }
+
+        if (intersectionDimensions != null) {
+            for (String key : intersectionDimensions) {
+                response.getDimension().add(toJoinFieldInfo(key));
+            }
+        }
+
+        // 2. filter 합집합 찾기 (선택된 measure 기준)
+        Set<String> unionFilterTargets = new HashSet<>();
+        for (String measureKey : selectedMeasureKeys) {
+            FieldConfig fc = getFieldConfig(measureKey);
+            if (fc == null) continue;
+            List<JoinConfig> filterJoins = Optional.ofNullable(fc.getJoins())
+                    .map(map -> map.get(REPORT_FILTER))
+                    .orElse(List.of());
+            for (JoinConfig jc : filterJoins) {
+                unionFilterTargets.add(jc.getTarget());
+            }
+        }
+        for (String filterKey : unionFilterTargets) {
+            response.getFilter().add(toJoinFieldInfo(filterKey));
+        }
+
+        // 3. 추가 measure 추천 (선택된 dimension과 연결되는 다른 measure)
+        Set<String> recommendedMeasureKeys = new HashSet<>();
+        for (String dimKey : selectedDimensionKeys) {
+            Set<String> connected = graph.getOrDefault(dimKey, Set.of());
+            for (String target : connected) {
+                if (target.startsWith("measure:") && !selectedMeasureKeys.contains(target)) {
+                    recommendedMeasureKeys.add(target);
+                }
+            }
+        }
+        for (String key : recommendedMeasureKeys) {
+            response.getMeasure().add(toJoinFieldInfo(key));
+        }
+
+        return response;
+    }
+
+    private JoinFieldInfo toJoinFieldInfo(String fullKey) {
+        FieldConfig fc = getFieldConfig(fullKey);
+        if (fc == null) return null;
+
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setGroup(parts[0]);
+        info.setCategory(parts[1]);
+        info.setField(parts[2]);
+        info.setLabel(fc.getLabel());
+        info.setOperator(fc.getOperator());
+        info.setTarget(fullKey);
+
+        List<JoinConfig> joinConfigs = Optional.ofNullable(fc.getJoins())
+                .map(map -> map.get(parts[0]))
+                .orElse(List.of());
+
+        for (JoinConfig jc : joinConfigs) {
+            if (jc.getTarget().equals(fullKey)) {
+                info.setJoinType(jc.getJoinType());
+                info.setOn(jc.getJoinOn());
+                break;
+            }
+        }
+        return info;
+    }
+
+    private FieldConfig getFieldConfig(String key) {
+        // Implement your config map loading logic here
+        return FieldConfigRegistry.get(key);
+    }
+
+    private static final String REPORT_MEASURE = "measure";
+    private static final String REPORT_DIMENSION = "dimension";
+    private static final String REPORT_FILTER = "filter";
+
+    // Add other required classes like CategoryFieldKey, JoinFieldInfo, JoinConfig, FieldConfig, etc.
+}
+
+
+```
+
+-----
+
 좋습니다. `selectedMeasures`와 `selectedDimensions`에 각각 하나 이상의 항목이 있는 경우에 어떻게 dimension 교집합과 filter 합집합을 만들어 추천이 되는지 예시로 보여드릴게요.
 
 ---
