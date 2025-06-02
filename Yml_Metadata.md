@@ -300,6 +300,7 @@ public class JoinRecommendationService {
             if (info != null) response.getFilter().add(info);
         }
 
+/*
         // Recommend additional measures from the selected dimensions
         Set<String> recommendedMeasures = new HashSet<>();
         for (CategoryFieldKey dimKey : selectedDimensions) {
@@ -308,6 +309,41 @@ public class JoinRecommendationService {
             if (dimField == null) continue;
 
             List<JoinConfig> measureJoins = Optional.ofNullable(dimField.getJoins())
+                    .map(m -> m.get("measure")).orElse(List.of());
+            for (JoinConfig jc : measureJoins) {
+                String targetKey = jc.getTarget();
+                CategoryFieldKey key = fromFullKey(targetKey);
+                if (!selectedMeasures.contains(key)) {
+                    recommendedMeasures.add(targetKey);
+                }
+            }
+        }
+*/
+
+        // Recommend measures from selected dimensions
+        for (CategoryFieldKey dimKey : selectedDimensions) {
+            String fullKey = toFullKey("dimension", dimKey);
+            FieldConfig dimField = getFieldConfig(fullKey);
+            if (dimField == null) continue;
+
+            List<JoinConfig> measureJoins = Optional.ofNullable(dimField.getJoins())
+                    .map(m -> m.get("measure")).orElse(List.of());
+            for (JoinConfig jc : measureJoins) {
+                String targetKey = jc.getTarget();
+                CategoryFieldKey key = fromFullKey(targetKey);
+                if (!selectedMeasures.contains(key)) {
+                    recommendedMeasures.add(targetKey);
+                }
+            }
+        }
+
+        // Recommend measures from selected measures (measure -> measure join)
+        for (CategoryFieldKey measureKey : selectedMeasures) {
+            String fullKey = toFullKey("measure", measureKey);
+            FieldConfig measureField = getFieldConfig(fullKey);
+            if (measureField == null) continue;
+
+            List<JoinConfig> measureJoins = Optional.ofNullable(measureField.getJoins())
                     .map(m -> m.get("measure")).orElse(List.of());
             for (JoinConfig jc : measureJoins) {
                 String targetKey = jc.getTarget();
