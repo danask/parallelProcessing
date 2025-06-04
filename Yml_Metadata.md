@@ -1,3 +1,341 @@
+
+```java
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class JoinRecommendationService {
+
+    private final List<String> measureFieldOrder = new ArrayList<>();
+    private final List<String> dimensionFieldOrder = new ArrayList<>();
+    private final List<String> filterFieldOrder = new ArrayList<>();
+
+    public JoinRecommendationService() {
+        // Example: initialize from YAML (pseudo-code)
+        measureFieldOrder.addAll(List.of(
+            "measure:sales:total_sales",
+            "measure:sales:avg_sales",
+            "measure:finance:profit"
+        ));
+        dimensionFieldOrder.addAll(List.of(
+            "dimension:time:month",
+            "dimension:time:year",
+            "dimension:region:country"
+        ));
+        filterFieldOrder.addAll(List.of(
+            "filter:region:country",
+            "filter:product:category"
+        ));
+    }
+
+    public JoinRecommendationResponse getJoinRecommendations(
+            Set<String> selectedMeasureKeys,
+            Set<String> selectedDimensionKeys,
+            Set<String> selectedFilterKeys,
+            Map<String, Set<String>> graph
+    ) {
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        Set<String> dimensionIntersection = null;
+        Set<String> filterUnion = new HashSet<>();
+
+        for (String measureKey : selectedMeasureKeys) {
+            FieldConfig measureField = getFieldConfig(measureKey);
+            if (measureField == null) continue;
+
+            Set<String> dimTargets = measureField.getJoins().stream()
+                    .filter(j -> j.getTarget().startsWith("dimension:"))
+                    .map(JoinEdge::getTarget)
+                    .collect(Collectors.toSet());
+
+            if (dimensionIntersection == null) {
+                dimensionIntersection = new HashSet<>(dimTargets);
+            } else {
+                dimensionIntersection.retainAll(dimTargets);
+            }
+
+            measureField.getJoins().stream()
+                    .filter(j -> j.getTarget().startsWith("filter:"))
+                    .map(JoinEdge::getTarget)
+                    .forEach(filterUnion::add);
+        }
+
+        if (dimensionIntersection != null) {
+            for (String dimKey : dimensionIntersection) {
+                if (selectedDimensionKeys.contains(dimKey)) continue;
+                JoinFieldInfo info = createJoinFieldInfo("dimension", dimKey);
+                if (info != null) response.getDimension().add(info);
+            }
+        }
+
+        for (String filterKey : filterUnion) {
+            if (selectedFilterKeys.contains(filterKey)) continue;
+            JoinFieldInfo info = createJoinFieldInfo("filter", filterKey);
+            if (info != null) response.getFilter().add(info);
+        }
+
+        Set<String> recommendedMeasures = new HashSet<>();
+        for (String dimKey : selectedDimensionKeys) {
+            FieldConfig dimField = getFieldConfig(dimKey);
+            if (dimField == null) continue;
+
+            dimField.getJoins().stream()
+                    .filter(j -> j.getTarget().startsWith("measure:"))
+                    .map(JoinEdge::getTarget)
+                    .filter(t -> !selectedMeasureKeys.contains(t))
+                    .forEach(recommendedMeasures::add);
+        }
+
+        for (String measureKey : selectedMeasureKeys) {
+            FieldConfig measureField = getFieldConfig(measureKey);
+            if (measureField == null) continue;
+
+            measureField.getJoins().stream()
+                    .filter(j -> j.getTarget().startsWith("measure:"))
+                    .map(JoinEdge::getTarget)
+                    .filter(t -> !selectedMeasureKeys.contains(t))
+                    .forEach(recommendedMeasures::add);
+        }
+
+        for (String mKey : recommendedMeasures) {
+            JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+            if (info != null) response.getMeasure().add(info);
+        }
+
+        response.getMeasure().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), measureFieldOrder)));
+        response.getDimension().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), dimensionFieldOrder)));
+        response.getFilter().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), filterFieldOrder)));
+
+        return response;
+    }
+
+    private int indexOrMax(String key, List<String> orderList) {
+        int idx = orderList.indexOf(key);
+        return idx >= 0 ? idx : Integer.MAX_VALUE;
+    }
+
+    private JoinFieldInfo createJoinFieldInfo(String group, String fullKey) {
+        FieldConfig field = getFieldConfig(fullKey);
+        if (field == null) return null;
+
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setGroup(group);
+        info.setCategory(parts[1]);
+        info.setField(parts[2]);
+        info.setLabel(field.getLabel());
+        info.setOperator(field.getOperator());
+        info.setTarget(fullKey);
+
+        Optional<JoinEdge> selfJoin = field.getJoins().stream()
+                .filter(jc -> jc.getTarget().equals(fullKey))
+                .findFirst();
+
+        selfJoin.ifPresent(jc -> {
+            info.setJoinType(jc.getJoinType());
+            info.setOn(jc.getJoinOn());
+        });
+
+        return info;
+    }
+
+    private FieldConfig getFieldConfig(String key) {
+        return null; // implement with YAML loading logic
+    }
+
+    public static class JoinRecommendationResponse {
+        private List<JoinFieldInfo> measure = new ArrayList<>();
+        private List<JoinFieldInfo> dimension = new ArrayList<>();
+        private List<JoinFieldInfo> filter = new ArrayList<>();
+        public List<JoinFieldInfo> getMeasure() { return measure; }
+        public List<JoinFieldInfo> getDimension() { return dimension; }
+        public List<JoinFieldInfo> getFilter() { return filter; }
+    }
+
+    public static class JoinFieldInfo {
+        private String group, category, field, label, operator, joinType, on, target;
+        public String getGroup() { return group; }
+        public void setGroup(String group) { this.group = group; }
+        public String getCategory() { return category; }
+        public void setCategory(String category) { this.category = category; }
+        public String getField() { return field; }
+        public void setField(String field) { this.field = field; }
+        public String getLabel() { return label; }
+        public void setLabel(String label) { this.label = label; }
+        public String getOperator() { return operator; }
+        public void setOperator(String operator) { this.operator = operator; }
+        public String getJoinType() { return joinType; }
+        public void setJoinType(String joinType) { this.joinType = joinType; }
+        public String getOn() { return on; }
+        public void setOn(String on) { this.on = on; }
+        public String getTarget() { return target; }
+        public void setTarget(String target) { this.target = target; }
+    }
+
+    public static class FieldConfig {
+        private String label;
+        private String operator;
+        private List<JoinEdge> joins;
+        public String getLabel() { return label; }
+        public String getOperator() { return operator; }
+        public List<JoinEdge> getJoins() { return joins != null ? joins : Collections.emptyList(); }
+    }
+
+    public static class JoinEdge {
+        private String target;
+        private String joinType;
+        private String joinOn;
+        public String getTarget() { return target; }
+        public String getJoinType() { return joinType; }
+        public String getJoinOn() { return joinOn; }
+    }
+}
+
+
+
+```
+
+
+
+좋습니다, 기존의 `getJoinRecommendations()` 메서드를 다음과 같은 기능들로 리팩토링했습니다:
+
+---
+
+### ✅ 리팩토링 목표 반영:
+
+1. **dimension 추천**은 `measure` 기준으로 교집합.
+2. **filter 추천**은 `measure` 기준으로 합집합. → 단, `selectedFilters`는 추천에서 제외.
+3. **measure 추천**은 `dimension` 또는 `measure` 기준으로 추천, 단 `selectedMeasures`는 추천에서 제외.
+4. 모든 추천은 YAML 기준 정렬.
+
+---
+
+### 🔁 변경된 시그니처:
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+    Set<CategoryFieldKey> selectedMeasures,
+    Set<CategoryFieldKey> selectedDimensions,
+    Set<CategoryFieldKey> selectedFilters,
+    Map<String, Set<String>> graph
+)
+```
+
+---
+
+### 🔧 수정된 메서드 코드:
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+    Set<CategoryFieldKey> selectedMeasures,
+    Set<CategoryFieldKey> selectedDimensions,
+    Set<CategoryFieldKey> selectedFilters,
+    Map<String, Set<String>> graph
+) {
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+    Set<String> dimensionIntersection = null;
+    Set<String> filterUnion = new HashSet<>();
+
+    // 추천 대상 필터 키 (string으로 fullKey 구성)
+    Set<String> selectedFilterKeys = selectedFilters.stream()
+        .map(f -> toFullKey("filter", f))
+        .collect(Collectors.toSet());
+
+    // 1. Dimension & Filter 추천 (measure 기준)
+    for (CategoryFieldKey measureKey : selectedMeasures) {
+        String fullKey = toFullKey("measure", measureKey);
+        FieldConfig measureField = getFieldConfig(fullKey);
+        if (measureField == null) continue;
+
+        Set<String> dimTargets = measureField.getJoins().stream()
+            .filter(j -> j.getTarget().startsWith("dimension:"))
+            .map(JoinEdge::getTarget)
+            .collect(Collectors.toSet());
+
+        if (dimensionIntersection == null) {
+            dimensionIntersection = new HashSet<>(dimTargets);
+        } else {
+            dimensionIntersection.retainAll(dimTargets);
+        }
+
+        measureField.getJoins().stream()
+            .filter(j -> j.getTarget().startsWith("filter:"))
+            .map(JoinEdge::getTarget)
+            .filter(f -> !selectedFilterKeys.contains(f)) // 제외 필터 처리
+            .forEach(filterUnion::add);
+    }
+
+    if (dimensionIntersection != null) {
+        for (String dimKey : dimensionIntersection) {
+            JoinFieldInfo info = createJoinFieldInfo("dimension", dimKey);
+            if (info != null) response.getDimension().add(info);
+        }
+    }
+
+    for (String filterKey : filterUnion) {
+        JoinFieldInfo info = createJoinFieldInfo("filter", filterKey);
+        if (info != null) response.getFilter().add(info);
+    }
+
+    // 2. Measure 추천 (dimension 및 measure 기준)
+    Set<String> recommendedMeasures = new HashSet<>();
+    Set<String> selectedMeasureKeys = selectedMeasures.stream()
+        .map(m -> toFullKey("measure", m))
+        .collect(Collectors.toSet());
+
+    for (CategoryFieldKey dimKey : selectedDimensions) {
+        String fullKey = toFullKey("dimension", dimKey);
+        FieldConfig dimField = getFieldConfig(fullKey);
+        if (dimField == null) continue;
+
+        dimField.getJoins().stream()
+            .filter(j -> j.getTarget().startsWith("measure:"))
+            .map(JoinEdge::getTarget)
+            .filter(t -> !selectedMeasureKeys.contains(t))
+            .forEach(recommendedMeasures::add);
+    }
+
+    for (CategoryFieldKey measureKey : selectedMeasures) {
+        String fullKey = toFullKey("measure", measureKey);
+        FieldConfig measureField = getFieldConfig(fullKey);
+        if (measureField == null) continue;
+
+        measureField.getJoins().stream()
+            .filter(j -> j.getTarget().startsWith("measure:"))
+            .map(JoinEdge::getTarget)
+            .filter(t -> !selectedMeasureKeys.contains(t))
+            .forEach(recommendedMeasures::add);
+    }
+
+    for (String mKey : recommendedMeasures) {
+        JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+        if (info != null) response.getMeasure().add(info);
+    }
+
+    // 3. 정렬 처리
+    response.getMeasure().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), measureFieldOrder)));
+    response.getDimension().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), dimensionFieldOrder)));
+    response.getFilter().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), filterFieldOrder)));
+
+    return response;
+}
+```
+
+---
+
+### 📌 다음 단계 추천
+
+* `getFieldConfig(String key)` 구현을 완성해야 실제 추천이 동작합니다 (YAML or Registry에서 매핑).
+* 테스트 데이터로 기능 확인 필요: `measure` 기준 교집합/합집합 로직 확인.
+* 그래프(`Map<String, Set<String>>`)는 현재 미사용 중인데, 후속 개선 포인트로 `graph` 기반 가중치 추천 등에 활용 가능.
+
+필요하다면 테스트 케이스 샘플이나 `getFieldConfig()` 예시도 도와드릴게요.
+
+
+------------------------
 ```java
 
 import java.util.*;
