@@ -1,3 +1,270 @@
+좋습니다. 요청하신 대로:
+
+* `JoinGraph`를 기반으로 양방향 join 관계를 구성하고,
+* `group`(measure/dimension/filter)에 맞게 구분하여 추천하는 로직
+
+을 전체 코드로 재정리해드릴게요.
+
+---
+
+## ✅ 최종 코드: `JoinGraph`, 빌더, 추천 서비스 포함
+
+```java
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class JoinRecommendationService {
+
+    private final DdeMetadataProperties dde;
+
+    public JoinRecommendationService(DdeMetadataProperties dde) {
+        this.dde = dde;
+    }
+
+    // === JoinGraph ===
+    public static class JoinGraph {
+        private final Map<String, Set<String>> adjacency = new HashMap<>();
+
+        public void addEdge(String from, String to) {
+            adjacency.computeIfAbsent(from, k -> new HashSet<>()).add(to);
+        }
+
+        public Set<String> getTargets(String from) {
+            return adjacency.getOrDefault(from, Set.of());
+        }
+
+        public Set<String> getTargetsOfGroup(Set<String> fromKeys, String targetGroup) {
+            Set<String> result = new HashSet<>();
+            for (String from : fromKeys) {
+                for (String neighbor : getTargets(from)) {
+                    if (neighbor.startsWith(targetGroup + ":")) {
+                        result.add(neighbor);
+                    }
+                }
+            }
+            return result;
+        }
+
+        public Set<String> getCommonTargets(Set<String> fromKeys, String targetGroup) {
+            Set<String> result = null;
+            for (String from : fromKeys) {
+                Set<String> neighbors = getTargets(from).stream()
+                        .filter(n -> n.startsWith(targetGroup + ":"))
+                        .collect(Collectors.toSet());
+                if (result == null) {
+                    result = new HashSet<>(neighbors);
+                } else {
+                    result.retainAll(neighbors);
+                }
+            }
+            return result == null ? Set.of() : result;
+        }
+    }
+
+    // === JoinGraphBuilder ===
+    public JoinGraph buildJoinGraph() {
+        JoinGraph joinGraph = new JoinGraph();
+
+        buildFromCategory("dimension", dde.getDimension(), joinGraph);
+        buildFromCategory("filter", dde.getFilter(), joinGraph);
+        buildFromCategory("measure", dde.getMeasure(), joinGraph); // measure도 같은 방식으로
+
+        return joinGraph;
+    }
+
+    private void buildFromCategory(String group, Map<String, CategoryConfig> map, JoinGraph joinGraph) {
+        for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+            String category = categoryEntry.getKey();
+            Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+            if (fields == null) continue;
+
+            for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                String field = fieldEntry.getKey();
+                FieldConfig fieldConfig = fieldEntry.getValue();
+                String sourceKey = toFullKey(group, category, field);
+
+                if (fieldConfig.getJoins() != null) {
+                    for (Map.Entry<String, List<JoinConfig>> groupEntry : fieldConfig.getJoins().entrySet()) {
+                        for (JoinConfig jc : groupEntry.getValue()) {
+                            String targetKey = jc.getTarget();
+                            joinGraph.addEdge(sourceKey, targetKey);
+                            joinGraph.addEdge(targetKey, sourceKey); // 양방향
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // === 추천 로직 ===
+    public JoinRecommendationResponse getJoinRecommendationsGraphBased(
+            Set<CategoryFieldKey> selectedMeasures,
+            Set<CategoryFieldKey> selectedDimensions,
+            Set<CategoryFieldKey> selectedFilters
+    ) {
+        JoinGraph graph = buildJoinGraph();
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        Set<String> selectedMeasureKeys = selectedMeasures.stream().map(k -> toFullKey("measure", k)).collect(Collectors.toSet());
+        Set<String> selectedDimensionKeys = selectedDimensions.stream().map(k -> toFullKey("dimension", k)).collect(Collectors.toSet());
+        Set<String> selectedFilterKeys = selectedFilters.stream().map(k -> toFullKey("filter", k)).collect(Collectors.toSet());
+
+        // 공통 dimension 추천 (intersection)
+        Set<String> commonDims = graph.getCommonTargets(selectedMeasureKeys, "dimension");
+        commonDims.removeAll(selectedDimensionKeys);
+        for (String dimKey : commonDims) {
+            JoinFieldInfo info = createJoinFieldInfo("dimension", dimKey);
+            if (info != null) response.getDimension().add(info);
+        }
+
+        // 필터는 합집합 (union)
+        Set<String> unionFilters = graph.getTargetsOfGroup(selectedMeasureKeys, "filter");
+        unionFilters.removeAll(selectedFilterKeys);
+        for (String filterKey : unionFilters) {
+            JoinFieldInfo info = createJoinFieldInfo("filter", filterKey);
+            if (info != null) response.getFilter().add(info);
+        }
+
+        // dimension으로부터 measure 추천
+        Set<String> measureFromDims = graph.getTargetsOfGroup(selectedDimensionKeys, "measure");
+        measureFromDims.removeAll(selectedMeasureKeys);
+        for (String measureKey : measureFromDims) {
+            JoinFieldInfo info = createJoinFieldInfo("measure", measureKey);
+            if (info != null) response.getMeasure().add(info);
+        }
+
+        return response;
+    }
+
+    // === 유틸 ===
+    private String toFullKey(String group, CategoryFieldKey key) {
+        return group + ":" + key.getCategory() + ":" + key.getField();
+    }
+
+    private JoinFieldInfo createJoinFieldInfo(String group, String fullKey) {
+        FieldConfig field = getFieldConfig(fullKey);
+        if (field == null) return null;
+
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setGroup(group);
+        info.setCategory(parts[1]);
+        info.setField(parts[2]);
+        info.setLabel(field.getLabel());
+        info.setOperator(field.getOperator());
+        info.setTarget(fullKey);
+        return info;
+    }
+
+    private FieldConfig getFieldConfig(String fullKey) {
+        String[] parts = fullKey.split(":");
+        if (parts.length != 3) return null;
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+
+        Map<String, CategoryConfig> groupMap = switch (group) {
+            case "dimension" -> dde.getDimension();
+            case "filter" -> dde.getFilter();
+            case "measure" -> dde.getMeasure();
+            default -> null;
+        };
+
+        if (groupMap == null) return null;
+        CategoryConfig categoryConfig = groupMap.get(category);
+        if (categoryConfig == null || categoryConfig.getFields() == null) return null;
+        return categoryConfig.getFields().get(field);
+    }
+
+    // === DTOs ===
+    public static class JoinRecommendationResponse {
+        private final List<JoinFieldInfo> measure = new ArrayList<>();
+        private final List<JoinFieldInfo> dimension = new ArrayList<>();
+        private final List<JoinFieldInfo> filter = new ArrayList<>();
+        public List<JoinFieldInfo> getMeasure() { return measure; }
+        public List<JoinFieldInfo> getDimension() { return dimension; }
+        public List<JoinFieldInfo> getFilter() { return filter; }
+    }
+
+    public static class JoinFieldInfo {
+        private String group, category, field, label, operator, target;
+        // Getters & setters 생략 가능
+        public void setGroup(String group) { this.group = group; }
+        public void setCategory(String category) { this.category = category; }
+        public void setField(String field) { this.field = field; }
+        public void setLabel(String label) { this.label = label; }
+        public void setOperator(String operator) { this.operator = operator; }
+        public void setTarget(String target) { this.target = target; }
+    }
+
+    public static class CategoryFieldKey {
+        private final String category;
+        private final String field;
+        public CategoryFieldKey(String category, String field) {
+            this.category = category;
+            this.field = field;
+        }
+        public String getCategory() { return category; }
+        public String getField() { return field; }
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof CategoryFieldKey that)) return false;
+            return Objects.equals(category, that.category) && Objects.equals(field, that.field);
+        }
+        @Override
+        public int hashCode() { return Objects.hash(category, field); }
+    }
+
+    // === config 구조 ===
+    public static class FieldConfig {
+        private String label;
+        private String operator;
+        private Map<String, List<JoinConfig>> joins;
+        public String getLabel() { return label; }
+        public String getOperator() { return operator; }
+        public Map<String, List<JoinConfig>> getJoins() { return joins; }
+    }
+
+    public static class JoinConfig {
+        private String target;
+        public String getTarget() { return target; }
+    }
+
+    public static class CategoryConfig {
+        private Map<String, FieldConfig> fields;
+        public Map<String, FieldConfig> getFields() { return fields; }
+    }
+
+    public static class DdeMetadataProperties {
+        private Map<String, CategoryConfig> dimension;
+        private Map<String, CategoryConfig> filter;
+        private Map<String, CategoryConfig> measure;
+
+        public Map<String, CategoryConfig> getDimension() { return dimension; }
+        public Map<String, CategoryConfig> getFilter() { return filter; }
+        public Map<String, CategoryConfig> getMeasure() { return measure; }
+    }
+}
+```
+
+---
+
+## ✅ 주요 개선 포인트 요약
+
+| 개선 항목                   | 설명                                          |
+| ----------------------- | ------------------------------------------- |
+| 🔁 `JoinGraph`          | 양방향 관계 자동 관리                                |
+| 🎯 group-aware 추천       | measure/dimension/filter 별로 추천 분리           |
+| 🧩 `getCommonTargets()` | 공통 dimension 계산 지원                          |
+| ➕ `getTargetsOfGroup()` | 필터/measure 추천 시 union 방식 지원                 |
+| ✅ 기존 구조와 호환             | `CategoryFieldKey`, `FieldConfig` 구조 그대로 유지 |
+
+---
+
+필요하시면 테스트 예제도 만들어드릴 수 있습니다. 계속해서 도와드릴게요.
 
 ---
 네, 지금 작성하신 `getJoinRecommendationsGraphBased` 메서드는 **기능적으로 구조가 잘 짜여져 있고**, 핵심 로직도 맞게 작성되어 있습니다. 따라서 **그대로 사용해도 무방합니다.** 다만 말씀하신 대로, `buildJoinGraph()` 안에서 사용되는 `Map<String, Set<String>> graph`가 **실제 쓰이지 않는다면 제거해도 됩니다.**
