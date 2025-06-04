@@ -1,4 +1,78 @@
 
+---
+네, 지금 작성하신 `getJoinRecommendationsGraphBased` 메서드는 **기능적으로 구조가 잘 짜여져 있고**, 핵심 로직도 맞게 작성되어 있습니다. 따라서 **그대로 사용해도 무방합니다.** 다만 말씀하신 대로, `buildJoinGraph()` 안에서 사용되는 `Map<String, Set<String>> graph`가 **실제 쓰이지 않는다면 제거해도 됩니다.**
+
+---
+
+### ✅ 요점 정리
+
+#### 1. ✅ 지금 코드의 흐름은 맞다
+
+* `selectedMeasures`, `selectedDimensions`, `selectedFilters` → `toFullKey(...)`로 전처리 → `JoinGraph`로부터 추천 받아 결과 구성
+* `dimension`은 **공통 대상**, `filter`와 `measure`는 **합집합 방식**으로 추천
+
+#### 2. ✅ `graph` 파라미터 필요 여부
+
+현재 `buildJoinGraph()` → `buildFromCategory()` 에서 `graph`는 **쓰이지 않거나**, 혹은 `addJoinsToGraph(...)` 같은 로직이 제거되었다면 **불필요한 파라미터**입니다.
+
+그래서 아래처럼 줄이면 됩니다:
+
+```java
+public static JoinGraph buildJoinGraph() {
+    JoinGraph joinGraph = new JoinGraph();
+
+    buildFromCategory("dimension", dde.getDimension(), joinGraph);
+    buildFromCategory("filter", dde.getFilter(), joinGraph);
+    buildFromMeasure("measure", dde.getMeasure(), joinGraph);
+
+    return joinGraph;
+}
+
+private static void buildFromCategory(String group, Map<String, CategoryConfig> map, JoinGraph joinGraph) {
+    for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+        String category = categoryEntry.getKey();
+        Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+        if (fields == null) continue;
+
+        for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+            String field = fieldEntry.getKey();
+            FieldConfig fieldConfig = fieldEntry.getValue();
+            String sourceKey = toKey(group, category, field);
+
+            if (fieldConfig.getJoins() != null) {
+                for (Map.Entry<String, List<JoinConfig>> groupEntry : fieldConfig.getJoins().entrySet()) {
+                    for (JoinConfig jc : groupEntry.getValue()) {
+                        String to = jc.getTarget();
+                        joinGraph.addEdge(sourceKey, to);
+                        joinGraph.addEdge(to, sourceKey); // 양방향
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+> `buildFromMeasure(...)`도 같은 방식으로 정리하세요.
+
+---
+
+### 💡 추가 팁
+
+* `toFullKey(...)`와 `toKey(...)`의 포맷이 **완전히 일치**해야 `graph`에서 제대로 추천됩니다. 디버깅할 때 둘의 출력값을 꼭 비교해보세요.
+* `JoinGraph` 내부의 `getCommonTargets`, `getUnionTargets`는 그래프 탐색 (DFS, BFS, shortest path 기반 등)을 기반으로 한다면 성능 이슈도 고려하세요.
+
+---
+
+### ✅ 결론
+
+* `getJoinRecommendationsGraphBased(...)`는 현재 구조에서 **문제 없으며, 그대로 사용해도 됩니다.**
+* 다만, `Map<String, Set<String>> graph`가 더 이상 쓰이지 않는다면 **제거하세요.**
+* `toFullKey(...)`와 `toKey(...)`의 일관성 확인이 중요합니다.
+
+필요하시면 `JoinGraph` 클래스 내부 구현도 함께 검토해드릴 수 있어요.
+
+
 좋아, Daniel. 아래에서 전체 구조를 **정리하고**, `buildMeasure`에서 만드는 그래프와 `getJoinRecommendations`에서 사용하는 그래프가 **같은지 다른지**도 설명해줄게.
 
 ---
