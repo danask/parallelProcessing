@@ -1,3 +1,85 @@
+
+아주 좋은 지적입니다. 네, **`graph`는 로직 전반에 걸쳐 핵심적으로 사용되고 있습니다.** 아래에 각 부분에서 **`graph`가 어떤 역할로 사용되고 있는지** 구체적으로 설명드릴게요.
+
+---
+
+## ✅ `graph`의 의미
+
+* `Map<String, Set<String>> graph`는 **각 필드 간 조인 가능한 타겟 필드들**을 나타내는 인접 리스트 (join graph)입니다.
+* 예를 들어 `measure:device:deviceId`가 `dimension:time:year`와 조인 가능하다면,
+  `graph.get("measure:device:deviceId")` → `[dimension:time:year]` 형태입니다.
+
+---
+
+## 🔍 어디서 어떻게 사용되나?
+
+### 1. **Dimension Intersection 계산 (조인 가능한 공통 dimension 추천)**
+
+```java
+Set<String> joinTargets = graph.getOrDefault(baseKey, Set.of());
+Set<String> dimTargets = joinTargets.stream()
+        .filter(k -> k.startsWith("dimension:"))
+        .collect(Collectors.toSet());
+```
+
+* 선택된 **measure들이 공통으로 조인 가능한 dimension**을 찾아냅니다.
+* 여러 measure 간의 **dimension 교집합**(`retainAll`)을 통해 추천 후보를 좁힙니다.
+
+---
+
+### 2. **Filter Union 계산 (조인 가능한 filter 추천)**
+
+```java
+joinTargets.stream()
+        .filter(k -> k.startsWith("filter:"))
+        .forEach(filterUnion::add);
+```
+
+* 선택된 measure들이 **어떤 filter들과 조인 가능한지**를 union으로 모읍니다.
+* dimension 추천과 달리 filter는 교집합이 아니라 **합집합**입니다.
+
+---
+
+### 3. **Measure 추천 (선택된 dimension 혹은 다른 measure로부터 추천되는 measure)**
+
+```java
+Set<String> joinTargets = graph.getOrDefault(dimKey, Set.of());
+joinTargets.stream()
+        .filter(k -> k.startsWith("measure:"))
+        .forEach(recommendedMeasures::add);
+```
+
+* 선택된 dimension이나 measure로부터 **조인 가능한 다른 measure들**을 추천합니다.
+* 기존에 선택된 measure는 제외합니다.
+
+---
+
+## 🧠 요약
+
+| 위치                           | graph 사용 목적 | 로직 종류        |
+| ---------------------------- | ----------- | ------------ |
+| measure → dimension          | 교집합         | dimension 추천 |
+| measure → filter             | 합집합         | filter 추천    |
+| dimension, measure → measure | union & 차집합 | measure 추천   |
+
+---
+
+필요하시면 이 `graph` 구조 예시도 드릴게요. 예:
+
+```java
+graph.put("measure:device:deviceId", Set.of(
+    "dimension:time:year",
+    "dimension:region:country",
+    "filter:region:country"
+));
+```
+
+이렇게 구성됩니다. 추가 질문 언제든지 환영이에요!
+
+
+
+-----------------
+
 물론입니다! 아래에 요청하신 내용을 한글 요약과 영문 버전으로 깔끔하게 정리해드릴게요. 이메일에서 사용할 수 있도록 문장 흐름과 구조도 자연스럽게 다듬었습니다.
 
 [한글 버전] 
