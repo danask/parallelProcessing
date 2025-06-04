@@ -1,26 +1,27 @@
 
 ```yaml
 dde:
-  measure:
+  dimension:
     device:
-      deviceId:
-        metric:
-          sum:
-            label: "Sum of Device ID"
-            name: "deviceId.sum"
-            joins:
-              dimension:
-                - target: "dimension:package:app_id"
-                  joinType: "left"
-                  on: "device_id = app_id"
-          avg:
-            label: "Avg of Device ID"
-            name: "deviceId.avg"
-            joins:
-              dimension:
-                - target: "dimension:package:app_id"
-                  joinType: "left"
-                  on: "device_id = app_id"
+      label: "Device"
+      fields:
+        deviceId:
+          label: "Device ID"
+          metric:
+            sum:
+              label: "Sum (EA)"
+              name: "sum_device_id"
+            avg:
+              label: "Avg (EA)"
+              name: "avg_device_id"
+          operator:
+            eq: "="
+          joins:
+            measure:
+              - target: "measure:mv_app_usage:foreground_usage"
+                joinType: "left"
+                on: "measure:mv_app_usage:app_id = dimension:package:app_id"
+
 
 
 ```
