@@ -174,6 +174,125 @@ private Set<String> getAllFieldKeys(String group) {
 }
 ```
 
+좋아, Daniel. 주어진 코드 조각은 `Map<String, CategoryConfig>` 구조를 기반으로 **Join Graph를 구축**하는 로직이야. 여기서 `fieldConfigMap`을 만들고 싶다면, 각 필드를 고유 키 (`group:category:field[:metric]`) 로 flatten 해서 저장하면 돼.
+
+아래에 정리해줄게:
+
+---
+
+### ✅ 전제 구조 예시
+
+```yaml
+measure:
+  device:
+    fields:
+      deviceModel:
+        metric: sum
+        joins:
+          dimension:
+            - target: dimension:device:manufacturer
+```
+
+Java에서는 이게 다음과 같이 매핑된다고 가정해:
+
+```java
+Map<String, CategoryConfig> map = ... // group 단위
+// 예: map.get("measure") → { "device" : CategoryConfig(deviceModel, ...) }
+```
+
+---
+
+### ✅ 목표: `Map<String, FieldConfig>` 형태 만들기
+
+```java
+Map<String, FieldConfig> fieldConfigMap = new HashMap<>();
+```
+
+---
+
+### ✅ 구현 코드
+
+```java
+Map<String, FieldConfig> fieldConfigMap = new HashMap<>();
+
+for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+    String category = categoryEntry.getKey();
+    CategoryConfig categoryConfig = categoryEntry.getValue();
+    Map<String, FieldConfig> fields = categoryConfig.getFields();
+    if (fields == null) continue;
+
+    for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+        String fieldName = fieldEntry.getKey();
+        FieldConfig fieldConfig = fieldEntry.getValue();
+
+        // metric 이 존재하는 경우엔 같이 붙이고, 없으면 생략
+        String metric = fieldConfig.getMetric();
+        String key = metric == null
+            ? String.format("%s:%s:%s", group, category, fieldName)
+            : String.format("%s:%s:%s:%s", group, category, fieldName, metric);
+
+        fieldConfigMap.put(key, fieldConfig);
+    }
+}
+```
+
+> 🔁 이 코드를 `group` 루프 안에서 실행해야 해 (group = "measure", "dimension", "filter" 등). 전체 구조는 아래 참고.
+
+---
+
+### ✅ 전체 구조 예시
+
+```java
+Map<String, Map<String, CategoryConfig>> allGroups = ...; // measure/dimension/filter
+
+Map<String, FieldConfig> fieldConfigMap = new HashMap<>();
+
+for (Map.Entry<String, Map<String, CategoryConfig>> groupEntry : allGroups.entrySet()) {
+    String group = groupEntry.getKey(); // "measure", "dimension", "filter"
+    Map<String, CategoryConfig> categoryMap = groupEntry.getValue();
+
+    for (Map.Entry<String, CategoryConfig> categoryEntry : categoryMap.entrySet()) {
+        String category = categoryEntry.getKey();
+        CategoryConfig categoryConfig = categoryEntry.getValue();
+        Map<String, FieldConfig> fields = categoryConfig.getFields();
+        if (fields == null) continue;
+
+        for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+            String fieldName = fieldEntry.getKey();
+            FieldConfig fieldConfig = fieldEntry.getValue();
+
+            String metric = fieldConfig.getMetric();
+            String key = metric == null
+                ? String.format("%s:%s:%s", group, category, fieldName)
+                : String.format("%s:%s:%s:%s", group, category, fieldName, metric);
+
+            fieldConfigMap.put(key, fieldConfig);
+        }
+    }
+}
+```
+
+---
+
+### ✅ 보너스: `toKey` 함수 추출
+
+```java
+public static String toKey(String group, String category, String field, String metric) {
+    return metric == null ? String.format("%s:%s:%s", group, category, field)
+                          : String.format("%s:%s:%s:%s", group, category, field, metric);
+}
+```
+
+필요하면 `FieldDescriptor` 같은 클래스로 키를 객체로 만들어도 돼.
+지금처럼 단순한 맵이면 String 키로 충분하고 성능도 좋고 단순함.
+
+---
+
+필요하면 `fieldConfigMap`을 테스트할 수 있는 mock 데이터를 같이 만들어줄 수도 있어.
+YAML 구조나 `CategoryConfig`, `FieldConfig` 구조 예제도 더 주면 정확히 맞춰줄 수 있어.
+
+
+
 > `fieldConfigMap`은 `Map<String, FieldConfig>` 형태로 전체 필드 설정을 로딩해두는 전역 또는 의존성으로 두면 됨.
 
 ---
