@@ -37,7 +37,6 @@ public class JoinRecommendationService {
     private final List<String> filterFieldOrder = new ArrayList<>();
 
     public JoinRecommendationService() {
-        // Example: initialize from YAML (pseudo-code)
         measureFieldOrder.addAll(List.of(
             "measure:device:deviceId.sum",
             "measure:device:deviceId.avg",
@@ -66,12 +65,9 @@ public class JoinRecommendationService {
         Set<String> filterUnion = new HashSet<>();
 
         for (String measureKey : selectedMeasureKeys) {
-            FieldConfig measureField = getFieldConfig(measureKey);
-            if (measureField == null) continue;
-
-            Set<String> dimTargets = measureField.getJoins().stream()
-                    .filter(j -> j.getTarget().startsWith("dimension:"))
-                    .map(JoinEdge::getTarget)
+            String baseMeasureKey = removeMetricSuffix(measureKey);
+            Set<String> dimTargets = graph.getOrDefault(baseMeasureKey, Set.of()).stream()
+                    .filter(k -> k.startsWith("dimension:"))
                     .collect(Collectors.toSet());
 
             if (dimensionIntersection == null) {
@@ -80,9 +76,8 @@ public class JoinRecommendationService {
                 dimensionIntersection.retainAll(dimTargets);
             }
 
-            measureField.getJoins().stream()
-                    .filter(j -> j.getTarget().startsWith("filter:"))
-                    .map(JoinEdge::getTarget)
+            graph.getOrDefault(baseMeasureKey, Set.of()).stream()
+                    .filter(k -> k.startsWith("filter:"))
                     .forEach(filterUnion::add);
         }
 
@@ -102,29 +97,24 @@ public class JoinRecommendationService {
 
         Set<String> recommendedMeasures = new HashSet<>();
         for (String dimKey : selectedDimensionKeys) {
-            FieldConfig dimField = getFieldConfig(dimKey);
-            if (dimField == null) continue;
-
-            dimField.getJoins().stream()
-                    .filter(j -> j.getTarget().startsWith("measure:"))
-                    .map(JoinEdge::getTarget)
-                    .filter(t -> !selectedMeasureKeys.contains(t))
+            Set<String> joinTargets = graph.getOrDefault(dimKey, Set.of());
+            joinTargets.stream()
+                    .filter(k -> k.startsWith("measure:"))
+                    .filter(k -> !selectedMeasureKeys.contains(k))
                     .forEach(recommendedMeasures::add);
         }
 
         for (String measureKey : selectedMeasureKeys) {
-            FieldConfig measureField = getFieldConfig(measureKey);
-            if (measureField == null) continue;
-
-            measureField.getJoins().stream()
-                    .filter(j -> j.getTarget().startsWith("measure:"))
-                    .map(JoinEdge::getTarget)
-                    .filter(t -> !selectedMeasureKeys.contains(t))
+            String baseMeasureKey = removeMetricSuffix(measureKey);
+            Set<String> joinTargets = graph.getOrDefault(baseMeasureKey, Set.of());
+            joinTargets.stream()
+                    .filter(k -> k.startsWith("measure:"))
+                    .filter(k -> !selectedMeasureKeys.contains(k))
                     .forEach(recommendedMeasures::add);
         }
 
         for (String mKey : recommendedMeasures) {
-            if (selectedMeasureKeys.contains(mKey)) continue; // metric level exclusion
+            if (selectedMeasureKeys.contains(mKey)) continue;
             JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
             if (info != null) response.getMeasure().add(info);
         }
@@ -166,6 +156,13 @@ public class JoinRecommendationService {
         });
 
         return info;
+    }
+
+    private String removeMetricSuffix(String key) {
+        String[] parts = key.split(":");
+        if (parts.length < 3) return key;
+        String[] fieldParts = parts[2].split("\\.");
+        return parts[0] + ":" + parts[1] + ":" + fieldParts[0];
     }
 
     private FieldConfig getFieldConfig(String key) {
@@ -221,6 +218,55 @@ public class JoinRecommendationService {
 }
 
 
+원래 질문은 이거 metric 까지 고려하면 어떻게 고치냐는 거였어 
+public List<CategoryWithFields> getCategoryAndFields(String group) {
+    Map<String, CategoryConfig> groupMap = getGroupMap(group);
+    if (groupMap == null) return Collections.emptyList();
+
+    return groupMap.entrySet().stream()
+        .flatMap(e -> {
+            String category = e.getKey();
+            CategoryConfig catConfig = e.getValue();
+
+            if (catConfig.getFields() == null) return Stream.empty();
+
+            return catConfig.getFields().entrySet().stream()
+                .flatMap(entry -> {
+                    String baseFieldKey = entry.getKey();
+                    FieldConfig f = entry.getValue();
+
+                    // metric이 있는 경우 metric별로 파생 Field 생성
+                    if (f.getMetric() != null && !f.getMetric().isEmpty()) {
+                        return f.getMetric().entrySet().stream().map(metricEntry -> {
+                            String metricKey = metricEntry.getKey(); // ex: sum, avg
+                            MetricConfig metricConfig = metricEntry.getValue();
+                            return new Field(
+                                baseFieldKey + "." + metricKey,
+                                metricConfig.getLabel(),
+                                null, // 하위 metric은 더 이상 metric 아님
+                                f.getOperator(),
+                                f.getJoins()
+                            );
+                        });
+                    } else {
+                        return Stream.of(new Field(
+                            baseFieldKey,
+                            f.getLabel(),
+                            null,
+                            f.getOperator(),
+                            f.getJoins()
+                        ));
+                    }
+                });
+        })
+        .collect(Collectors.groupingBy(
+            f -> new AbstractMap.SimpleEntry<>(f.getCategory(), categoryMap.get(f.getCategory()).getLabel()),
+            Collectors.toList()
+        ))
+        .entrySet().stream()
+        .map(entry -> new CategoryWithFields(entry.getKey().getKey(), entry.getKey().getValue(), entry.getValue()))
+        .toList(); 
+}
 
 ```
 이제 추천 로직에서 `selectedDimensionKeys`와 `selectedFilterKeys`에 포함된 값들은 결과 추천 목록에서 제외되도록 리팩토링된 코드를 아래에 반영했습니다:
