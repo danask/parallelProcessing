@@ -1,4 +1,196 @@
 
+좋아, Daniel. 아래에서 전체 구조를 **정리하고**, `buildMeasure`에서 만드는 그래프와 `getJoinRecommendations`에서 사용하는 그래프가 **같은지 다른지**도 설명해줄게.
+
+---
+
+## ✅ 전체 개요: FieldConfig 기반 Join 추천 시스템
+
+### 🔸 목표
+
+* **동적으로 measure, dimension, filter**를 선택할 때 가능한 조인 경로를 추천하는 시스템 설계
+* 각 필드가 어떤 필드와 조인 가능한지 정의된 구조를 기반으로 추천
+
+---
+
+## ✅ 핵심 구조
+
+### 1. `FieldConfig` 클래스
+
+```java
+public class FieldConfig {
+    private List<String> joinableFields; // 이 필드와 조인 가능한 다른 필드 리스트
+
+    public FieldConfig(List<String> joinableFields) {
+        this.joinableFields = joinableFields;
+    }
+
+    public List<String> getJoinableFields() {
+        return joinableFields;
+    }
+}
+```
+
+### 2. 전체 필드 정보
+
+```java
+Map<String, FieldConfig> fieldConfigMap;
+```
+
+* 예시:
+
+```java
+"app_usage.app_id" → ["app.id", "install.app_id"]
+"install.app_id" → ["app_usage.app_id", "app.id"]
+```
+
+---
+
+## ✅ 공통 그래프 생성 유틸
+
+```java
+public Map<String, Set<String>> buildGraphFromFieldConfig(Map<String, FieldConfig> fieldConfigMap) {
+    Map<String, Set<String>> graph = new HashMap<>();
+
+    for (Map.Entry<String, FieldConfig> entry : fieldConfigMap.entrySet()) {
+        String field = entry.getKey();
+        List<String> joinableFields = entry.getValue().getJoinableFields();
+
+        graph.putIfAbsent(field, new HashSet<>());
+        for (String target : joinableFields) {
+            graph.get(field).add(target);
+
+            // 양방향 추가 (선택 사항)
+            graph.putIfAbsent(target, new HashSet<>());
+            graph.get(target).add(field);
+        }
+    }
+
+    return graph;
+}
+```
+
+---
+
+## ✅ 3. `getJoinRecommendations` 구현 (교차 필터/차원, 합집합 필터 논리 적용)
+
+```java
+public JoinRecommendations getJoinRecommendations(
+    Set<String> selectedMeasures,
+    Set<String> selectedDimensions,
+    Set<String> selectedFilters,
+    Map<String, FieldConfig> fieldConfigMap
+) {
+    Map<String, Set<String>> graph = buildGraphFromFieldConfig(fieldConfigMap);
+
+    // Measure 집합 전체를 연결할 수 있는 dimension, filter 후보를 계산
+    Set<String> reachableFromAllMeasures = findIntersectionReachableFields(graph, selectedMeasures);
+
+    Set<String> dimensionCandidates = new HashSet<>(reachableFromAllMeasures);
+    dimensionCandidates.removeAll(selectedDimensions);
+    dimensionCandidates.removeAll(selectedMeasures);
+    dimensionCandidates.removeAll(selectedFilters);
+
+    // Filter 후보는 measure들과 연결 가능하지만, 선택된 필터 제외
+    Set<String> filterCandidates = findUnionReachableFields(graph, selectedMeasures);
+    filterCandidates.removeAll(selectedFilters);
+    filterCandidates.removeAll(selectedMeasures);
+    filterCandidates.removeAll(selectedDimensions);
+
+    return new JoinRecommendations(dimensionCandidates, filterCandidates);
+}
+```
+
+---
+
+### 🔸 유틸 함수들
+
+```java
+public Set<String> findIntersectionReachableFields(Map<String, Set<String>> graph, Set<String> sources) {
+    List<Set<String>> reachables = sources.stream()
+        .map(src -> bfs(graph, src))
+        .collect(Collectors.toList());
+
+    Set<String> result = new HashSet<>(reachables.get(0));
+    for (Set<String> set : reachables) {
+        result.retainAll(set);
+    }
+    return result;
+}
+
+public Set<String> findUnionReachableFields(Map<String, Set<String>> graph, Set<String> sources) {
+    Set<String> result = new HashSet<>();
+    for (String src : sources) {
+        result.addAll(bfs(graph, src));
+    }
+    return result;
+}
+
+public Set<String> bfs(Map<String, Set<String>> graph, String start) {
+    Set<String> visited = new HashSet<>();
+    Queue<String> queue = new LinkedList<>();
+    queue.add(start);
+
+    while (!queue.isEmpty()) {
+        String curr = queue.poll();
+        if (visited.add(curr)) {
+            queue.addAll(graph.getOrDefault(curr, Collections.emptySet()));
+        }
+    }
+
+    visited.remove(start);
+    return visited;
+}
+```
+
+---
+
+## ✅ `buildMeasure`에서의 그래프 vs `getJoinRecommendations`에서의 그래프
+
+### 1. `buildMeasure()`에서의 그래프
+
+* 보통 measure와 fact table에서 dimension, filter로의 join path를 **사전 계산**하거나 **semantic layer에서 모델링**하는 그래프
+* **ETL 설계/모델링 목적**
+
+### 2. `getJoinRecommendations()`에서의 그래프
+
+* 유저가 선택한 필드 기반으로 **런타임에서 추천용** 경로 탐색
+* **사용자 상호작용 기반 동적 추천 목적**
+
+### ✅ 결론
+
+* **두 그래프는 생성 로직은 같지만 용도가 다름**:
+
+  * `buildGraphFromFieldConfig`를 재사용 가능
+  * `buildMeasure`는 *정적인 모델 구성*
+  * `getJoinRecommendations`는 *동적인 추천*
+
+---
+
+## ✅ 전체 구성 예시 호출
+
+```java
+Map<String, FieldConfig> fieldConfigMap = Map.of(
+    "app_usage.app_id", new FieldConfig(List.of("app.id", "install.app_id")),
+    "install.app_id", new FieldConfig(List.of("app_usage.app_id", "app.id")),
+    "app.id", new FieldConfig(List.of("app_usage.app_id", "install.app_id")),
+    "device.device_id", new FieldConfig(List.of("app_usage.device_id")),
+    "app_usage.device_id", new FieldConfig(List.of("device.device_id"))
+);
+
+JoinRecommendations result = getJoinRecommendations(
+    Set.of("app_usage.app_id"),
+    Set.of("install.app_id"),
+    Set.of("app_usage.device_id"),
+    fieldConfigMap
+);
+```
+
+---
+
+필요하다면 `JoinRecommendations` DTO 정의도 같이 드릴게!
+
+
+---
 
 
 좋아, Daniel. 아래에서 전체 구조를 **정리하고**, `buildMeasure`에서 만드는 그래프와 `getJoinRecommendations`에서 사용하는 그래프가 **같은지 다른지**도 설명해줄게.
