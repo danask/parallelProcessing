@@ -1,4 +1,30 @@
 
+```yaml
+dde:
+  measure:
+    device:
+      deviceId:
+        metric:
+          sum:
+            label: "Sum of Device ID"
+            name: "deviceId.sum"
+            joins:
+              dimension:
+                - target: "dimension:package:app_id"
+                  joinType: "left"
+                  on: "device_id = app_id"
+          avg:
+            label: "Avg of Device ID"
+            name: "deviceId.avg"
+            joins:
+              dimension:
+                - target: "dimension:package:app_id"
+                  joinType: "left"
+                  on: "device_id = app_id"
+
+
+```
+
 ```java
 
 import java.util.*;
