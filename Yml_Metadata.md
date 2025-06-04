@@ -1,4 +1,168 @@
 
+좋습니다. 아래는 요청하신 내용을 반영한 전체 구현입니다:
+
+---
+
+## ✅ 1. `CategoryFieldKey.java`
+
+```java
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class CategoryFieldKey {
+    private String category;
+    private String field;
+    private String metric; // nullable (null 또는 "" 이면 metric 없는 필드)
+
+    public String toFullKey(String group) {
+        if (metric != null && !metric.isEmpty()) {
+            return String.format("%s:%s:%s.%s", group, category, field, metric);
+        } else {
+            return String.format("%s:%s:%s", group, category, field);
+        }
+    }
+}
+```
+
+---
+
+## ✅ 2. `getJoinRecommendations(...)`
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+        Set<CategoryFieldKey> selectedMeasures,
+        Set<CategoryFieldKey> selectedDimensions,
+        Set<CategoryFieldKey> selectedFilters,
+        Map<String, Set<String>> graph
+) {
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+    Set<String> dimensionIntersection = null;
+    Set<String> filterUnion = new HashSet<>();
+
+    Set<String> selectedFilterKeys = selectedFilters.stream()
+            .map(k -> k.toFullKey("filter"))
+            .collect(Collectors.toSet());
+
+    Set<String> selectedMeasureKeys = selectedMeasures.stream()
+            .map(k -> k.toFullKey("measure"))
+            .collect(Collectors.toSet());
+
+    Set<String> selectedDimensionKeys = selectedDimensions.stream()
+            .map(k -> k.toFullKey("dimension"))
+            .collect(Collectors.toSet());
+
+    // 1. Dimension & Filter 추천
+    for (CategoryFieldKey measure : selectedMeasures) {
+        String fullKey = measure.toFullKey("measure");
+        String baseKey = removeMetricSuffix(fullKey);
+
+        Set<String> joinTargets = graph.getOrDefault(baseKey, Set.of());
+
+        Set<String> dimTargets = joinTargets.stream()
+                .filter(k -> k.startsWith("dimension:"))
+                .collect(Collectors.toSet());
+
+        if (dimensionIntersection == null) {
+            dimensionIntersection = new HashSet<>(dimTargets);
+        } else {
+            dimensionIntersection.retainAll(dimTargets);
+        }
+
+        joinTargets.stream()
+                .filter(k -> k.startsWith("filter:") && !selectedFilterKeys.contains(k))
+                .forEach(filterUnion::add);
+    }
+
+    if (dimensionIntersection != null) {
+        for (String dimKey : dimensionIntersection) {
+            if (selectedDimensionKeys.contains(dimKey)) continue;
+            JoinFieldInfo info = createJoinFieldInfo("dimension", dimKey);
+            if (info != null) response.getDimension().add(info);
+        }
+    }
+
+    for (String filterKey : filterUnion) {
+        JoinFieldInfo info = createJoinFieldInfo("filter", filterKey);
+        if (info != null) response.getFilter().add(info);
+    }
+
+    // 2. Measure 추천
+    Set<String> recommendedMeasures = new HashSet<>();
+
+    Stream.concat(
+            selectedDimensions.stream().map(k -> k.toFullKey("dimension")),
+            selectedMeasures.stream().map(k -> removeMetricSuffix(k.toFullKey("measure")))
+    ).forEach(key -> {
+        Set<String> joinTargets = graph.getOrDefault(key, Set.of());
+        joinTargets.stream()
+                .filter(t -> t.startsWith("measure:") && !selectedMeasureKeys.contains(t))
+                .forEach(recommendedMeasures::add);
+    });
+
+    for (String mKey : recommendedMeasures) {
+        JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+        if (info != null) response.getMeasure().add(info);
+    }
+
+    response.getMeasure().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), measureFieldOrder)));
+    response.getDimension().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), dimensionFieldOrder)));
+    response.getFilter().sort(Comparator.comparing(i -> indexOrMax(i.getTarget(), filterFieldOrder)));
+
+    return response;
+}
+```
+
+---
+
+## ✅ 3. `getCategoryAndFields(...)`
+
+```java
+public List<Map<String, Object>> getCategoryAndFields(String group) {
+    List<Map<String, Object>> result = new ArrayList<>();
+    for (FieldConfig field : getAllFieldsByGroup(group)) {
+        String[] parts = field.getKey().split(":");
+        if (parts.length < 3) continue;
+
+        String[] fieldParts = parts[2].split("\\.");
+        String fieldName = fieldParts[0];
+        String metric = fieldParts.length > 1 ? fieldParts[1] : null;
+
+        Map<String, Object> map = new HashMap<>();
+        map.put("category", parts[1]);
+        map.put("field", fieldName);
+        map.put("metric", metric);
+        result.add(map);
+    }
+    return result;
+}
+```
+
+> `getAllFieldsByGroup(String group)`는 `group` 에 해당하는 전체 FieldConfig 리스트를 반환하는 메서드로, YAML 파싱된 config에서 만들어야 합니다.
+
+---
+
+### ✅ 예시 결과 (`measureFieldOrder` 기준 정렬용)
+
+```java
+List.of(
+    "measure:device:deviceId.sum",
+    "measure:device:deviceId.avg",
+    "measure:finance:profit"
+);
+```
+
+---
+
+필요하시면 이 구조에 맞는 YAML 구조 예시나 `getAllFieldsByGroup()`도 추가로 드릴 수 있어요.
+
+
+-------
+
 ```yaml
 dde:
   dimension:
