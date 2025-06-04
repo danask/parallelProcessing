@@ -1,3 +1,149 @@
+아주 좋은 질문입니다. 과거에 말씀하신 **`buildMeasure`** 함수에서 **BFS (너비 우선 탐색)** 같은 알고리즘이 사용된 적이 있다면, 그것은 **join graph에서 도달 가능한 measure들을 탐색하기 위한 로직**이었을 가능성이 큽니다.
+
+하지만, **현재의 `getJoinRecommendations` 메서드에서는 BFS는 사용되지 않고 있습니다.**
+→ **단계적 탐색 없이 `graph.get(key)`로 직접 1-depth join 대상만 조회**하고 있어요.
+
+---
+
+## 🔍 비교: 현재 방식 vs BFS 방식
+
+### ✅ 현재 방식 (1-hop 조회)
+
+```java
+Set<String> joinTargets = graph.getOrDefault(key, Set.of());
+```
+
+* measure/dimension/filter 간 **직접적으로 연결된 1단계 대상만** 조회합니다.
+* 예: `measure:device:deviceId` → `dimension:region:country` 가 직접 연결돼 있어야만 감지됨.
+
+### 🔄 이전 방식 (BFS 사용한 경우)
+
+```java
+Queue<String> queue = new LinkedList<>();
+Set<String> visited = new HashSet<>();
+queue.add(start);
+visited.add(start);
+
+while (!queue.isEmpty()) {
+    String current = queue.poll();
+    for (String neighbor : graph.getOrDefault(current, Set.of())) {
+        if (visited.add(neighbor)) {
+            queue.add(neighbor);
+        }
+    }
+}
+```
+
+* 여러 step을 따라 **measure → dimension → measure** 또는 **dimension → joinKey → filter** 같은 **다단계 조인 경로**를 따라갈 수 있습니다.
+* 즉, **간접적으로 연결된 추천 후보까지 탐색 가능**해집니다.
+
+---
+
+## 🤔 현재 로직에선 왜 BFS를 안 쓸까?
+
+* 지금의 로직은 "선택된 항목들과 직접적으로 조인 가능한 대상만 추천"하는 것이 목적입니다.
+* **그래서 1-hop 수준의 `graph.get(key)`만으로 충분**합니다.
+* 하지만 만약 앞으로 **간접적으로 연결된 추천 (예: A → B → C)** 도 하고 싶다면,
+  `buildMeasure`에서 했던 **BFS 기반 탐색 로직이 필요**할 수 있어요.
+
+---
+
+## ✅ 결론
+
+| 항목    | 현재 로직       | 과거 `buildMeasure` BFS |
+| ----- | ----------- | --------------------- |
+| 사용 여부 | ❌ 직접 사용 안 함 | ✅ 사용했을 가능성 있음         |
+| 탐색 깊이 | 1단계 (직접 연결) | 여러 단계 (간접 연결 포함)      |
+| 필요성   | 현재 요구에선 충분  | 더 깊은 추천엔 필요 가능성 있음    |
+
+---
+
+필요하시다면, 기존 `buildMeasure` BFS 로직도 함께 복원해 드릴 수 있어요.
+`graph`를 기반으로 **multi-hop join 가능한 measure/dimension/filter 후보를 탐색하는 추천 알고리즘**을 붙이고 싶으시면 말씀 주세요!
+
+
+----------
+
+아주 좋은 지적입니다. 네, **`graph`는 로직 전반에 걸쳐 핵심적으로 사용되고 있습니다.** 아래에 각 부분에서 **`graph`가 어떤 역할로 사용되고 있는지** 구체적으로 설명드릴게요.
+
+---
+
+## ✅ `graph`의 의미
+
+* `Map<String, Set<String>> graph`는 **각 필드 간 조인 가능한 타겟 필드들**을 나타내는 인접 리스트 (join graph)입니다.
+* 예를 들어 `measure:device:deviceId`가 `dimension:time:year`와 조인 가능하다면,
+  `graph.get("measure:device:deviceId")` → `[dimension:time:year]` 형태입니다.
+
+---
+
+## 🔍 어디서 어떻게 사용되나?
+
+### 1. **Dimension Intersection 계산 (조인 가능한 공통 dimension 추천)**
+
+```java
+Set<String> joinTargets = graph.getOrDefault(baseKey, Set.of());
+Set<String> dimTargets = joinTargets.stream()
+        .filter(k -> k.startsWith("dimension:"))
+        .collect(Collectors.toSet());
+```
+
+* 선택된 **measure들이 공통으로 조인 가능한 dimension**을 찾아냅니다.
+* 여러 measure 간의 **dimension 교집합**(`retainAll`)을 통해 추천 후보를 좁힙니다.
+
+---
+
+### 2. **Filter Union 계산 (조인 가능한 filter 추천)**
+
+```java
+joinTargets.stream()
+        .filter(k -> k.startsWith("filter:"))
+        .forEach(filterUnion::add);
+```
+
+* 선택된 measure들이 **어떤 filter들과 조인 가능한지**를 union으로 모읍니다.
+* dimension 추천과 달리 filter는 교집합이 아니라 **합집합**입니다.
+
+---
+
+### 3. **Measure 추천 (선택된 dimension 혹은 다른 measure로부터 추천되는 measure)**
+
+```java
+Set<String> joinTargets = graph.getOrDefault(dimKey, Set.of());
+joinTargets.stream()
+        .filter(k -> k.startsWith("measure:"))
+        .forEach(recommendedMeasures::add);
+```
+
+* 선택된 dimension이나 measure로부터 **조인 가능한 다른 measure들**을 추천합니다.
+* 기존에 선택된 measure는 제외합니다.
+
+---
+
+## 🧠 요약
+
+| 위치                           | graph 사용 목적 | 로직 종류        |
+| ---------------------------- | ----------- | ------------ |
+| measure → dimension          | 교집합         | dimension 추천 |
+| measure → filter             | 합집합         | filter 추천    |
+| dimension, measure → measure | union & 차집합 | measure 추천   |
+
+---
+
+필요하시면 이 `graph` 구조 예시도 드릴게요. 예:
+
+```java
+graph.put("measure:device:deviceId", Set.of(
+    "dimension:time:year",
+    "dimension:region:country",
+    "filter:region:country"
+));
+```
+
+이렇게 구성됩니다. 추가 질문 언제든지 환영이에요!
+
+
+
+-----------
 
 좋습니다. 아래는 요청하신 내용을 반영한 전체 구현입니다:
 
