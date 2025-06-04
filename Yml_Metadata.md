@@ -1,3 +1,99 @@
+
+좋습니다. 질문 주신 **2번의 `buildFromCategory` 로직 개선**, 그리고 **3번에서 `graph`가 파라미터가 아닌데 한쪽만 정의하면 동작 가능한지**에 대해 정확하게 정리해드릴게요.
+
+---
+
+## ✅ 2. `buildFromCategory(...)` 개선 버전 (한쪽 정의만으로 양방향 그래프 구성)
+
+현재 구조는 한쪽만 정의되어 있으므로, `addJoinsToGraph(...)`가 **양방향 연결**을 자동으로 해줘야 합니다.
+
+```java
+private static void buildFromCategory(String group, Map<String, CategoryConfig> map, Map<String, Set<String>> graph) {
+    if (map == null) return;
+
+    for (Map.Entry<String, CategoryConfig> categoryEntry : map.entrySet()) {
+        String category = categoryEntry.getKey();
+        Map<String, FieldConfig> fields = categoryEntry.getValue().getFields();
+        if (fields == null) continue;
+
+        for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+            String field = fieldEntry.getKey();
+            String sourceKey = toKey(group, category, field); // 예: dimension:device:deviceId
+
+            FieldConfig fieldConfig = fieldEntry.getValue();
+            if (fieldConfig.getJoins() != null) {
+                addJoinsToGraph(sourceKey, fieldConfig.getJoins(), graph);
+            }
+        }
+    }
+}
+
+private static void addJoinsToGraph(String sourceKey, Map<String, List<JoinConfig>> joins, Map<String, Set<String>> graph) {
+    if (joins == null) return;
+
+    for (Map.Entry<String, List<JoinConfig>> entry : joins.entrySet()) {
+        List<JoinConfig> joinList = entry.getValue();
+        if (joinList == null) continue;
+
+        for (JoinConfig join : joinList) {
+            String target = join.getTarget(); // 예: measure:app_usage:foreground_usage
+            if (target != null && !target.isEmpty()) {
+                // 정방향
+                graph.computeIfAbsent(sourceKey, k -> new HashSet<>()).add(target);
+                // 역방향도 추가 (한쪽만 정의해도 양방향 연결되도록)
+                graph.computeIfAbsent(target, k -> new HashSet<>()).add(sourceKey);
+            }
+        }
+    }
+}
+```
+
+> ✅ 이 상태에서 measure 쪽에는 `joins`가 없어도 dimension 쪽의 정의만으로 양방향 `graph`가 완성됩니다.
+
+---
+
+## ✅ 3. `getJoinRecommendations(...)`에서 graph가 파라미터가 아닌데 괜찮은가?
+
+메서드 시그니처:
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+    Set<String> selectedMeasureKeys,
+    Set<String> selectedDimensionKeys,
+    Set<String> selectedFilterKeys
+)
+```
+
+여기서 `graph`는 파라미터로 안 받지만, \*\*클래스 내부 필드(static or instance)\*\*에서 관리 중일 것입니다:
+
+```java
+private final Map<String, Set<String>> graph = new HashMap<>();
+```
+
+> 그러므로 `getJoinRecommendations()`는 **내부에서 graph를 참조하고 있고**, 그 graph가 위에서 만든 양방향 그래프라면 **정상 동작합니다.**
+
+### 중요한 점
+
+* ✔️ `buildFromCategory(...)`에서 dimension 쪽 정의만으로 `graph`를 **양방향으로 구성**해야 한다는 것이 핵심입니다.
+* ✔️ 그 후에 `getJoinRecommendations(...)`는 `graph`만 제대로 되어 있으면 기존 로직 그대로 사용해도 됩니다.
+
+---
+
+## 🔄 요약 정리
+
+| 항목                            | 처리 방식                                                |
+| ----------------------------- | ---------------------------------------------------- |
+| dimension에서만 join 정의          | 가능함                                                  |
+| `buildFromCategory(...)`      | dimension만 보고 양방향 graph 생성                           |
+| `graph`                       | class 필드로 보관하면 `getJoinRecommendations`에서 파라미터 필요 없음 |
+| `getJoinRecommendations(...)` | graph만 제대로 구성돼 있으면 기존 로직 그대로 사용 가능                   |
+
+---
+
+필요하시면 전체 `buildGraph()` 포함 통합 버전도 구성해드릴 수 있습니다.
+
+
+-------------
 아주 좋은 질문입니다. 과거에 말씀하신 **`buildMeasure`** 함수에서 **BFS (너비 우선 탐색)** 같은 알고리즘이 사용된 적이 있다면, 그것은 **join graph에서 도달 가능한 measure들을 탐색하기 위한 로직**이었을 가능성이 큽니다.
 
 하지만, **현재의 `getJoinRecommendations` 메서드에서는 BFS는 사용되지 않고 있습니다.**
