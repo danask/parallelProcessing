@@ -1,3 +1,344 @@
+좋습니다! 아래에 당신의 현재 구조를 기준으로 다음 두 가지 해결책을 **구현 가능한 Java 코드 형태**로 각각 정리해드립니다:
+
+---
+
+# ✅ **해결책 1: `joins`를 사전 처리로 양방향 구성하기 (최소 변경)**
+
+```java
+public class JoinGraphUtil {
+
+    public static void ensureBidirectionalJoins(Map<String, FieldConfig> fieldConfigMap) {
+        for (Map.Entry<String, FieldConfig> entry : fieldConfigMap.entrySet()) {
+            String fromKey = entry.getKey();
+            FieldConfig fromField = entry.getValue();
+            if (fromField.getJoins() == null) continue;
+
+            for (Map.Entry<String, List<JoinConfig>> joinsByGroup : fromField.getJoins().entrySet()) {
+                String targetGroup = joinsByGroup.getKey(); // ex) dimension, filter
+                for (JoinConfig join : joinsByGroup.getValue()) {
+                    String toKey = join.getTarget();
+                    FieldConfig toField = fieldConfigMap.get(toKey);
+                    if (toField == null) continue;
+
+                    // 역방향 join 세팅
+                    String reverseGroup = getReverseGroup(targetGroup);
+                    if (reverseGroup == null) continue;
+
+                    JoinConfig reverseJoin = new JoinConfig();
+                    reverseJoin.target = fromKey;
+                    reverseJoin.joinType = join.joinType;
+                    reverseJoin.joinOn = join.joinOn;
+
+                    // join map이 null인 경우 초기화
+                    if (toField.joins == null) {
+                        toField.joins = new HashMap<>();
+                    }
+
+                    // 중복 방지
+                    List<JoinConfig> reverseList = toField.joins
+                            .computeIfAbsent(reverseGroup, k -> new ArrayList<>());
+
+                    boolean alreadyExists = reverseList.stream()
+                            .anyMatch(j -> j.target.equals(fromKey));
+                    if (!alreadyExists) {
+                        reverseList.add(reverseJoin);
+                    }
+                }
+            }
+        }
+    }
+
+    private static String getReverseGroup(String group) {
+        return switch (group) {
+            case "measure" -> "dimension";
+            case "dimension" -> "measure";
+            case "filter" -> "measure";  // filter → measure 관계는 필요에 따라 조정 가능
+            default -> null;
+        };
+    }
+}
+```
+
+### ✅ 사용 위치 예시
+
+`JoinRecommendationService`의 `getJoinRecommendations(...)` 시작 부분에서 호출:
+
+```java
+// fieldConfigMap은 전체 FieldConfig들을 담고 있어야 합니다
+JoinGraphUtil.ensureBidirectionalJoins(fieldConfigMap);
+```
+
+이렇게 하면 나중에 로직에서 양쪽 방향의 `join`을 활용 가능하게 됩니다.
+
+---
+
+# ✅ **해결책 2: Graph 기반 추천 로직으로 전환하기 (정석 구조)**
+
+이 접근은 FieldConfig가 아니라 **Graph로 추상화된 구조**를 만들어서 추천합니다.
+
+### ✅ 1. Graph 구조 정의
+
+```java
+public class JoinGraph {
+    private final Map<String, Set<String>> graph = new HashMap<>();
+
+    public void addEdge(String from, String to) {
+        graph.computeIfAbsent(from, k -> new HashSet<>()).add(to);
+    }
+
+    public Set<String> getTargets(String from) {
+        return graph.getOrDefault(from, Set.of());
+    }
+
+    public Set<String> getCommonTargets(Set<String> froms) {
+        Set<String> result = null;
+        for (String from : froms) {
+            Set<String> targets = getTargets(from);
+            if (result == null) {
+                result = new HashSet<>(targets);
+            } else {
+                result.retainAll(targets);
+            }
+        }
+        return result != null ? result : Set.of();
+    }
+
+    public Set<String> getUnionTargets(Set<String> froms) {
+        Set<String> result = new HashSet<>();
+        for (String from : froms) {
+            result.addAll(getTargets(from));
+        }
+        return result;
+    }
+
+    public void printGraph() {
+        graph.forEach((k, v) -> System.out.println(k + " → " + v));
+    }
+}
+```
+
+---
+
+### ✅ 2. YAML → Graph 변환
+
+```java
+public class JoinGraphBuilder {
+
+    public static JoinGraph buildJoinGraph(Map<String, FieldConfig> fieldConfigs) {
+        JoinGraph graph = new JoinGraph();
+        for (Map.Entry<String, FieldConfig> entry : fieldConfigs.entrySet()) {
+            String from = entry.getKey();
+            FieldConfig field = entry.getValue();
+            if (field.getJoins() == null) continue;
+
+            for (Map.Entry<String, List<JoinConfig>> groupEntry : field.getJoins().entrySet()) {
+                for (JoinConfig jc : groupEntry.getValue()) {
+                    String to = jc.getTarget();
+                    graph.addEdge(from, to);
+                    graph.addEdge(to, from); // 양방향 처리
+                }
+            }
+        }
+        return graph;
+    }
+}
+```
+
+---
+
+### ✅ 3. 추천 로직에 적용
+
+```java
+public JoinRecommendationResponse getJoinRecommendationsGraphBased(
+        Set<CategoryFieldKey> selectedMeasures,
+        Set<CategoryFieldKey> selectedDimensions,
+        Set<CategoryFieldKey> selectedFilters,
+        Map<String, FieldConfig> fieldConfigMap
+) {
+    JoinGraph graph = JoinGraphBuilder.buildJoinGraph(fieldConfigMap);
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+    Set<String> selectedMeasureKeys = selectedMeasures.stream().map(k -> toFullKey("measure", k)).collect(Collectors.toSet());
+    Set<String> selectedDimensionKeys = selectedDimensions.stream().map(k -> toFullKey("dimension", k)).collect(Collectors.toSet());
+    Set<String> selectedFilterKeys = selectedFilters.stream().map(k -> toFullKey("filter", k)).collect(Collectors.toSet());
+
+    // 공통 dimension 후보
+    Set<String> commonDims = graph.getCommonTargets(selectedMeasureKeys);
+    commonDims.removeAll(selectedDimensionKeys);
+    for (String dimKey : commonDims) {
+        JoinFieldInfo info = createJoinFieldInfo("dimension", dimKey);
+        if (info != null) response.getDimension().add(info);
+    }
+
+    // 필터는 합집합
+    Set<String> unionFilters = graph.getUnionTargets(selectedMeasureKeys);
+    unionFilters.removeAll(selectedFilterKeys);
+    for (String filterKey : unionFilters) {
+        JoinFieldInfo info = createJoinFieldInfo("filter", filterKey);
+        if (info != null) response.getFilter().add(info);
+    }
+
+    // dimension으로부터 measure 추천
+    Set<String> measureFromDims = graph.getUnionTargets(selectedDimensionKeys);
+    measureFromDims.removeAll(selectedMeasureKeys);
+    for (String measureKey : measureFromDims) {
+        JoinFieldInfo info = createJoinFieldInfo("measure", measureKey);
+        if (info != null) response.getMeasure().add(info);
+    }
+
+    return response;
+}
+```
+
+---
+
+## ✅ 최종 비교 요약
+
+| 항목       | 해결책 1: 양방향 joins 생성     | 해결책 2: Graph 방식 |
+| -------- | ----------------------- | --------------- |
+| 구현 난이도   | 낮음                      | 중간              |
+| 기존 코드 유지 | 대부분 유지                  | 일부 구조 수정 필요     |
+| 추천 정확성   | 높음 (정방향만 정의되어도 가능)      | 높음 (유연한 추천 가능)  |
+| 확장성      | 제한적 (joins 기반 구조 유지 필요) | 높음 (그래프 분석 가능)  |
+
+---
+
+## ✳️ 추천
+
+* **빠르게 안정적인 결과 원할 경우:** 해결책 1 (양방향 joins 사전 생성)
+* **확장성·분석 중심으로 바꾸고 싶을 경우:** 해결책 2 (graph 기반 추천)
+
+둘 다 연동 방식이나 테스트 방법까지 도와드릴 수 있으니 필요하면 더 알려주세요.
+
+
+-----------------
+
+좋습니다. 전체 코드를 보니 **3번 질문의 핵심**은 다음과 같습니다:
+
+---
+
+## ❓ **질문 요지 정리**
+
+> `getJoinRecommendations(...)`에서 한쪽(`dimension` 또는 `measure`)에만 `joins`를 정의하면 이 추천 로직이 제대로 동작할까?
+
+---
+
+## ✅ 결론
+
+**아니요. 현재 코드 구조에서는 한쪽만 정의하면 추천 로직이 완전히 동작하지 않습니다.**
+
+---
+
+## 🔍 왜 안 되는가? 구조 분석
+
+현재 추천 알고리즘은 다음과 같은 방식으로 작동합니다:
+
+### 1. 📌 `measure -> dimension`, `measure -> filter` 를 통해 추천하는 dimension/filter
+
+```java
+List<JoinConfig> dimJoins = measureField.getJoins().get("dimension")
+```
+
+이 말은 즉,
+
+* `measureField`에 dimension/filter로 향하는 `joins`가 있어야 추천이 작동합니다.
+* → **dimension 쪽에서 measure로의 join 정의는 여기선 사용되지 않습니다.**
+
+---
+
+### 2. 📌 `dimension -> measure` 를 통해 추천하는 measure
+
+```java
+List<JoinConfig> measureJoins = dimField.getJoins().get("measure")
+```
+
+즉,
+
+* `dimensionField`에 `measure`로 향하는 join이 있어야만 추천됩니다.
+* → 반대로 measure 쪽에 정의된 join은 여기서 쓰이지 않습니다.
+
+---
+
+## 🧠 구조적 요점 요약
+
+| 추천 방향                                    | 필수로 정의되어야 하는 쪽                                     | 사용되는 대상                     |
+| ---------------------------------------- | -------------------------------------------------- | --------------------------- |
+| `measure` 선택 → 추천할 `dimension`, `filter` | measure 쪽에 `joins["dimension"]`, `joins["filter"]` | `getJoinRecommendations` 상단 |
+| `dimension` 선택 → 추천할 `measure`           | dimension 쪽에 `joins["measure"]`                    | `getJoinRecommendations` 하단 |
+
+---
+
+## 🔧 해결 방안: 양방향 join 자동 구성
+
+현재 구조에선 `graph` 기반이 아닌 `FieldConfig.getJoins()`에 직접 의존하고 있어서, **양방향 관계를 자동으로 구성해주는 preprocessing 단계**가 필요합니다.
+
+### ✅ 해결책 1: 사전 처리로 join 양방향 구성
+
+```java
+private void ensureBidirectionalJoins(Map<String, FieldConfig> fieldConfigMap) {
+    for (Map.Entry<String, FieldConfig> entry : fieldConfigMap.entrySet()) {
+        String fromKey = entry.getKey();
+        FieldConfig fromField = entry.getValue();
+        if (fromField.getJoins() == null) continue;
+
+        for (Map.Entry<String, List<JoinConfig>> joinsByGroup : fromField.getJoins().entrySet()) {
+            String targetGroup = joinsByGroup.getKey();
+            for (JoinConfig join : joinsByGroup.getValue()) {
+                String toKey = join.getTarget();
+                FieldConfig toField = fieldConfigMap.get(toKey);
+                if (toField == null) continue;
+
+                // 역방향 join 생성
+                String reverseGroup = getReverseGroup(targetGroup); // e.g., "dimension" -> "measure"
+                if (reverseGroup == null) continue;
+
+                JoinConfig reverseJoin = new JoinConfig();
+                reverseJoin.target = fromKey;
+                reverseJoin.joinType = join.joinType;
+                reverseJoin.joinOn = join.joinOn;
+
+                toField.getJoins()
+                        .computeIfAbsent(reverseGroup, k -> new ArrayList<>())
+                        .add(reverseJoin);
+            }
+        }
+    }
+}
+
+private String getReverseGroup(String group) {
+    return switch (group) {
+        case "measure" -> "dimension";
+        case "dimension" -> "measure";
+        case "filter" -> "measure";
+        default -> null;
+    };
+}
+```
+
+---
+
+## ✅ 해결책 2: `graph` 방식으로 전환하기
+
+너무 명확한 방향성이 존재할 경우엔 위처럼 `joins` 자체를 보완하면 되고, 아니라면 아예 처음부터 `graph<String, Set<String>>`로 연결을 구성한 뒤 추천 로직에서도 이를 이용하는 방식으로 구조를 바꿔야 합니다.
+→ 이건 기존 `graph` 기반으로 했던 구조 (당신이 2번에서 보여준 것)와 같은 방식입니다.
+
+---
+
+## ✅ 결론 및 추천
+
+| 선택지                   | 설명                     | 추천도  |
+| --------------------- | ---------------------- | ---- |
+| ✅ `joins`를 쌍방으로 사전 구성 | 기존 구조 유지하면서도 추천 정확성 확보 | ⭐⭐⭐⭐ |
+| `graph` 기반 구조로 전환     | 더 일반적인 추천 알고리즘으로 확장 가능 | ⭐⭐⭐  |
+
+**당신의 현재 코드 구조를 유지하고 싶다면**, `joins`를 bidirectional 하게 사전 구성해주는 게 가장 적은 변경으로 완성도 높은 추천 시스템을 만드는 방법입니다.
+
+필요하시면 `ensureBidirectionalJoins(...)`를 전체 YAML 또는 DTO 구조를 기준으로 완성해드릴 수 있어요.
+
+
+
+----------------------
+
 
 아주 좋은 지적입니다. 네, **`graph`는 로직 전반에 걸쳐 핵심적으로 사용되고 있습니다.** 아래에 각 부분에서 **`graph`가 어떤 역할로 사용되고 있는지** 구체적으로 설명드릴게요.
 
