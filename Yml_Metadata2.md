@@ -1,3 +1,166 @@
+좋아, Daniel. 아래는 `measure`, `dimension`, `filter` 모두에 대해 **자기 자신을 제외하는 로직**을 `toFullKey()` 기준으로 정리한 **최종 리팩토링된 `getJoinRecommendations()` 전체 코드**야.
+
+---
+
+### ✅ 리팩토링된 전체 코드
+
+```java
+public JoinRecommendationResponse getJoinRecommendations(
+        Set<CategoryFieldKey> selectedMeasures,
+        Set<CategoryFieldKey> selectedDimensions,
+        Set<CategoryFieldKey> selectedFilters
+) {
+    JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+    // -------------------------
+    // 1. 처리 기준 설정
+    // -------------------------
+    boolean hasM = !selectedMeasures.isEmpty();
+    boolean hasD = !selectedDimensions.isEmpty();
+    boolean hasF = !selectedFilters.isEmpty();
+
+    // fullKey 기준으로 비교하기 위한 Set 생성
+    Set<String> selectedMKeys = selectedMeasures.stream()
+            .map(k -> toFullKey("measure", k))
+            .collect(Collectors.toSet());
+    Set<String> selectedDKeys = selectedDimensions.stream()
+            .map(k -> toFullKey("dimension", k))
+            .collect(Collectors.toSet());
+    Set<String> selectedFKeys = selectedFilters.stream()
+            .map(k -> toFullKey("filter", k))
+            .collect(Collectors.toSet());
+
+    // -------------------------
+    // 2. M 로직
+    // -------------------------
+    Set<String> allMKeys = getAllFieldKeys("measure");
+    if (!hasM) {
+        for (String mKey : allMKeys) {
+            JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+            if (info != null) response.getMeasure().add(info);
+        }
+    } else {
+        Set<String> dimensionIntersection = null;
+        Set<String> filterUnion = new HashSet<>();
+
+        for (CategoryFieldKey mKey : selectedMeasures) {
+            String fullKey = toFullKey("measure", mKey);
+            FieldConfig field = getFieldConfig(fullKey);
+            if (field == null) continue;
+
+            List<JoinConfig> dimJoins = Optional.ofNullable(field.getJoins())
+                    .map(j -> j.get("dimension")).orElse(List.of());
+            List<JoinConfig> filterJoins = Optional.ofNullable(field.getJoins())
+                    .map(j -> j.get("filter")).orElse(List.of());
+
+            Set<String> dimTargets = dimJoins.stream().map(JoinConfig::getTarget).collect(Collectors.toSet());
+            if (dimensionIntersection == null) {
+                dimensionIntersection = new HashSet<>(dimTargets);
+            } else {
+                dimensionIntersection.retainAll(dimTargets);
+            }
+
+            filterJoins.stream().map(JoinConfig::getTarget).forEach(filterUnion::add);
+        }
+
+        for (String mKey : allMKeys) {
+            if (!selectedMKeys.contains(mKey)) {
+                JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+                if (info != null) response.getMeasure().add(info);
+            }
+        }
+
+        if (dimensionIntersection != null) {
+            for (String dKey : dimensionIntersection) {
+                if (!selectedDKeys.contains(dKey)) {
+                    JoinFieldInfo info = createJoinFieldInfo("dimension", dKey);
+                    if (info != null) response.getDimension().add(info);
+                }
+            }
+        }
+
+        for (String fKey : filterUnion) {
+            if (!selectedFKeys.contains(fKey)) {
+                JoinFieldInfo info = createJoinFieldInfo("filter", fKey);
+                if (info != null) response.getFilter().add(info);
+            }
+        }
+    }
+
+    // -------------------------
+    // 3. D 로직
+    // -------------------------
+    if (hasD) {
+        Set<String> recommendedMeasures = new HashSet<>();
+        Set<String> filterUnion = new HashSet<>();
+
+        for (CategoryFieldKey dKey : selectedDimensions) {
+            String fullKey = toFullKey("dimension", dKey);
+            FieldConfig field = getFieldConfig(fullKey);
+            if (field == null) continue;
+
+            List<JoinConfig> measureJoins = Optional.ofNullable(field.getJoins())
+                    .map(j -> j.get("measure")).orElse(List.of());
+            List<JoinConfig> filterJoins = Optional.ofNullable(field.getJoins())
+                    .map(j -> j.get("filter")).orElse(List.of());
+
+            measureJoins.stream().map(JoinConfig::getTarget).forEach(recommendedMeasures::add);
+            filterJoins.stream().map(JoinConfig::getTarget).forEach(filterUnion::add);
+        }
+
+        for (String dKey : getAllFieldKeys("dimension")) {
+            if (!selectedDKeys.contains(dKey)) {
+                JoinFieldInfo info = createJoinFieldInfo("dimension", dKey);
+                if (info != null) response.getDimension().add(info);
+            }
+        }
+
+        for (String mKey : recommendedMeasures) {
+            if (!selectedMKeys.contains(mKey)) {
+                JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+                if (info != null) response.getMeasure().add(info);
+            }
+        }
+
+        for (String fKey : filterUnion) {
+            if (!selectedFKeys.contains(fKey)) {
+                JoinFieldInfo info = createJoinFieldInfo("filter", fKey);
+                if (info != null) response.getFilter().add(info);
+            }
+        }
+    }
+
+    // -------------------------
+    // 4. F 로직
+    // -------------------------
+    if (hasF) {
+        for (String fKey : getAllFieldKeys("filter")) {
+            if (!selectedFKeys.contains(fKey)) {
+                JoinFieldInfo info = createJoinFieldInfo("filter", fKey);
+                if (info != null) response.getFilter().add(info);
+            }
+        }
+    }
+
+    return response;
+}
+```
+
+---
+
+### ✅ 핵심 변경 사항 요약
+
+* `Set<CategoryFieldKey>` → `Set<String>`으로 변환 (full key 기준)
+* 추천 제외 비교는 항상 `fullKey`로 비교
+* `measure`, `dimension`, `filter` 모두 동일 방식 적용
+
+---
+
+필요하면 이 메서드와 함께 쓰이는 `toFullKey`, `fromFullKey`, `createJoinFieldInfo` 유틸들도 정리해줄게.
+
+
+----
+
 좋아요 Daniel. 요청하신 전체 로직을 다음과 같이 정리해 드릴게요. 아래 코드는 **선택된 필드(M, D, F)를 기반으로 추천할 M, D, F 리스트를 생성**하는 완전한 예제입니다.
 
 ---
