@@ -362,6 +362,68 @@ public JoinRecommendationResponse getJoinRecommendations(
     return response;
 }
 ```
+좋아, Daniel. 말씀해준 대로 **필터(F) 관련 추천 로직만** 키 비교 방식으로 **명확하게 자기 자신을 제외**하도록 수정해볼게.
+
+---
+
+## ✅ 기존 문제
+
+```java
+for (String fKey : getAllFieldKeys("filter")) {
+    CategoryFieldKey key = fromFullKey(fKey);
+    if (!selectedFilters.contains(key)) {
+        ...
+    }
+}
+```
+
+* `selectedFilters.contains(key)`가 정확하게 비교 안 될 수 있음 → `metric` 차이 등
+* 해결: `toFullKey()`로 만들어진 키 기준으로 직접 비교
+
+---
+
+## ✅ 수정된 필터 추천 로직 (선택된 필터가 있을 경우)
+
+```java
+if (hasF) {
+    Set<String> selectedFKeys = selectedFilters.stream()
+        .map(k -> toFullKey("filter", k))
+        .collect(Collectors.toSet());
+
+    for (String fKey : getAllFieldKeys("filter")) {
+        if (!selectedFKeys.contains(fKey)) {
+            JoinFieldInfo info = createJoinFieldInfo("filter", fKey);
+            if (info != null) response.getFilter().add(info);
+        }
+    }
+}
+```
+
+---
+
+## ✅ 수정된 필터 추천 로직 (선택된 M 또는 D로부터 연관된 F 추천 시)
+
+```java
+Set<String> selectedFKeys = selectedFilters.stream()
+    .map(k -> toFullKey("filter", k))
+    .collect(Collectors.toSet());
+
+for (String fKey : filterUnion) {  // 또는 filterUnion 을 생성한 부분
+    if (!selectedFKeys.contains(fKey)) {
+        JoinFieldInfo info = createJoinFieldInfo("filter", fKey);
+        if (info != null) response.getFilter().add(info);
+    }
+}
+```
+
+---
+
+이렇게 하면 필터 추천 목록에서 **이미 선택된 필터를 정확히 제외**할 수 있어.
+
+---
+
+필요하다면 `CategoryFieldKey`, `toFullKey`, `fromFullKey`의 정의도 같이 점검해줄게.
+다음으로 어떤 걸 수정하고 싶은지 말해줘.
 
 ---
 
