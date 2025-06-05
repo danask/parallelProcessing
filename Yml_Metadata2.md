@@ -1,3 +1,106 @@
+Daniel, 아주 중요한 부분을 짚었어.
+**왜 `dimension`에 자기 자신이 이미 포함돼 있는지** 의심되는 상황인데, 그건 코드 흐름상 **Dimension을 처리하는 시점에 이미 자기 자신이 추천 리스트에 들어가 버렸기 때문**이야.
+
+---
+
+### 🔍 이유: "자기 자신"이 추천 결과에 포함되는 시점
+
+아래 D 로직 부분을 봐봐:
+
+```java
+for (String dKey : getAllFieldKeys("dimension")) {
+    CategoryFieldKey key = fromFullKey(dKey);
+    if (!selectedDimensions.contains(key)) {
+        JoinFieldInfo info = createJoinFieldInfo("dimension", dKey);
+        if (info != null) response.getDimension().add(info);
+    }
+}
+```
+
+여기서 `selectedDimensions.contains(key)` 조건이 false 라고 판단되면,
+→ `createJoinFieldInfo()` 통해 `response.getDimension()`에 들어가게 되는데,
+**문제는 이 `contains` 판단이 오작동하는 경우야.**
+
+---
+
+### ⚠️ 원인: `CategoryFieldKey.equals()` / `hashCode()` 가 제대로 구현 안 됨
+
+만약 `CategoryFieldKey` 클래스가 `equals()`와 `hashCode()`를 오버라이드하지 않았거나,
+비교할 때 `metric`이 `null`인데 하나는 null, 하나는 빈 문자열이라든가,
+구성 요소가 살짝 달라지면 **같은 키로 인식되지 않아**.
+
+---
+
+### ✅ 해결 방법
+
+#### 1. `CategoryFieldKey`에 `equals()`와 `hashCode()`가 정확히 다음 기준으로 구현되어야 해:
+
+```java
+@Override
+public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    CategoryFieldKey that = (CategoryFieldKey) o;
+    return Objects.equals(category, that.category) &&
+           Objects.equals(field, that.field) &&
+           Objects.equals(metric, that.metric);
+}
+
+@Override
+public int hashCode() {
+    return Objects.hash(category, field, metric);
+}
+```
+
+#### 2. 그리고 비교 전에 **full key string**으로 바꾸어서 비교하면 더 안전해.
+
+```java
+Set<String> selectedDKeys = selectedDimensions.stream()
+    .map(d -> toFullKey("dimension", d))
+    .collect(Collectors.toSet());
+```
+
+그 다음 이걸로 비교:
+
+```java
+for (String dKey : getAllFieldKeys("dimension")) {
+    if (!selectedDKeys.contains(dKey)) {
+        JoinFieldInfo info = createJoinFieldInfo("dimension", dKey);
+        if (info != null) response.getDimension().add(info);
+    }
+}
+```
+
+---
+
+### ✳️ 추가 보완 (중복 방지 안전장치)
+
+위에 더해서 마지막에 안전하게 중복 제거하는 필터도 추가하면 좋아:
+
+```java
+response.getDimension().removeIf(info ->
+    selectedDKeys.contains(toFullKey("dimension",
+        new CategoryFieldKey(info.getCategory(), info.getField(), info.getMetric())))
+);
+```
+
+---
+
+### ✅ 결론
+
+* 자기 자신이 포함되는 이유는 `contains()` 판단이 제대로 안 되는 경우
+* `CategoryFieldKey`가 `equals/hashCode` 잘못됐거나
+* 비교 시 `metric` null/empty 불일치 등이 원인
+* 안전하게 하려면 `toFullKey()` 기반으로 비교하자
+
+---
+
+필요하면 `toFullKey(info)`처럼 `JoinFieldInfo → fullKey`도 만들어줄게.
+도와줄까?
+
+
+---
+
 좋아, Daniel. 아래는 `measure`, `dimension`, `filter` 모두에 대해 **자기 자신을 제외하는 로직**을 `toFullKey()` 기준으로 정리한 **최종 리팩토링된 `getJoinRecommendations()` 전체 코드**야.
 
 ---
