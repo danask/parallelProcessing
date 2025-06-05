@@ -1,3 +1,133 @@
+
+좋은 질문입니다.
+\*\*"YAML에 join 관계를 한쪽만 적어서 처리할 수 있느냐"\*\*는 질문은 결국 다음과 같은 질문입니다:
+
+> 양방향 join 정보를 다 적지 않고, 한쪽에만 join 정보를 정의한 후 나머지는 코드로 역추적하거나 역추론할 수 있느냐?
+
+---
+
+## ✅ 가능 여부: **Yes, 충분히 가능**합니다.
+
+### ✔ 핵심 아이디어
+
+* `measure → dimension`, `measure → filter` 관계만 정의되어 있으면,
+* 코드에서 이를 **역방향으로 자동 구성**하여,
+
+  * `dimension → measure`
+  * `filter → measure` 같은 관계를 **자동 생성**하면 됩니다.
+
+---
+
+## 🧠 어떻게 처리할까?
+
+YAML 구조가 다음과 같이 **한쪽만 정의**되어 있다고 가정합니다:
+
+```yaml
+groups:
+  - name: user
+    categories:
+      - name: behavior
+        fields:
+          - name: active_user
+            joins:
+              dimension:
+                - target: user_info.age
+              filter:
+                - target: user_info.country
+```
+
+위 예시는 `measure=user.behavior.active_user`가 dimension `user_info.age` 및 filter `user_info.country`와 join된다는 의미입니다.
+
+---
+
+## ✅ 1. 역조인 맵 생성
+
+서비스 시작 시, **모든 필드에 대해 역조인 관계를 구성**해두면 됩니다:
+
+```java
+Map<String, Set<String>> reverseDimensionJoins = new HashMap<>();
+Map<String, Set<String>> reverseFilterJoins = new HashMap<>();
+
+for (GroupConfig group : ddeMetadataProperties.getGroups()) {
+    for (CategoryConfig category : group.getCategories()) {
+        for (FieldConfig field : category.getFields()) {
+            String sourceKey = String.join(":", group.getName(), category.getName(), field.getName());
+
+            if (field.getJoins() != null) {
+                List<JoinConfig> dimJoins = field.getJoins().getOrDefault("dimension", List.of());
+                List<JoinConfig> filterJoins = field.getJoins().getOrDefault("filter", List.of());
+
+                for (JoinConfig dimJoin : dimJoins) {
+                    reverseDimensionJoins
+                        .computeIfAbsent(dimJoin.getTarget(), k -> new HashSet<>())
+                        .add(sourceKey); // dimension → measure
+                }
+
+                for (JoinConfig filterJoin : filterJoins) {
+                    reverseFilterJoins
+                        .computeIfAbsent(filterJoin.getTarget(), k -> new HashSet<>())
+                        .add(sourceKey); // filter → measure
+                }
+            }
+        }
+    }
+}
+```
+
+이렇게 하면, 나중에 `dimension → measure`, `filter → measure` 추천도 무리 없이 됩니다.
+
+---
+
+## ✅ 2. 기존 추천 로직에 적용
+
+예를 들어 dimension 추천 시:
+
+```java
+// dimension 선택 → 추천 measure
+for (CategoryFieldKey dKey : selectedDimensions) {
+    String fullKey = toFullKey("dimension", dKey);
+    Set<String> recommendedMeasures = reverseDimensionJoins.getOrDefault(fullKey, Set.of());
+    for (String mKey : recommendedMeasures) {
+        if (!selectedMKeys.contains(mKey)) {
+            JoinFieldInfo info = createJoinFieldInfo("measure", mKey);
+            if (info != null) response.getMeasure().add(info);
+        }
+    }
+}
+```
+
+filter → measure도 같은 방식으로 사용합니다.
+
+---
+
+## ✅ 장점
+
+* YAML 정의량 절반 이하로 줄어듬
+* 실수 방지 (양쪽에 다 정의하다 보면 sync 오류 생기기 쉬움)
+* 코드만 잘 작성되면 확장성도 좋음
+
+---
+
+## ✅ 주의점
+
+* 역조인 맵은 서비스 시작 시 한 번만 구축 (캐시 또는 빈 초기화 시점)
+* `getJoinRecommendations()` 등 추천 로직에서는 역조인 맵만 보고 로직 구성
+* `group:category:field` → fullKey가 정확히 맞도록 `JoinConfig.getTarget()`을 정의해야 함
+
+---
+
+## ✨ 결론
+
+> **한쪽만 선언된 YAML 기반으로도 join 관계는 충분히 역추론하여 자동화할 수 있습니다.**
+
+당신의 YAML 정의는 훨씬 간결해지고, 추천 로직은 더 안전하고 유지보수하기 쉬워집니다.
+
+---
+
+원하신다면 이 구조 전체를 코드와 함께 모듈화하는 예시 (`YAML 로딩 → 역조인 맵 → 추천 메서드 개선`) 도 단계별로 제공해드릴 수 있어요.
+
+---
+
 소팅
 
 좋아요! 지금 작성한 `getJoinRecommendations(...)` 메서드에 **YAML 순서를 기준으로 정렬**을 결합하려면, 다음 3단계로 하면 됩니다.
