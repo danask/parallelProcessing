@@ -1,3 +1,96 @@
+소팅
+
+좋아요! 지금 작성한 `getJoinRecommendations(...)` 메서드에 **YAML 순서를 기준으로 정렬**을 결합하려면, 다음 3단계로 하면 됩니다.
+
+---
+
+## ✅ 1. 우선순위 맵 준비: `fieldOrderMap`
+
+우선 `group:category:field` 구조의 순서를 유지하기 위한 `Map<String, Integer>`을 만들어야 합니다. 이건 외부에서 불러온 YAML 구조를 바탕으로 한 번만 생성하면 됩니다. 예를 들어, `DdeMetadataProperties`에서 불러왔다고 가정하면:
+
+```java
+public Map<String, Integer> getFieldOrderMap() {
+    Map<String, Integer> fieldOrderMap = new HashMap<>();
+    int order = 0;
+
+    for (GroupConfig group : ddeMetadataProperties.getGroups()) {
+        for (CategoryConfig category : group.getCategories()) {
+            for (FieldConfig field : category.getFields()) {
+                String fullKey = String.join(":", group.getName(), category.getName(), field.getName());
+                fieldOrderMap.put(fullKey, order++);
+            }
+        }
+    }
+
+    return fieldOrderMap;
+}
+```
+
+> 이 메서드는 `DdeMetadataService` 같은 곳에 두고 한 번만 만들고 재사용할 수 있어요.
+
+---
+
+## ✅ 2. 정렬 메서드 만들기
+
+이건 `JoinFieldInfo` 리스트에 정렬을 적용하는 유틸 메서드입니다:
+
+```java
+private void sortJoinFieldInfos(List<JoinFieldInfo> infos, Map<String, Integer> fieldOrderMap) {
+    infos.sort(Comparator.comparingInt(info -> {
+        String fullKey = String.join(":", info.getGroup(), info.getCategory(), info.getField());
+        return fieldOrderMap.getOrDefault(fullKey, Integer.MAX_VALUE);
+    }));
+}
+```
+
+---
+
+## ✅ 3. `getJoinRecommendations`에 결합
+
+이제 `response`의 measure/dimension/filter 리스트를 정렬하면 됩니다. 아래처럼 **가장 마지막**에 추가하세요:
+
+```java
+JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+// ... 기존 추천 로직 그대로 ...
+
+Map<String, Integer> fieldOrderMap = getFieldOrderMap(); // YAML 기준 순서 맵
+sortJoinFieldInfos(response.getMeasure(), fieldOrderMap);
+sortJoinFieldInfos(response.getDimension(), fieldOrderMap);
+sortJoinFieldInfos(response.getFilter(), fieldOrderMap);
+
+return response;
+```
+
+---
+
+## ✨ 최종적으로 정리하면
+
+### 🔹 `getJoinRecommendations(...)` 끝부분:
+
+```java
+Map<String, Integer> fieldOrderMap = getFieldOrderMap(); // YAML 로딩 기준
+sortJoinFieldInfos(response.getMeasure(), fieldOrderMap);
+sortJoinFieldInfos(response.getDimension(), fieldOrderMap);
+sortJoinFieldInfos(response.getFilter(), fieldOrderMap);
+
+return response;
+```
+
+---
+
+## 💡 팁
+
+* `getFieldOrderMap()`은 매번 호출하지 않고, 서비스 시작 시 캐시해두는 것이 좋습니다.
+* 혹시 `group`, `category`, `field`가 `JoinFieldInfo`에 없으면, 생성 시 `JoinFieldInfo`에 YAML 정보를 주입해야 합니다. (`createJoinFieldInfo` 수정 필요)
+
+---
+
+필요하면 `createJoinFieldInfo(...)`와 `JoinFieldInfo`도 확인해서 `group`, `category`, `field`가 들어가는지 같이 도와드릴게요!
+
+
+
+-----
 Daniel, 아주 중요한 부분을 짚었어.
 **왜 `dimension`에 자기 자신이 이미 포함돼 있는지** 의심되는 상황인데, 그건 코드 흐름상 **Dimension을 처리하는 시점에 이미 자기 자신이 추천 리스트에 들어가 버렸기 때문**이야.
 
