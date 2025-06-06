@@ -1,4 +1,185 @@
 
+
+---
+
+좋아요!
+`LocalStack`이 정상 작동 중이라면 이제 아래처럼 S3 버킷에 **파일을 업로드하고**,
+**Spring Boot 애플리케이션에서 해당 파일을 읽어들이는 기능**을 구현하실 수 있습니다.
+
+---
+
+## ✅ 전체 흐름 요약
+
+
+
+1. S3에 버킷 만들기
+2. S3에 파일 업로드 (`CLI` 또는 `Spring`에서)
+3. Spring Boot에서 해당 파일 읽기
+4. (선택) 다운로드하거나 처리
+
+---
+
+## 🔹 1. S3에 파일 업로드 (CLI에서 해보기)
+
+```bash
+brew intall awscli-local
+awslocal s3 ls
+
+echo "Hello from LocalStack!" > hello.txt
+
+awslocal s3 mb s3://test-bucket
+awslocal s3 cp hello.txt s3://test-bucket/hello.txt
+```
+
+> 이렇게 하면 `test-bucket`에 `hello.txt`라는 객체가 업로드됩니다.
+
+---
+
+## 🔹 2. Spring Boot에서 S3Client 구성 (이미 하셨다면 패스)
+
+```java
+@Configuration
+public class AwsClientConfig {
+
+    @Bean
+    public S3Client s3Client() {
+        return S3Client.builder()
+                .endpointOverride(URI.create("http://localhost:4566"))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(
+                        StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test"))
+                )
+                .build();
+    }
+}
+```
+
+---
+
+## 🔹 3. 업로드된 파일 읽기 (Spring Boot에서)
+
+```java
+@Service
+public class S3FileService {
+
+    private final S3Client s3Client;
+
+    public S3FileService(S3Client s3Client) {
+        this.s3Client = s3Client;
+    }
+
+    public String readFileFromS3(String bucketName, String key) {
+        ResponseBytes<GetObjectResponse> objectBytes = s3Client.getObjectAsBytes(
+                GetObjectRequest.builder()
+                        .bucket(bucketName)
+                        .key(key)
+                        .build()
+        );
+
+        return objectBytes.asUtf8String(); // 문자열로 읽기
+    }
+}
+```
+
+---
+
+## 🔹 4. Controller에서 호출하거나 테스트
+
+### 테스트로 확인
+
+```java
+@SpringBootTest
+class S3FileServiceTest {
+
+    @Autowired
+    S3FileService s3FileService;
+
+    @Test
+    void testReadFile() {
+        String content = s3FileService.readFileFromS3("test-bucket", "hello.txt");
+        System.out.println(content);
+        assertEquals("Hello from LocalStack!", content.trim());
+    }
+}
+```
+
+---
+
+## 🔹 5. 파일을 Spring에서 업로드하기 (프로그래밍 방식)
+
+```java
+public void uploadFile(String bucketName, String key, String content) {
+    s3Client.putObject(
+            PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(key)
+                    .build(),
+            RequestBody.fromString(content)
+    );
+}
+```
+
+---
+
+## 🔍 파일 업로드 후 확인 CLI
+
+```bash
+awslocal s3 ls s3://test-bucket
+```
+
+결과 예시:
+
+```
+2025-06-06 16:30:00       24 hello.txt
+```
+
+---
+
+## 🎁 보너스: Multipart 파일 업로드 예제 (Controller + S3)
+
+```java
+@RestController
+@RequestMapping("/api/files")
+public class FileUploadController {
+
+    private final S3FileService s3FileService;
+
+    public FileUploadController(S3FileService s3FileService) {
+        this.s3FileService = s3FileService;
+    }
+
+    @PostMapping("/upload")
+    public ResponseEntity<String> upload(@RequestParam("file") MultipartFile file) throws IOException {
+        String key = file.getOriginalFilename();
+        String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+        s3FileService.uploadFile("test-bucket", key, content);
+        return ResponseEntity.ok("Uploaded: " + key);
+    }
+}
+```
+
+---
+
+## 🧪 테스트 시 주의할 점
+
+* LocalStack의 S3는 기본적으로 `http`입니다 (https 아님).
+* 파일명이 중복되면 덮어씌워짐.
+* 버킷을 먼저 생성하고 나서 파일을 업로드하세요.
+
+---
+
+필요하시면:
+
+* `파일 리스트 API`
+* `파일 삭제 API`
+* `Testcontainers` 연동 예제
+
+도 추가로 도와드릴 수 있어요.
+어떤 방식으로 연동하실 계획인지(예: 프론트에서 파일 올리는 경우 등) 알려주시면 더 맞춤 예제 드릴게요!
+
+
+-----
+
 Spring Boot 애플리케이션에서 AWS Step Functions를 사용해 Athena 쿼리를 실행하고 그 응답을 받는 간단한 예제를 설명드리겠습니다. 이 과정은 다음 단계로 이루어집니다:
 
 1. Athena 쿼리 실행을 Step Functions에서 시작
