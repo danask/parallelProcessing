@@ -1,3 +1,70 @@
+네! `aws` 또는 `awslocal` CLI에서 **로컬 디렉토리를 S3로 통째로 업로드(copy)** 할 수 있고,
+**서브디렉토리 구조도 유지**할 수 있는 커맨드가 있습니다. 아래처럼 사용하세요:
+
+---
+
+## ✅ `awslocal s3 cp`로 디렉토리 전체 복사 (서브디렉토리 포함)
+
+```bash
+awslocal s3 cp ./local-dir s3://your-bucket-name/ --recursive
+```
+
+* `./local-dir` → 복사할 **로컬 디렉토리 경로**
+* `s3://your-bucket-name/` → 복사할 **S3 버킷 경로**
+* `--recursive` → **하위 디렉토리 포함해서 전체 복사**
+
+---
+
+### 📂 예시: 로컬 구조
+
+```
+./local-dir/
+├── a.txt
+├── sub/
+│   └── b.txt
+```
+
+### 📦 실행
+
+```bash
+awslocal s3 cp ./local-dir s3://test-bucket/ --recursive
+```
+
+### 📦 결과 (`awslocal s3 ls s3://test-bucket/ --recursive`)
+
+```
+2025-06-06 16:45:00      123 a.txt
+2025-06-06 16:45:01      456 sub/b.txt
+```
+
+> S3에 **서브디렉토리 경로 그대로 반영**됩니다.
+
+---
+
+## ✅ 반대로 S3 → 로컬 디렉토리로 복사할 때도
+
+```bash
+awslocal s3 cp s3://test-bucket/ ./downloaded/ --recursive
+```
+
+---
+
+## 🎯 요약
+
+| 작업             | 커맨드 예시                                                 |
+| -------------- | ------------------------------------------------------ |
+| 디렉토리 → S3 업로드  | `awslocal s3 cp ./local-dir s3://bucket/ --recursive`  |
+| S3 → 디렉토리 다운로드 | `awslocal s3 cp s3://bucket/ ./local-dir/ --recursive` |
+
+---
+
+필요하시면:
+
+* 특정 확장자만 복사 (`--exclude` / `--include`)
+* 파일 존재 시 덮어쓰기 방지
+* 업로드 후 URL 출력
+
+등도 같이 도와드릴 수 있어요.
 
 
 ---
