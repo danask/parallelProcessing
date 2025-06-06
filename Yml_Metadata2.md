@@ -1,4 +1,290 @@
 
+```java
+// --- CategoryFieldKey.java ---
+public class CategoryFieldKey {
+    private String group;
+    private String category;
+    private String field;
+    private String metricKey; // optional
+    private String unit;      // optional
+
+    // constructors, getters, setters, equals, hashCode
+}
+
+// --- MetricConfig.java ---
+public class MetricConfig {
+    private String label;
+    private String dbName;
+    private String unit;
+
+    // getters and setters
+}
+
+// --- FieldConfig.java ---
+public class FieldConfig {
+    private String label;
+    private Map<String, List<JoinConfig>> joins;
+    private Map<String, MetricConfig> metric;
+
+    // getters and setters
+}
+
+// --- JoinFieldInfo.java ---
+public class JoinFieldInfo {
+    private String type;
+    private String group;
+    private String category;
+    private String field;
+    private String metricKey;
+    private String unit;
+
+    // setters and useful toString()
+}
+
+// --- JoinRecommendationUtil.java ---
+public class JoinRecommendationUtil {
+
+    public static String toFullKey(String type, CategoryFieldKey key) {
+        List<String> parts = new ArrayList<>();
+        parts.add(type);
+        parts.add(key.getGroup());
+        parts.add(key.getCategory());
+        parts.add(key.getField());
+        if (key.getMetricKey() != null) parts.add(key.getMetricKey());
+        if (key.getUnit() != null) parts.add(key.getUnit());
+        return String.join(":", parts);
+    }
+
+    public static JoinFieldInfo createJoinFieldInfo(String type, String fullKey) {
+        String[] parts = fullKey.split(":");
+        if (parts.length < 4) return null;
+
+        JoinFieldInfo info = new JoinFieldInfo();
+        info.setType(type);
+        info.setGroup(parts[1]);
+        info.setCategory(parts[2]);
+        info.setField(parts[3]);
+        if (parts.length >= 5) info.setMetricKey(parts[4]);
+        if (parts.length >= 6) info.setUnit(parts[5]);
+        return info;
+    }
+
+    public static Map<String, Integer> getFieldOrderMapFromYaml(Map<String, CategoryConfig> groupMap) {
+        Map<String, Integer> orderMap = new HashMap<>();
+        int order = 0;
+        for (Map.Entry<String, CategoryConfig> catEntry : groupMap.entrySet()) {
+            String category = catEntry.getKey();
+            CategoryConfig catCfg = catEntry.getValue();
+            for (Map.Entry<String, FieldConfig> fieldEntry : catCfg.getFields().entrySet()) {
+                String field = fieldEntry.getKey();
+                FieldConfig fieldCfg = fieldEntry.getValue();
+                if (fieldCfg.getMetric() != null) {
+                    for (Map.Entry<String, MetricConfig> metricEntry : fieldCfg.getMetric().entrySet()) {
+                        String metricKey = metricEntry.getKey();
+                        String unit = metricEntry.getValue().getUnit();
+                        String fullKey = String.join(":", category, field, metricKey, unit);
+                        orderMap.put(fullKey, order++);
+                    }
+                } else {
+                    String fullKey = String.join(":", category, field);
+                    orderMap.put(fullKey, order++);
+                }
+            }
+        }
+        return orderMap;
+    }
+
+    public static void sortRecommendationList(List<JoinFieldInfo> list, Map<String, Integer> fieldOrderMap) {
+        list.sort(Comparator.comparingInt(info -> {
+            String key = String.join(":",
+                info.getCategory(),
+                info.getField(),
+                info.getMetricKey() != null ? info.getMetricKey() : "",
+                info.getUnit() != null ? info.getUnit() : "");
+            return fieldOrderMap.getOrDefault(key, Integer.MAX_VALUE);
+        }));
+    }
+}
+
+
+```
+
+----
+
+좋습니다. 아래 구조에서 기존 로직에서 무엇이 변경되어야 하는지 단계적으로 분석해 보겠습니다:
+
+---
+
+## 📌 변경된 YAML 구조 요약
+
+```yaml
+dde:
+  dimension:
+    device:
+      fields:
+        deviceId:
+          metric: 
+             sum: 
+               label: "Sum"
+               dbName: "sum_device_id"
+               unit: "count"   ← ✅ 여기 추가됨!
+```
+
+즉, 기존에는 `metric`이 단일 레벨이거나 없었지만, 이제는 **metric 하위에 단위 정보(`unit`)까지 있는 다단계 구조**가 되었습니다.
+
+또한 join 대상도 다음과 같이 **metric 경로를 포함**합니다:
+
+```yaml
+joins:
+  measure:
+    - target: "measure:device:deviceCount:sum:percent"
+```
+
+---
+
+## ✅ 1. 영향 받는 구조/타입: `FieldConfig`, `MetricConfig`, `JoinConfig`
+
+### 기존:
+
+```java
+class FieldConfig {
+    String label;
+    Map<String, JoinConfig> joins;
+    ...
+}
+```
+
+### 변경 필요:
+
+```java
+class FieldConfig {
+    String label;
+    Map<String, JoinConfig> joins;
+    Map<String, MetricConfig> metric; // now nested by function (e.g., sum, avg)
+    ...
+}
+
+class MetricConfig {
+    String label;
+    String dbName;
+    String unit; // ← 여기 추가
+}
+```
+
+---
+
+## ✅ 2. 영향 받는 로직: `toFullKey(...)`, `createJoinFieldInfo(...)`, 추천 알고리즘
+
+### 이전에는
+
+`group:category:field` 또는 `group:category:field:metricKey`까지를 fullKey로 사용했다면,
+
+---
+
+### 이제는 `group:category:field:metricKey:unit` 또는 더 정확히는:
+
+```plaintext
+measure:device:deviceCount:sum:percent
+```
+
+* 여기서 `sum`은 **aggregation function**
+* `percent`는 **unit or metric variation**
+
+---
+
+## ✅ 변경이 필요한 주요 포인트
+
+### 1. `toFullKey(...)` 로직
+
+기존에 `group:category:field`까지 처리했다면, 이제 **metric key와 unit까지 포함된 구조**로 확장해야 합니다.
+
+```java
+String toFullKey(String type, CategoryFieldKey key) {
+    if (key.getMetricKey() != null && key.getUnit() != null) {
+        return String.join(":", type, key.getGroup(), key.getCategory(), key.getField(), key.getMetricKey(), key.getUnit());
+    } else if (key.getMetricKey() != null) {
+        return String.join(":", type, key.getGroup(), key.getCategory(), key.getField(), key.getMetricKey());
+    } else {
+        return String.join(":", type, key.getGroup(), key.getCategory(), key.getField());
+    }
+}
+```
+
+> `CategoryFieldKey`에 `metricKey`, `unit` 필드가 없다면 추가 필요합니다.
+
+---
+
+### 2. `createJoinFieldInfo(...)` 수정
+
+YAML에서 join target이 `"measure:device:deviceCount:sum:percent"`처럼 상세 경로를 가지므로,
+`createJoinFieldInfo(...)`도 이에 맞게 **파싱**하여 구조체를 생성해야 합니다.
+
+```java
+JoinFieldInfo createJoinFieldInfo(String type, String fullKey) {
+    String[] parts = fullKey.split(":");
+    if (parts.length < 4) return null;
+
+    JoinFieldInfo info = new JoinFieldInfo();
+    info.setType(type);
+    info.setGroup(parts[1]);
+    info.setCategory(parts[2]);
+    info.setField(parts[3]);
+
+    if (parts.length >= 5) info.setMetricKey(parts[4]);
+    if (parts.length >= 6) info.setUnit(parts[5]);
+
+    return info;
+}
+```
+
+---
+
+### 3. 추천 알고리즘
+
+추천 로직에서 `Set<String>`으로 `selectedMKeys`, `selectedDKeys` 등을 구성할 때에도,
+**이제 fullKey에 metricKey/unit이 포함되어야 하므로** 다음처럼 확장됩니다:
+
+```java
+Set<String> selectedMKeys = selectedMeasures.stream()
+    .map(k -> toFullKey("measure", k)) // metricKey, unit 포함
+    .collect(Collectors.toSet());
+```
+
+또한 추천 결과 리스트를 만들 때 `JoinFieldInfo`에 `metricKey`, `unit`을 넣는 것도 필요합니다.
+
+---
+
+### 4. 정렬 (필드 순서 정렬 시)
+
+기존 `fieldOrderMap`도 이제 다음처럼 변경해야 합니다:
+
+```java
+String fullKey = String.join(":", groupName, categoryName, fieldName, metricKey, unit);
+fieldOrderMap.put(fullKey, order++);
+```
+
+> 혹은 metricKey, unit이 없는 필드는 생략한 shorter version을 처리해야 함.
+
+---
+
+## ✅ 결론
+
+| 항목                         | 변경 필요 여부 | 변경 내용 요약                                          |
+| -------------------------- | -------- | ------------------------------------------------- |
+| `FieldConfig`              | ✅        | `Map<String, MetricConfig> metric` 및 `unit` 필드 추가 |
+| `CategoryFieldKey`         | ✅        | `metricKey`, `unit` 필드 추가                         |
+| `toFullKey(...)`           | ✅        | metricKey + unit 포함                               |
+| `createJoinFieldInfo(...)` | ✅        | `parts.length >= 6`까지 파싱                          |
+| 추천 알고리즘                    | ✅        | fullKey 기준 연산 확장                                  |
+| 정렬 기준 (`fieldOrderMap`)    | ✅        | fullKey 확장 기반으로 키 구성                              |
+
+---
+
+필요하시면 `FieldConfig`, `CategoryFieldKey`, `JoinFieldInfo`, `createJoinFieldInfo`, 추천 정렬 전체 예시를 리팩토링된 코드로 만들어드릴게요.
+
+
+------
+
 좋은 질문입니다.
 \*\*"YAML에 join 관계를 한쪽만 적어서 처리할 수 있느냐"\*\*는 질문은 결국 다음과 같은 질문입니다:
 
