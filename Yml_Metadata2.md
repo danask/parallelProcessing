@@ -1,4 +1,73 @@
 
+
+좋은 질문이에요. 요약해서 말씀드리면:
+
+---
+
+### ❓ 질문: 아래 조건 만족하나요?
+
+> `if (!field.getOperator().isEmpty())` 조건으로 `filterKey`를 추가하는 방식이
+> **같은 M 내에서 한쪽만 join 선언된 경우에도 filter로 포함**되나요?
+
+---
+
+### 📌 답변: **그 조건만으로는 포함되지 않습니다.**
+
+해당 로직은 단지 `operator`가 정의되어 있는 필드를 기준으로 filterKey를 만들 뿐이고,
+**join 선언이 한쪽에만 있어도 자동으로 포함되게 하려면** 다음이 필요합니다:
+
+---
+
+### ✅ 해결책: **역방향 관계를 반영한 필터 자동 포함 로직 필요**
+
+현재 코드는 `reverseJoinMap`을 사용해서 D → M, D → F 관계를 복구하지만,
+**M → F (또는 F → M), D → F 중에서 한쪽만 선언된 경우**를 보완하려면
+아래와 같이 filter 후보군을 구성하는 로직도 `reverseJoinMap` 기반으로 확장해야 합니다.
+
+---
+
+### ✅ 예시: filterUnion 구성 시, 정방향 + 역방향 둘 다 포함
+
+```java
+Set<String> filterUnion = new HashSet<>();
+
+// 1. M → F 정방향 Join 기반 필터 추가
+for (CategoryFieldKey k : selectedMeasures) {
+    String fullKey = toFullKey(REPORT_MEASURE, k);
+    FieldConfig field = fieldConfigMap.get(fullKey);
+    if (field == null) continue;
+
+    getJoinList(field, REPORT_FILTER).stream()
+        .map(JoinConfig::getTarget)
+        .forEach(filterUnion::add);
+
+    // 2. 역방향 F → M 기반 필터도 포함
+    reverseJoinMap.getOrDefault(fullKey, Set.of()).forEach(target -> {
+        if (target.startsWith(REPORT_FILTER + ":")) {
+            filterUnion.add(target);
+        }
+    });
+
+    // 3. operator 기반 직접 필터 키도 포함
+    if (!field.getOperator().isEmpty()) {
+        filterUnion.add(String.format("%s:%s:%s:", REPORT_FILTER, k.getCategory(), k.getField()));
+    }
+}
+```
+
+---
+
+### ✨ 이렇게 하면
+
+* filter의 join 선언이 **양방향 중 한 쪽에만 있어도 후보로 포함**
+* `operator` 기반으로 직접 정의한 filter 필드도 자동 포함
+* 결국 **M, D에 정의된 필드가 자동으로 filter 후보가 됨**
+
+---
+
+필요하시면 이 방식 반영해서 `JoinGraphHelper.java` 업데이트해드릴까요?
+
+
 아래는 수정된 `JoinGraphHelper.java` 전체 코드입니다.
 `FieldConfig` 내 `metric` 구조에 맞게 `unit` 비교가 `MetricConfig` 단위로 정확히 이루어지도록 반영했습니다.
 
