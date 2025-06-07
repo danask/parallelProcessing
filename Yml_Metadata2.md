@@ -83,6 +83,12 @@ public class JoinGraphHelper {
                     response.getFilter().add(createJoinFieldInfo(key));
                 }
             }
+
+            // dimension 추천 중복 제거
+            response.getDimension().removeIf(info ->
+                    selectedDimensionKeys.contains(toFullKey("dimension",
+                            new CategoryFieldKey(info.getCategory(), info.getField(), info.getMetric())))
+            );
         }
 
         // filter -> measure/dimension 없음 (단순 추가)
@@ -153,6 +159,12 @@ public class JoinGraphHelper {
         return parts.length > 0 ? parts[0] : "";
     }
 
+    private String toFullKey(String group, CategoryFieldKey key) {
+        return key.getMetric() == null ?
+                String.format("%s:%s:%s", group, key.getCategory(), key.getField()) :
+                String.format("%s:%s:%s:%s", group, key.getCategory(), key.getField(), key.getMetric());
+    }
+
     private JoinFieldInfo createJoinFieldInfo(String fullKey) {
         FieldConfig config = fieldConfigMap.get(fullKey);
         if (config == null) return null;
@@ -170,115 +182,6 @@ public class JoinGraphHelper {
     }
 }
 
-
-```
-
-```java
-// --- CategoryFieldKey.java ---
-public class CategoryFieldKey {
-    private String group;
-    private String category;
-    private String field;
-    private String metricKey; // optional
-    private String unit;      // optional
-
-    // constructors, getters, setters, equals, hashCode
-}
-
-// --- MetricConfig.java ---
-public class MetricConfig {
-    private String label;
-    private String dbName;
-    private String unit;
-
-    // getters and setters
-}
-
-// --- FieldConfig.java ---
-public class FieldConfig {
-    private String label;
-    private Map<String, List<JoinConfig>> joins;
-    private Map<String, MetricConfig> metric;
-
-    // getters and setters
-}
-
-// --- JoinFieldInfo.java ---
-public class JoinFieldInfo {
-    private String type;
-    private String group;
-    private String category;
-    private String field;
-    private String metricKey;
-    private String unit;
-
-    // setters and useful toString()
-}
-
-// --- JoinRecommendationUtil.java ---
-public class JoinRecommendationUtil {
-
-    public static String toFullKey(String type, CategoryFieldKey key) {
-        List<String> parts = new ArrayList<>();
-        parts.add(type);
-        parts.add(key.getGroup());
-        parts.add(key.getCategory());
-        parts.add(key.getField());
-        if (key.getMetricKey() != null) parts.add(key.getMetricKey());
-        if (key.getUnit() != null) parts.add(key.getUnit());
-        return String.join(":", parts);
-    }
-
-    public static JoinFieldInfo createJoinFieldInfo(String type, String fullKey) {
-        String[] parts = fullKey.split(":");
-        if (parts.length < 4) return null;
-
-        JoinFieldInfo info = new JoinFieldInfo();
-        info.setType(type);
-        info.setGroup(parts[1]);
-        info.setCategory(parts[2]);
-        info.setField(parts[3]);
-        if (parts.length >= 5) info.setMetricKey(parts[4]);
-        if (parts.length >= 6) info.setUnit(parts[5]);
-        return info;
-    }
-
-    public static Map<String, Integer> getFieldOrderMapFromYaml(Map<String, CategoryConfig> groupMap) {
-        Map<String, Integer> orderMap = new HashMap<>();
-        int order = 0;
-        for (Map.Entry<String, CategoryConfig> catEntry : groupMap.entrySet()) {
-            String category = catEntry.getKey();
-            CategoryConfig catCfg = catEntry.getValue();
-            for (Map.Entry<String, FieldConfig> fieldEntry : catCfg.getFields().entrySet()) {
-                String field = fieldEntry.getKey();
-                FieldConfig fieldCfg = fieldEntry.getValue();
-                if (fieldCfg.getMetric() != null) {
-                    for (Map.Entry<String, MetricConfig> metricEntry : fieldCfg.getMetric().entrySet()) {
-                        String metricKey = metricEntry.getKey();
-                        String unit = metricEntry.getValue().getUnit();
-                        String fullKey = String.join(":", category, field, metricKey, unit);
-                        orderMap.put(fullKey, order++);
-                    }
-                } else {
-                    String fullKey = String.join(":", category, field);
-                    orderMap.put(fullKey, order++);
-                }
-            }
-        }
-        return orderMap;
-    }
-
-    public static void sortRecommendationList(List<JoinFieldInfo> list, Map<String, Integer> fieldOrderMap) {
-        list.sort(Comparator.comparingInt(info -> {
-            String key = String.join(":",
-                info.getCategory(),
-                info.getField(),
-                info.getMetricKey() != null ? info.getMetricKey() : "",
-                info.getUnit() != null ? info.getUnit() : "");
-            return fieldOrderMap.getOrDefault(key, Integer.MAX_VALUE);
-        }));
-    }
-}
 
 
 ```
