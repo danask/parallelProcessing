@@ -1,5 +1,179 @@
 
 ```java
+// --- JoinGraphHelper.java ---
+
+public class JoinGraphHelper {
+
+    private final Map<String, FieldConfig> fieldConfigMap;
+    private final Map<String, Set<String>> measureJoinMap = new HashMap<>();
+    private final Map<String, Set<String>> dimensionJoinMap = new HashMap<>();
+    private final Map<String, Set<String>> filterJoinMap = new HashMap<>();
+
+    public JoinGraphHelper(Map<String, FieldConfig> fieldConfigMap) {
+        this.fieldConfigMap = fieldConfigMap;
+        buildJoinMapForType("measure", measureJoinMap);
+        buildJoinMapForType("dimension", dimensionJoinMap);
+        buildJoinMapForType("filter", filterJoinMap);
+    }
+
+    public JoinRecommendationResponse getJoinRecommendations(
+            Set<String> selectedMeasureKeys,
+            Set<String> selectedDimensionKeys,
+            Set<String> selectedFilterKeys
+    ) {
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        // measure -> dimension & filter
+        if (!selectedMeasureKeys.isEmpty()) {
+            Set<String> dimIntersection = null;
+            Set<String> filterUnion = new HashSet<>();
+
+            for (String measureKey : selectedMeasureKeys) {
+                List<String> dims = resolveJoinTargets("measure", measureKey, "dimension");
+                List<String> filters = resolveJoinTargets("measure", measureKey, "filter");
+
+                if (dimIntersection == null) dimIntersection = new HashSet<>(dims);
+                else dimIntersection.retainAll(dims);
+
+                filterUnion.addAll(filters);
+            }
+
+            // measure 추천
+            for (String key : measureJoinMap.keySet()) {
+                if (!selectedMeasureKeys.contains(key)) {
+                    response.getMeasure().add(createJoinFieldInfo(key));
+                }
+            }
+
+            // dimension 교집합 추천
+            if (dimIntersection != null) {
+                for (String key : dimIntersection) {
+                    if (!selectedDimensionKeys.contains(key)) {
+                        response.getDimension().add(createJoinFieldInfo(key));
+                    }
+                }
+            }
+
+            // filter 합집합 추천
+            for (String key : filterUnion) {
+                if (!selectedFilterKeys.contains(key)) {
+                    response.getFilter().add(createJoinFieldInfo(key));
+                }
+            }
+        }
+
+        // dimension -> measure & filter
+        if (!selectedDimensionKeys.isEmpty()) {
+            Set<String> recommendedMeasures = new HashSet<>();
+            Set<String> recommendedFilters = new HashSet<>();
+
+            for (String dimensionKey : selectedDimensionKeys) {
+                recommendedMeasures.addAll(resolveJoinTargets("dimension", dimensionKey, "measure"));
+                recommendedFilters.addAll(resolveJoinTargets("dimension", dimensionKey, "filter"));
+            }
+
+            for (String key : recommendedMeasures) {
+                if (!selectedMeasureKeys.contains(key)) {
+                    response.getMeasure().add(createJoinFieldInfo(key));
+                }
+            }
+
+            for (String key : recommendedFilters) {
+                if (!selectedFilterKeys.contains(key)) {
+                    response.getFilter().add(createJoinFieldInfo(key));
+                }
+            }
+        }
+
+        // filter -> measure/dimension 없음 (단순 추가)
+        if (!selectedFilterKeys.isEmpty()) {
+            for (String key : filterJoinMap.keySet()) {
+                if (!selectedFilterKeys.contains(key)) {
+                    response.getFilter().add(createJoinFieldInfo(key));
+                }
+            }
+        }
+
+        return response;
+    }
+
+    public List<String> resolveJoinTargets(String fromType, String fromKey, String toType) {
+        FieldConfig field = fieldConfigMap.get(fromKey);
+        if (field == null) return List.of();
+
+        List<JoinConfig> joins = Optional.ofNullable(field.getJoins())
+                .map(j -> j.get(toType))
+                .orElse(List.of());
+
+        Set<String> resolved = new LinkedHashSet<>(
+                joins.stream().map(JoinConfig::getTarget).toList()
+        );
+
+        // 역방향
+        for (Map.Entry<String, FieldConfig> entry : fieldConfigMap.entrySet()) {
+            String otherKey = entry.getKey();
+            if (otherKey.equals(fromKey)) continue;
+            FieldConfig otherField = entry.getValue();
+            List<JoinConfig> backJoins = Optional.ofNullable(otherField.getJoins())
+                    .map(j -> j.get(fromType))
+                    .orElse(List.of());
+
+            for (JoinConfig jc : backJoins) {
+                if (jc.getTarget().equals(fromKey) && getTypeFromFullKey(otherKey).equals(toType)) {
+                    resolved.add(otherKey);
+                }
+            }
+        }
+
+        return new ArrayList<>(resolved);
+    }
+
+    private void buildJoinMapForType(String type, Map<String, Set<String>> targetMap) {
+        List<String> keys = fieldConfigMap.keySet().stream()
+                .filter(k -> getTypeFromFullKey(k).equals(type))
+                .toList();
+
+        for (String key1 : keys) {
+            Set<String> joinable = new HashSet<>();
+            List<String> key1Dims = resolveJoinTargets(type, key1, "dimension");
+
+            for (String key2 : keys) {
+                if (key1.equals(key2)) continue;
+                List<String> key2Dims = resolveJoinTargets(type, key2, "dimension");
+                if (!Collections.disjoint(key1Dims, key2Dims)) {
+                    joinable.add(key2);
+                }
+            }
+            targetMap.put(key1, joinable);
+        }
+    }
+
+    private String getTypeFromFullKey(String fullKey) {
+        String[] parts = fullKey.split(":");
+        return parts.length > 0 ? parts[0] : "";
+    }
+
+    private JoinFieldInfo createJoinFieldInfo(String fullKey) {
+        FieldConfig config = fieldConfigMap.get(fullKey);
+        if (config == null) return null;
+        CategoryFieldKey parsed = fromFullKey(fullKey);
+        return new JoinFieldInfo(parsed.getCategory(), parsed.getField(), parsed.getMetric());
+    }
+
+    private CategoryFieldKey fromFullKey(String fullKey) {
+        String[] parts = fullKey.split(":");
+        String group = parts[0];
+        String category = parts[1];
+        String field = parts[2];
+        String metric = parts.length > 3 ? parts[3] : null;
+        return new CategoryFieldKey(category, field, metric);
+    }
+}
+
+
+```
+
+```java
 // --- CategoryFieldKey.java ---
 public class CategoryFieldKey {
     private String group;
