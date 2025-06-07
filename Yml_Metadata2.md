@@ -126,35 +126,39 @@ public class JoinGraphHelper {
     /**
      * Metric 단위가 unit이 같은지 비교
      */
-    private boolean isSameUnit(String sourceKey, String targetKey) {
-        // group, category, field, metric 분리
-        String sourceGroup = extractGroup(sourceKey);
-        String targetGroup = extractGroup(targetKey);
+private boolean isSameUnit(String sourceKey, String targetKey) {
+    String[] sourceParts = sourceKey.split(":");
+    String[] targetParts = targetKey.split(":");
 
-        String sourceCategory = extractCategory(sourceKey);
-        String targetCategory = extractCategory(targetKey);
-
-        String sourceField = extractField(sourceKey);
-        String targetField = extractField(targetKey);
-
-        String sourceMetric = extractMetric(sourceKey);
-        String targetMetric = extractMetric(targetKey);
-
-        // metric 없는 경우 단위 비교하지 않음 (필요하면 true 처리)
-        if (sourceMetric == null || targetMetric == null) return true;
-
-        FieldConfig sourceFieldConfig = fieldConfigMap.get(String.format("%s:%s:%s:", sourceGroup, sourceCategory, sourceField));
-        FieldConfig targetFieldConfig = fieldConfigMap.get(String.format("%s:%s:%s:", targetGroup, targetCategory, targetField));
-
-        if (sourceFieldConfig == null || targetFieldConfig == null) return false;
-
-        MetricConfig sourceMetricConfig = sourceFieldConfig.getMetric().get(sourceMetric);
-        MetricConfig targetMetricConfig = targetFieldConfig.getMetric().get(targetMetric);
-
-        if (sourceMetricConfig == null || targetMetricConfig == null) return false;
-
-        return Objects.equals(sourceMetricConfig.getUnit(), targetMetricConfig.getUnit());
+    // 최소한 group, category, field, metric이 있어야 함
+    if (sourceParts.length < 4 || targetParts.length < 4) {
+        return true;  // metric 없으면 단위 비교 안 함
     }
+
+    String sourceGroup = sourceParts[0];
+    String sourceCategory = sourceParts[1];
+    String sourceField = sourceParts[2];
+    String sourceMetric = sourceParts[3];
+
+    String targetGroup = targetParts[0];
+    String targetCategory = targetParts[1];
+    String targetField = targetParts[2];
+    String targetMetric = targetParts[3];
+
+    // metric 단위 비교
+    FieldConfig sourceFieldConfig = fieldConfigMap.get(String.format("%s:%s:%s:", sourceGroup, sourceCategory, sourceField));
+    FieldConfig targetFieldConfig = fieldConfigMap.get(String.format("%s:%s:%s:", targetGroup, targetCategory, targetField));
+
+    if (sourceFieldConfig == null || targetFieldConfig == null) return false;
+
+    MetricConfig sourceMetricConfig = sourceFieldConfig.getMetric().get(sourceMetric);
+    MetricConfig targetMetricConfig = targetFieldConfig.getMetric().get(targetMetric);
+
+    if (sourceMetricConfig == null || targetMetricConfig == null) return false;
+
+    return Objects.equals(sourceMetricConfig.getUnit(), targetMetricConfig.getUnit());
+}
+
 
     private List<JoinConfig> getJoinList(FieldConfig field, String group) {
         return Optional.ofNullable(field.getJoins())
