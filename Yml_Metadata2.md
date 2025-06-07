@@ -1,4 +1,187 @@
 
+``` java
+// --- JoinGraphHelper.java ---
+
+public class JoinGraphHelper {
+
+    private final Map<String, FieldConfig> fieldConfigMap;
+    private final Map<String, Set<String>> reverseJoinMap;
+
+    public JoinGraphHelper(Map<String, FieldConfig> fieldConfigMap) {
+        this.fieldConfigMap = fieldConfigMap;
+        this.reverseJoinMap = buildReverseJoinMap(fieldConfigMap);
+    }
+
+    public JoinRecommendationResponse getJoinRecommendations(
+            Set<CategoryFieldKey> selectedMeasures,
+            Set<CategoryFieldKey> selectedDimensions,
+            Set<CategoryFieldKey> selectedFilters
+    ) {
+        JoinRecommendationResponse response = new JoinRecommendationResponse();
+
+        boolean hasM = !selectedMeasures.isEmpty();
+        boolean hasD = !selectedDimensions.isEmpty();
+        boolean hasF = !selectedFilters.isEmpty();
+
+        Set<String> selectedMeasureKeys = selectedMeasures.stream()
+                .map(k -> toFullKey(REPORT_MEASURE, k))
+                .collect(Collectors.toSet());
+        Set<String> selectedDimensionKeys = selectedDimensions.stream()
+                .map(k -> toFullKey(REPORT_DIMENSION, k))
+                .collect(Collectors.toSet());
+        Set<String> selectedFilterKeys = selectedFilters.stream()
+                .map(k -> toFullKey(REPORT_FILTER, k))
+                .collect(Collectors.toSet());
+
+        Set<String> allMKeys = getAllFieldKeys(REPORT_MEASURE);
+        Set<String> allDKeys = getAllFieldKeys(REPORT_DIMENSION);
+        Set<String> allFKeys = getAllFieldKeys(REPORT_FILTER);
+
+        if (hasM) {
+            Set<String> dimensionIntersection = null;
+            Set<String> filterUnion = new HashSet<>();
+
+            for (CategoryFieldKey k : selectedMeasures) {
+                String fullKey = toFullKey(REPORT_MEASURE, k);
+                FieldConfig field = fieldConfigMap.get(fullKey);
+                if (field == null) continue;
+
+                List<JoinConfig> dimJoins = getJoinList(field, REPORT_DIMENSION);
+                List<JoinConfig> filterJoins = getJoinList(field, REPORT_FILTER);
+
+                Set<String> dimTargets = dimJoins.stream()
+                        .map(JoinConfig::getTarget)
+                        .filter(target -> isSameUnit(fullKey, target))
+                        .collect(Collectors.toSet());
+                if (dimensionIntersection == null) dimensionIntersection = new HashSet<>(dimTargets);
+                else dimensionIntersection.retainAll(dimTargets);
+
+                filterJoins.stream().map(JoinConfig::getTarget).forEach(filterUnion::add);
+            }
+
+            allMKeys.stream().filter(k -> !selectedMeasureKeys.contains(k))
+                    .forEach(k -> addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, k)));
+            if (dimensionIntersection != null) {
+                dimensionIntersection.stream().filter(k -> !selectedDimensionKeys.contains(k))
+                        .forEach(k -> addIfNotNull(response.getDimension(), createJoinFieldInfo(REPORT_DIMENSION, k)));
+            }
+            filterUnion.stream().filter(k -> !selectedFilterKeys.contains(k))
+                    .forEach(k -> addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, k)));
+        }
+
+        if (hasD) {
+            Set<String> measureUnion = new HashSet<>();
+            Set<String> filterUnion = new HashSet<>();
+
+            for (CategoryFieldKey k : selectedDimensions) {
+                String fullKey = toFullKey(REPORT_DIMENSION, k);
+                FieldConfig field = fieldConfigMap.get(fullKey);
+                if (field == null) continue;
+
+                getJoinList(field, REPORT_MEASURE).stream()
+                        .map(JoinConfig::getTarget)
+                        .filter(target -> isSameUnit(fullKey, target))
+                        .forEach(measureUnion::add);
+                getJoinList(field, REPORT_FILTER).stream().map(JoinConfig::getTarget).forEach(filterUnion::add);
+
+                reverseJoinMap.getOrDefault(fullKey, Set.of()).forEach(target -> {
+                    if (target.startsWith(REPORT_MEASURE + ":") && isSameUnit(fullKey, target)) measureUnion.add(target);
+                    else if (target.startsWith(REPORT_FILTER + ":")) filterUnion.add(target);
+                });
+            }
+
+            allDKeys.stream().filter(k -> !selectedDimensionKeys.contains(k))
+                    .forEach(k -> addIfNotNull(response.getDimension(), createJoinFieldInfo(REPORT_DIMENSION, k)));
+
+            response.getDimension().removeIf(info ->
+                    selectedDimensionKeys.contains(toFullKey(REPORT_DIMENSION,
+                            new CategoryFieldKey(info.getCategory(), info.getField(), info.getMetric()))));
+
+            measureUnion.stream().filter(k -> !selectedMeasureKeys.contains(k))
+                    .forEach(k -> addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, k)));
+
+            filterUnion.stream().filter(k -> !selectedFilterKeys.contains(k))
+                    .forEach(k -> addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, k)));
+        }
+
+        if (hasF) {
+            allFKeys.stream().filter(k -> !selectedFilterKeys.contains(k))
+                    .forEach(k -> addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, k)));
+        }
+
+        if (!hasM && !hasD && !hasF) {
+            allMKeys.forEach(k -> addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, k)));
+        }
+
+        return response;
+    }
+
+    private boolean isSameUnit(String sourceKey, String targetKey) {
+        FieldConfig source = fieldConfigMap.get(sourceKey);
+        FieldConfig target = fieldConfigMap.get(targetKey);
+        if (source == null || target == null) return false;
+        return Objects.equals(source.getUnit(), target.getUnit());
+    }
+
+    private List<JoinConfig> getJoinList(FieldConfig field, String group) {
+        return Optional.ofNullable(field.getJoins())
+                .map(j -> j.get(group)).orElse(List.of());
+    }
+
+    private void addIfNotNull(List<JoinFieldInfo> list, JoinFieldInfo info) {
+        if (info != null) list.add(info);
+    }
+
+    private Map<String, Set<String>> buildReverseJoinMap(Map<String, FieldConfig> configMap) {
+        Map<String, Set<String>> reverseMap = new HashMap<>();
+        for (Map.Entry<String, FieldConfig> entry : configMap.entrySet()) {
+            String sourceKey = entry.getKey();
+            FieldConfig config = entry.getValue();
+            if (config.getJoins() != null) {
+                for (Map.Entry<String, List<JoinConfig>> joinGroup : config.getJoins().entrySet()) {
+                    for (JoinConfig jc : joinGroup.getValue()) {
+                        reverseMap.computeIfAbsent(jc.getTarget(), k -> new HashSet<>()).add(sourceKey);
+                    }
+                }
+            }
+        }
+        return reverseMap;
+    }
+
+    private String toFullKey(String group, CategoryFieldKey k) {
+        return k.getMetric() == null ?
+                String.format("%s:%s:%s:", group, k.getCategory(), k.getField()) :
+                String.format("%s:%s:%s:%s", group, k.getCategory(), k.getField(), k.getMetric());
+    }
+
+    private JoinFieldInfo createJoinFieldInfo(String group, String fullKey) {
+        FieldConfig config = fieldConfigMap.get(fullKey);
+        if (config == null) return null;
+        CategoryFieldKey parsed = fromFullKey(fullKey);
+        return new JoinFieldInfo(parsed.getCategory(), parsed.getField(), parsed.getMetric());
+    }
+
+    private CategoryFieldKey fromFullKey(String fullKey) {
+        String[] parts = fullKey.split(":");
+        String category = parts[1];
+        String field = parts[2];
+        String metric = parts.length > 3 ? parts[3] : null;
+        return new CategoryFieldKey(category, field, metric);
+    }
+
+    private Set<String> getAllFieldKeys(String group) {
+        return fieldConfigMap.keySet().stream()
+                .filter(k -> k.startsWith(group + ":"))
+                .collect(Collectors.toSet());
+    }
+
+    private static final String REPORT_MEASURE = "measure";
+    private static final String REPORT_DIMENSION = "dimension";
+    private static final String REPORT_FILTER = "filter";
+}
+
+
+```
 ```java
 // --- JoinGraphHelper.java ---
 
