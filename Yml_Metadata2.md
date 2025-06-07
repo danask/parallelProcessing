@@ -136,6 +136,24 @@ public class JoinGraphHelper {
         // F = 자기 자신 + 추천된 M + 추천된 D 기준 추천, 중복 제거
         Set<String> totalFilterCandidates = new HashSet<>();
 
+        // --- FILTER ---
+        // F = 자기 자신 + 선택된 M + 선택된 D 기준 추천, 중복 제거
+        Set<String> totalFilterCandidates = new HashSet<>();
+
+        // 선택된 M과 D를 그대로 filter 추천 목록에 포함시킴
+        totalFilterCandidates.addAll(selectedMeasureKeys);
+        totalFilterCandidates.addAll(selectedDimensionKeys);
+
+        for (String key : getAllFieldKeys(REPORT_FILTER)) {
+            if (selectedFilterKeys.contains(key)) continue;
+            if (totalFilterCandidates.contains(key)) {
+                addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
+            }
+        }
+
+
+
+XXXX
         for (String m : recommendedMeasureKeys) {
             FieldConfig field = getFieldConfig(m);
             if (field == null) continue;
@@ -154,6 +172,7 @@ public class JoinGraphHelper {
             }
         }
 
+XXXX
 // --- FILTER ---
 // F = 자기 자신 + 추천된 M + 추천된 D 기준 추천, 중복 제거
 Set<String> totalFilterCandidates = new HashSet<>();
