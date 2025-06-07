@@ -181,6 +181,20 @@ private boolean isCompatibleUnit(String candidateKey, Set<String> selectedMeasur
     }
     return true;
 }
+
+private boolean isSameUnit(FieldConfig a, FieldConfig b) {
+    if (a == null || b == null) return false;
+
+    return a.getMetric().entrySet().stream().anyMatch(aMetric ->
+        b.getMetric().entrySet().stream().anyMatch(bMetric ->
+            Objects.equals(
+                aMetric.getValue().getUnit(),
+                bMetric.getValue().getUnit()
+            )
+        )
+    );
+}
+
 ```
 
 ---
