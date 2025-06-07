@@ -257,7 +257,74 @@ private boolean isSameUnit(FieldConfig a, FieldConfig b) {
     );
 }
 
+
+
 ```
+`Field` 객체에 unit 정보를 추가하려면 다음 두 가지를 처리해야 합니다:
+
+---
+
+### ✅ 1. `Field` 클래스에 `unit` 필드 추가
+
+```java
+public class Field {
+    private String field;
+    private String label;
+    private Map<String, MetricConfig> metric;
+    private String unit; // 🔹 추가
+
+    // builder, getter, setter 등 정의 필요
+}
+```
+
+---
+
+### ✅ 2. `getCategoryAndFields` 수정 (unit 추출 추가)
+
+아래와 같이 `unit`을 metric 정보에서 추출해서 `Field` 객체에 넣어주면 됩니다:
+
+```java
+public List<CategoryWithFields> getCategoryAndFields(String group) {
+    Map<String, CategoryConfig> groupMap = getGroupMap(group);
+    if (groupMap == null) return Collections.emptyList();
+
+    return groupMap.entrySet().stream()
+            .map(e -> {
+                String category = e.getKey();
+                CategoryConfig categoryConfig = e.getValue();
+                List<Field> fields = categoryConfig.getFields() != null ?
+                        categoryConfig.getFields().entrySet().stream()
+                                .map(entry -> {
+                                    FieldConfig fieldConfig = entry.getValue();
+                                    // 🔹 unit 추출 (metric 여러 개인 경우 우선 하나만 표시하거나 가공)
+                                    String unit = Optional.ofNullable(fieldConfig.getMetric())
+                                            .flatMap(metrics -> metrics.values().stream()
+                                                    .map(MetricConfig::getUnit)
+                                                    .filter(Objects::nonNull)
+                                                    .findFirst())
+                                            .orElse(null);
+
+                                    return Field.builder()
+                                            .field(entry.getKey())
+                                            .label(fieldConfig.getLabel())
+                                            .metric(fieldConfig.getMetric())
+                                            .unit(unit) // 🔹 추가
+                                            .build();
+                                }).toList()
+                        : Collections.emptyList();
+                return new CategoryWithFields(category, categoryConfig.getLabel(), fields);
+            }).toList();
+}
+```
+
+---
+
+### 📝 유의사항
+
+* `unit`을 metric 여러 개 중 대표 하나만 표시하고 싶을 경우 위 로직이 적절합니다.
+* 만약 **metric별 unit 목록 전체**를 따로 보여줘야 한다면 `Map<String, String> metricToUnitMap` 형태로 빌드해야 합니다.
+
+필요하면 그 방식도 알려드릴게요.
 
 ---
 
