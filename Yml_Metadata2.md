@@ -62,14 +62,19 @@ public class JoinGraphHelper {
         Set<String> selectedDimensionKeys = selectedDimensions.stream().map(k -> toFullKey(REPORT_DIMENSION, k)).collect(Collectors.toSet());
         Set<String> selectedFilterKeys = selectedFilters.stream().map(k -> toFullKey(REPORT_FILTER, k)).collect(Collectors.toSet());
 
+
+        Set<String> recommendedMeasureKeys = new HashSet<>();
+        Set<String> recommendedDimensionKeys = new HashSet<>();
+        Set<String> recommendedFilterKeys = new HashSet<>();
+
         // --- MEASURE ---
         if (selectedMeasures.isEmpty()) {
             for (String key : getAllFieldKeys(REPORT_MEASURE)) {
                 addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, key));
+                recommendedMeasureKeys.add(key);
             }
         } else {
             Set<String> dimensionIntersection = null;
-            Set<String> filterUnion = new HashSet<>();
 
             for (String measureKey : selectedMeasureKeys) {
                 FieldConfig field = getFieldConfig(measureKey);
@@ -80,26 +85,22 @@ public class JoinGraphHelper {
                 if (dimensionIntersection == null) dimensionIntersection = new HashSet<>(dimTargets);
                 else dimensionIntersection.retainAll(dimTargets);
 
-                getJoinTargets(field, REPORT_FILTER).forEach(j -> filterUnion.add(j.getTarget()));
+                getJoinTargets(field, REPORT_FILTER).forEach(j -> recommendedFilterKeys.add(j.getTarget()));
             }
 
             for (String key : getAllFieldKeys(REPORT_MEASURE)) {
                 if (selectedMeasureKeys.contains(key)) continue;
                 if (!isCompatibleUnit(key, selectedMeasureKeys)) continue;
                 addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, key));
+                recommendedMeasureKeys.add(key);
             }
 
             if (dimensionIntersection != null) {
                 for (String key : dimensionIntersection) {
                     if (!selectedDimensionKeys.contains(key)) {
                         addIfNotNull(response.getDimension(), createJoinFieldInfo(REPORT_DIMENSION, key));
+                        recommendedDimensionKeys.add(key);
                     }
-                }
-            }
-
-            for (String key : filterUnion) {
-                if (!selectedFilterKeys.contains(key)) {
-                    addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
                 }
             }
         }
@@ -107,32 +108,49 @@ public class JoinGraphHelper {
         // --- DIMENSION ---
         if (!selectedDimensions.isEmpty()) {
             Set<String> relatedMeasures = new HashSet<>();
-            Set<String> relatedFilters = new HashSet<>();
 
             for (String dimKey : selectedDimensionKeys) {
                 FieldConfig field = getFieldConfig(dimKey);
                 if (field == null) continue;
 
                 getJoinTargets(field, REPORT_MEASURE).forEach(j -> relatedMeasures.add(j.getTarget()));
-                getJoinTargets(field, REPORT_FILTER).forEach(j -> relatedFilters.add(j.getTarget()));
+                getJoinTargets(field, REPORT_FILTER).forEach(j -> recommendedFilterKeys.add(j.getTarget()));
             }
 
             for (String key : relatedMeasures) {
                 if (!selectedMeasureKeys.contains(key)) {
                     addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, key));
-                }
-            }
-
-            for (String key : relatedFilters) {
-                if (!selectedFilterKeys.contains(key)) {
-                    addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
+                    recommendedMeasureKeys.add(key);
                 }
             }
 
             for (String key : getAllFieldKeys(REPORT_DIMENSION)) {
                 if (!selectedDimensionKeys.contains(key)) {
                     addIfNotNull(response.getDimension(), createJoinFieldInfo(REPORT_DIMENSION, key));
+                    recommendedDimensionKeys.add(key);
                 }
+            }
+        }
+
+        // --- FILTER ---
+        // F = 자기 자신 + 추천된 M + 추천된 D 기준 추천, 중복 제거
+        Set<String> totalFilterCandidates = new HashSet<>();
+
+        for (String m : recommendedMeasureKeys) {
+            FieldConfig field = getFieldConfig(m);
+            if (field == null) continue;
+            getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
+        }
+        for (String d : recommendedDimensionKeys) {
+            FieldConfig field = getFieldConfig(d);
+            if (field == null) continue;
+            getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
+        }
+
+        for (String key : getAllFieldKeys(REPORT_FILTER)) {
+            if (selectedFilterKeys.contains(key)) continue;
+            if (totalFilterCandidates.contains(key)) {
+                addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
             }
         }
 
