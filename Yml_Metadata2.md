@@ -64,10 +64,8 @@ public class JoinGraphHelper {
 
         // --- MEASURE ---
         if (selectedMeasures.isEmpty()) {
-            // Case: 처음 진입. 모든 measure 후보 추천
             for (String key : getAllFieldKeys(REPORT_MEASURE)) {
-                JoinFieldInfo info = createJoinFieldInfo(REPORT_MEASURE, key);
-                if (info != null) response.getMeasure().add(info);
+                addIfNotNull(response.getMeasure(), createJoinFieldInfo(REPORT_MEASURE, key));
             }
         } else {
             Set<String> dimensionIntersection = null;
@@ -77,15 +75,12 @@ public class JoinGraphHelper {
                 FieldConfig field = getFieldConfig(measureKey);
                 if (field == null) continue;
 
-                // dimension join
                 List<JoinConfig> dimJoins = getJoinTargets(field, REPORT_DIMENSION);
                 Set<String> dimTargets = dimJoins.stream().map(JoinConfig::getTarget).collect(Collectors.toSet());
                 if (dimensionIntersection == null) dimensionIntersection = new HashSet<>(dimTargets);
                 else dimensionIntersection.retainAll(dimTargets);
 
-                // filter join
-                List<JoinConfig> filterJoins = getJoinTargets(field, REPORT_FILTER);
-                filterJoins.forEach(j -> filterUnion.add(j.getTarget()));
+                getJoinTargets(field, REPORT_FILTER).forEach(j -> filterUnion.add(j.getTarget()));
             }
 
             for (String key : getAllFieldKeys(REPORT_MEASURE)) {
@@ -191,6 +186,7 @@ public class JoinGraphHelper {
     }
 
     private String toFullKey(String group, CategoryFieldKey k) {
+        // 모든 key를 metric이 있으면 :까지 포함해서, 없으면 마지막 : 붙여서 통일
         return k.getMetric() == null ?
                 String.format("%s:%s:%s:", group, k.getCategory(), k.getField()) :
                 String.format("%s:%s:%s:%s", group, k.getCategory(), k.getField(), k.getMetric());
@@ -221,6 +217,7 @@ public class JoinGraphHelper {
     private static final String REPORT_DIMENSION = "dimension";
     private static final String REPORT_FILTER = "filter";
 }
+
 
 ```
 
