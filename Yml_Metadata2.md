@@ -130,90 +130,19 @@ public class JoinGraphHelper {
                     recommendedDimensionKeys.add(key);
                 }
             }
+
+            // 선택된 차원 제외
+            response.getDimension().removeIf(info ->
+                    selectedDimensionKeys.contains(toFullKey(REPORT_DIMENSION,
+                            new CategoryFieldKey(info.getCategory(), info.getField(), info.getMetric()))));
         }
 
         // --- FILTER ---
         // F = 자기 자신 + 추천된 M + 추천된 D 기준 추천, 중복 제거
         Set<String> totalFilterCandidates = new HashSet<>();
-
-        // --- FILTER ---
-        // F = 자기 자신 + 선택된 M + 선택된 D 기준 추천, 중복 제거
-        Set<String> totalFilterCandidates = new HashSet<>();
-
-        // 선택된 M과 D를 그대로 filter 추천 목록에 포함시킴
-        totalFilterCandidates.addAll(selectedMeasureKeys);
-        totalFilterCandidates.addAll(selectedDimensionKeys);
-
-        for (String key : getAllFieldKeys(REPORT_FILTER)) {
-            if (selectedFilterKeys.contains(key)) continue;
-            if (totalFilterCandidates.contains(key)) {
-                addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
-            }
-        }
-
-
-
-XXXX
-        for (String m : recommendedMeasureKeys) {
-            FieldConfig field = getFieldConfig(m);
-            if (field == null) continue;
-            getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
-        }
-        for (String d : recommendedDimensionKeys) {
-            FieldConfig field = getFieldConfig(d);
-            if (field == null) continue;
-            getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
-        }
-
-        for (String key : getAllFieldKeys(REPORT_FILTER)) {
-            if (selectedFilterKeys.contains(key)) continue;
-            if (totalFilterCandidates.contains(key)) {
-                addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
-            }
-        }
-
-XXXX
-// --- FILTER ---
-// F = 자기 자신 + 추천된 M + 추천된 D 기준 추천, 중복 제거
-Set<String> totalFilterCandidates = new HashSet<>();
-
-// 1. 직접 연결된 Filter
-for (String measureKey : selectedMeasureKeys) {
-    FieldConfig field = getFieldConfig(measureKey);
-    if (field != null) {
-        getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
-    }
-}
-for (String dimensionKey : selectedDimensionKeys) {
-    FieldConfig field = getFieldConfig(dimensionKey);
-    if (field != null) {
-        getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
-    }
-}
-
-// 2. 추천된 Measure 기준 Filter
-for (String measureKey : recommendedMeasureKeys) {
-    FieldConfig field = getFieldConfig(measureKey);
-    if (field != null) {
-        getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
-    }
-}
-
-// 3. 추천된 Dimension 기준 Filter
-for (String dimensionKey : recommendedDimensionKeys) {
-    FieldConfig field = getFieldConfig(dimensionKey);
-    if (field != null) {
-        getJoinTargets(field, REPORT_FILTER).forEach(j -> totalFilterCandidates.add(j.getTarget()));
-    }
-}
-
-// 중복 제거 & 선택된 필터는 제외
-for (String key : totalFilterCandidates) {
-    if (!selectedFilterKeys.contains(key)) {
-        addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
-    }
-}
-
+        Stream.concat(selectedMeasureKeys.stream(), selectedDimensionKeys.stream())
+                .filter(key -> !selectedFilterKeys.contains(key))
+                .forEach(key -> addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key)));
 
         return response;
     }
