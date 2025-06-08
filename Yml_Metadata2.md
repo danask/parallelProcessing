@@ -139,10 +139,38 @@ public class JoinGraphHelper {
 
         // --- FILTER ---
         // F = 자기 자신 + 추천된 M + 추천된 D 기준 추천, 중복 제거
+//        Set<String> totalFilterCandidates = new HashSet<>();
+//        Stream.concat(selectedMeasureKeys.stream(), selectedDimensionKeys.stream())
+//                .filter(key -> !selectedFilterKeys.contains(key))
+//                .forEach(key -> addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key)));
+
+
+        // --- FILTER ---
+        Set<String> filterFromJoins = new HashSet<>();
+        for (String key : selectedMeasureKeys) {
+            FieldConfig config = getFieldConfig(key);
+            if (config == null) continue;
+            getJoinTargets(config, REPORT_FILTER).forEach(j -> filterFromJoins.add(j.getTarget()));
+        }
+        for (String key : selectedDimensionKeys) {
+            FieldConfig config = getFieldConfig(key);
+            if (config == null) continue;
+            getJoinTargets(config, REPORT_FILTER).forEach(j -> filterFromJoins.add(j.getTarget()));
+        }
+        
         Set<String> totalFilterCandidates = new HashSet<>();
-        Stream.concat(selectedMeasureKeys.stream(), selectedDimensionKeys.stream())
-                .filter(key -> !selectedFilterKeys.contains(key))
-                .forEach(key -> addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key)));
+        totalFilterCandidates.addAll(selectedMeasureKeys);
+        totalFilterCandidates.addAll(selectedDimensionKeys);
+        totalFilterCandidates.addAll(filterFromJoins);
+        
+        for (String key : getAllFieldKeys(REPORT_FILTER)) {
+            if (selectedFilterKeys.contains(key)) continue;
+            if (totalFilterCandidates.contains(key)) {
+                addIfNotNull(response.getFilter(), createJoinFieldInfo(REPORT_FILTER, key));
+            }
+        }
+
+
 
         return response;
     }
