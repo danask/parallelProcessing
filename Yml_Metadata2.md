@@ -170,7 +170,13 @@ public class JoinGraphHelper {
             }
         }
 
-
+response.getFilter().removeIf(info ->
+    selectedFilters.stream().anyMatch(selected ->
+        Objects.equals(selected.getCategory(), info.getCategory()) &&
+        Objects.equals(selected.getField(), info.getField()) &&
+        (selected.getMetric() == null || Objects.equals(selected.getMetric(), info.getMetric()))
+    )
+);
 
         return response;
     }
