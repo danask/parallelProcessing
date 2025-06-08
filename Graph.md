@@ -1,3 +1,112 @@
+좋습니다. 지금 구현된 `getJoinRecommendations` 메소드는 **그래프 기반(join graph)** 접근 방식을 따릅니다. 이 방식의 핵심 개념과 구현 방식, 그리고 확장 방법까지 아래에 정리해드릴게요.
+
+---
+
+## 🔍 지금 로직이 "그래프 기반 방식"인 이유
+
+### ✅ 1. **Join 관계를 엣지(edge)로 구성한 Graph**
+
+* 각각의 field(`measure`, `dimension`, `filter`)는 **정점(node)** 이고,
+* `FieldConfig.getJoins()`에서 제공되는 `JoinConfig` 리스트는 **방향성을 가진 엣지(edge)** 입니다.
+* 각 필드들은 `measure ↔ dimension`, `dimension ↔ filter` 등으로 연결되어 있음.
+
+```java
+List<JoinConfig> dimJoins = getJoinTargets(field, REPORT_DIMENSION);
+```
+
+* 이 한 줄이 바로 **노드에서 이웃 노드로 향하는 엣지를 탐색**하는 동작입니다.
+
+---
+
+### ✅ 2. **그래프 탐색의 기본 원리 적용**
+
+* 선택된 필드들을 기준으로 이들과 연결된 필드들을 탐색합니다.
+* measure 선택 시:
+
+  * 연결된 dimension 집합들을 모은 뒤 **교집합(intersection)** 을 취합니다.
+* dimension 선택 시:
+
+  * 연결된 dimension 교집합과 연결된 measure, filter들을 모두 수집합니다.
+
+이것은 `measure -> dimension`, `dimension -> measure`, `dimension -> dimension`, `dimension -> filter` 등 다양한 방향으로 **그래프의 이웃 노드를 따라가는 작업**입니다.
+
+---
+
+### ✅ 3. **양방향 연결 탐색**
+
+* `isMeasureJoinRelated` 메소드는 양방향 연결 여부를 확인하는 로직입니다.
+
+```java
+fromJoins.stream().anyMatch(j -> j.getTarget().equals(toKey)) ||
+toJoins.stream().anyMatch(j -> j.getTarget().equals(fromKey))
+```
+
+이는 단방향 edge 밖에 없더라도 실질적으로 **양방향 edge처럼 탐색 가능**하게 해줍니다.
+
+---
+
+## 🧱 이 구조의 그래프 확장 방법
+
+### 🔧 1. **더 많은 노드 유형 추가 (예: time, location 등)**
+
+* `REPORT_TIME`, `REPORT_LOCATION` 등 추가 그룹을 정의하고,
+* `FieldConfig.getJoins()` 에 해당 그룹들에 대한 설정을 추가하면 확장 가능.
+* `getJoinTargets()` 메소드는 이미 범용적으로 되어 있어 확장 시 그대로 사용 가능.
+
+```java
+private static final String REPORT_TIME = "time";
+```
+
+---
+
+### 🔧 2. **다단계 연결 (multi-hop traversal)**
+
+지금은 바로 1-hop 이웃만 추천하지만, 그래프 기반이므로 BFS/DFS 탐색으로 확장 가능.
+
+예시:
+
+```java
+Set<String> getAllReachableFields(String startKey, String targetGroup, int maxDepth)
+```
+
+이렇게 하면 예를 들어,
+
+* measure → dimension → filter
+* dimension → dimension → filter
+  같은 간접 연결도 탐색 가능.
+
+---
+
+### 🔧 3. **조인 가중치(weighted edge) 기반 추천**
+
+* `JoinConfig` 에 `weight` 또는 `reliability` 같은 점수를 부여하고,
+* 가중치 기반 추천 (예: 우선순위 높은 조인 먼저 노출) 도 가능.
+
+---
+
+### 🔧 4. **사이클 탐지 / 강한 연결 요소 분리**
+
+* 만약 join graph 에서 cycle 이나 cluster 구조가 중요한 경우, Tarjan 알고리즘 등을 도입해 분석 가능.
+
+---
+
+## 📌 결론
+
+| 항목 | 설명                                              |
+| -- | ----------------------------------------------- |
+| 구조 | 노드: 필드 / 엣지: join 관계 (방향성 있음)                   |
+| 탐색 | 1-hop 기준의 연결된 노드들                               |
+| 특징 | measure → dimension → filter 등의 관계를 통해 유효 필드 추천 |
+| 확장 | 그룹 추가, 다단계 탐색, 가중치 적용, 그래프 클러스터링 가능             |
+
+---
+
+원하시면 위의 탐색을 `BFS` 기반으로 바꿔 다단계 필드 연결을 찾아내는 util도 구현해드릴 수 있어요.
+또한, join map 시각화를 위한 JSON(Graphviz, Cytoscape 등 사용 가능) 구조도 필요하면 도와드릴게요.
+
+
+----
+
 좋습니다. 요청하신 대로:
 
 * `JoinGraph`를 기반으로 양방향 join 관계를 구성하고,
