@@ -376,7 +376,86 @@ else:
 
 ---
 
-필요하시면 발표용 슬라이드 구조나 실제 도식 그래픽도 만들어드릴 수 있어요. 원하시나요?
+정확히 보셨습니다. 말씀하신 것이 **올바른 전체 Join 관계 패턴**입니다. 기존에 제가 간략화해서 그린 그래프는 일부 흐름만 보여주는 예시였고, 실제 시스템에서는 다음과 같은 **모든 조합**의 join 관계가 가능합니다:
+
+---
+
+## ✅ 전체 가능한 Join 관계 유형
+
+| From                                        | To | 설명                                      |
+| ------------------------------------------- | -- | --------------------------------------- |
+| **Measure → Measure**                       | ✔️ | 서로 연관된 지표들 (예: `revenue`, `conversion`) |
+| **Measure → Dimension**                     | ✔️ | 지표를 분해 가능한 차원 (예: `country`, `device`)  |
+| **Measure → Filter**                        | ✔️ | 지표에 필터링 가능한 속성 (예: `campaign`)          |
+| **Dimension → Measure**                     | ✔️ | 일부 차원이 특정 지표에 직접 연결될 수 있음               |
+| **Dimension → Dimension**                   | ✔️ | 계층적 차원 관계 (예: `region → country`)       |
+| **Dimension → Filter**                      | ✔️ | 특정 차원 기반으로 필터링 가능한 속성                   |
+| **(Optionally) Filter → Measure/Dimension** | ❓  | 일반적으로 단방향임 (`filter`는 종단 노드)            |
+
+---
+
+## 🎯 실제 예시 그래프 구조
+
+```plaintext
+          measure:m1 ←→ measure:m2
+               │
+               ▼
+          dimension:d1 ←→ dimension:d2
+               │  ▲
+               ▼  │
+           filter:f1   ← dimension:d3
+```
+
+* `←→` 는 양방향 가능성을 의미합니다.
+* `measure:m2` 는 `m1`과 직접 조인됨 (예: 유닛이 동일하고 조인 선언되어 있음).
+* `dimension:d1`, `dimension:d2`는 상호 조인 가능.
+* `dimension:d3 → filter:f1` 같은 구조도 가능.
+
+---
+
+## 🧠 분석용 그래프 모델 요약
+
+모든 필드를 노드(`FieldKey`)로, 조인을 엣지(`JoinConfig`)로 보고 아래와 같이 분류합니다.
+
+```plaintext
+Nodes = {
+  measure:m1, measure:m2,
+  dimension:d1, dimension:d2, dimension:d3,
+  filter:f1
+}
+
+Edges = {
+  m1 ↔ m2 (measure ↔ measure)
+  m1 → d1 (measure → dimension)
+  d1 ↔ d2 (dimension ↔ dimension)
+  d3 → f1 (dimension → filter)
+}
+```
+
+※ 이 때 모든 조인은 **단방향으로만 선언되어 있어도**, 코드에서는 양방향을 체크하는 로직 (`isMeasureJoinRelated`) 등을 통해 **양방향 해석**이 가능합니다.
+
+---
+
+## 📌 결론: 그래프 구조 요약
+
+```plaintext
+MEASURE     →     MEASURE
+      ↘           ↙
+       DIMENSION → DIMENSION
+            ↘
+           FILTER
+```
+
+이 구조를 기준으로 하면:
+
+* **intersection**은 주로 `dimension ↔ dimension`, `measure ↔ dimension` 에서 발생.
+* **union**은 `measure/dimension → filter` 대상에서 사용.
+* `measure ↔ measure` 은 **추가 measure 추천**시 기준.
+
+---
+
+필요하다면 이 구조를 기반으로 \*\*정식 다이어그램(SVG, PNG)\*\*으로 제공드릴 수 있고, 발표 자료로 시각화도 가능합니다. 원하시나요?
+
 
 
 ---
@@ -570,7 +649,86 @@ Set<String> getAllReachableFields(String startKey, String targetGroup, int maxDe
 * `JoinGraph`를 기반으로 양방향 join 관계를 구성하고,
 * `group`(measure/dimension/filter)에 맞게 구분하여 추천하는 로직
 
-을 전체 코드로 재정리해드릴게요.
+정확히 짚으셨습니다 — `measure → filter` 관계는 **JoinGraphHelper** 코드에 분명히 존재하며, 실제 추천 로직에서도 핵심 역할을 합니다. 다만 제가 방금 정리한 그래프 구조에서 빠졌던 건 단순 누락입니다. 지금 바로 명확히 정리해 드리겠습니다.
+
+---
+
+## ✅ 수정된 전체 Join 유형
+
+| From → To                 | 포함 여부           | 예시 설명                               |
+| ------------------------- | --------------- | ----------------------------------- |
+| **Measure → Measure**     | ✔️              | `revenue ↔ conversion`              |
+| **Measure → Dimension**   | ✔️              | `revenue → country`                 |
+| **Measure → Filter**      | ✔️              | `revenue → campaign_type` ✅ 질문하신 부분 |
+| **Dimension → Measure**   | ✔️              | `country → app_install`             |
+| **Dimension → Dimension** | ✔️              | `region ↔ country`                  |
+| **Dimension → Filter**    | ✔️              | `device_type → os_version`          |
+| **Filter → X**            | ❌ (기본적으로 종단 노드) |                                     |
+
+---
+
+## 🔍 관련 코드 근거
+
+### 1. `measure → filter` 조인 처리:
+
+```java
+getJoinTargets(field, REPORT_FILTER).forEach(j -> recommendedFilterKeys.add(j.getTarget()));
+```
+
+* 이건 `selectedMeasures` 를 순회하면서 `REPORT_FILTER` 대상 필터를 추천에 추가하는 부분입니다.
+* 즉, **지표 기준으로 필터 추천**합니다.
+
+### 2. `dimension → filter` 조인 처리:
+
+```java
+getJoinTargets(field, REPORT_FILTER).forEach(j -> recommendedFilterKeys.add(j.getTarget()));
+```
+
+* 이것도 똑같은 방식으로 `selectedDimensions` 대상에서 작동합니다.
+
+---
+
+## 🎯 시각화 업데이트 (수정된 구조)
+
+```plaintext
+          measure:m1 ←→ measure:m2
+               │  ▲
+        (m→f) ↓  │
+          dimension:d1 ←→ dimension:d2
+               │  ▲
+        (d→f) ↓  │
+           filter:f1
+```
+
+---
+
+## 📌 요약
+
+`m → f` 와 `d → f` 는 **Join 기반 필터 추천**의 핵심입니다.
+그래서 `getJoinRecommendations()` 메서드의 후반부에서 filter 후보들을 구성할 때 아래 로직으로 처리하죠:
+
+```java
+Set<String> filterFromJoins = new HashSet<>();
+// From measure
+for (String key : selectedMeasureKeys) {
+    FieldConfig config = getFieldConfig(key);
+    if (config != null)
+        getJoinTargets(config, REPORT_FILTER).forEach(j -> filterFromJoins.add(j.getTarget()));
+}
+// From dimension
+for (String key : selectedDimensionKeys) {
+    FieldConfig config = getFieldConfig(key);
+    if (config != null)
+        getJoinTargets(config, REPORT_FILTER).forEach(j -> filterFromJoins.add(j.getTarget()));
+}
+```
+
+즉, `m → f` 와 `d → f` 둘 다 철저하게 고려되어 있고, 추천 필터 목록 구성 시 `selectedMeasure` + `selectedDimension` 로부터 파생되는 **모든 필터 대상들을 union** 하여 처리합니다.
+
+---
+
+필요하시면 위 구조를 \*\*정식 그래프 도식(PNG, SVG)\*\*으로 그려서 발표 자료용으로 드릴게요. 원하시나요?
+
 
 ---
 
