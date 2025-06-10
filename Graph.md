@@ -1,3 +1,74 @@
+좋은 질문이야! `m → f` 같은 \*\*단방향 관계(measure → filter)\*\*를 **혼합 방향 그래프** 안에 명확히 표현하려면, **간선에 방향성을 표시**하고, **filter는 종착지**라는 걸 시각적으로 구분해줘야 해.
+
+---
+
+## 🔁 방향성 그래프에서 `m → f` 표현 방식
+
+### 🔹 텍스트 그래프 표현 (with direction)
+
+```
+measure:m1 ────▶ filter:f1
+```
+
+### 🔹 전체 구조 안에서의 표현:
+
+```
+                ↕
+        measure:m1 ←→ measure:m2
+             │   ▲
+             ▼   │
+      dimension:d1 ←→ dimension:d2
+             │
+             ▼
+         filter:f1
+```
+
+이때:
+
+* `→` 는 단방향 (`JoinConfig`에서만 존재)
+* `↔` 는 양방향 (`measure`, `dimension` 관계에서 상호 `JoinConfig`가 존재하거나 특별히 허용된 경우)
+
+---
+
+## 🔹 DOT (Graphviz) 포맷 예시
+
+```dot
+digraph G {
+  rankdir=LR;
+
+  // Nodes
+  m1 [label="measure:m1"];
+  m2 [label="measure:m2"];
+  d1 [label="dimension:d1"];
+  d2 [label="dimension:d2"];
+  f1 [label="filter:f1"];
+  f2 [label="filter:f2"];
+
+  // Bidirectional edges
+  m1 -> m2 [dir=both];
+  m1 -> d1 [dir=both];
+  d1 -> d2 [dir=both];
+
+  // One-way edges
+  m1 -> f1;
+  d1 -> f1;
+}
+```
+
+이렇게 하면 시각화 시:
+
+* `m1 → f1`, `d1 → f1`은 단방향 화살표로 나타남
+* `m1 ↔ m2`, `m1 ↔ d1`, `d1 ↔ d2`는 양방향 화살표로 나타남
+
+---
+
+## 📌 결론: `m → f` 표현은
+
+* **단방향 간선**으로 표현 (텍스트든, 그래프 시각화든)
+* `filter`는 항상 **화살표의 도착지점 (sink)** 로 표현
+* 위상적으로 보면 **중앙에 measure/dimension**, 아래쪽에 **filter**가 위치한 형태가 직관적
+
+필요하면 이걸 기반으로 시각화 도식 이미지도 그려줄 수 있어!
 
 
 
