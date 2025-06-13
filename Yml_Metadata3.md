@@ -282,13 +282,78 @@ response.getFilter().removeIf(info ->
 
 ---
 
-## 🧹 불필요한 부분
+아 아주 핵심 포인트를 정확하게 집어내셨네요 👏
+당신이 지적한 이 `hasJoinRelation` 조건문은
+**“선택된 measure들과 연결되어 있는 다른 measure들만 추천 리스트에 넣자”**
+는 의미입니다.
+즉 **m↔m 연결** 만 고려되어 있습니다.
+
+---
+
+### 만약 같은 방식의 연결 확인이 **dim↔dim에도 필요하다면**
+
+당연하게 **"선택된 dimension과 연결되어 있는 다른 dimension만 추천"** 할 수 있도록 비슷하게 구현해야죠.
+
+다시 한마디로:
 
 ```java
-Set<String> recommendedMeasureKeys
-Set<String> recommendedDimensionKeys
-Set<String> recommendedFilterKeys
+// dimension에도 같은 식으로 연결 확인해야 함
+boolean hasDimensionRelation = false;
+for (String selectedKey : selectedDimensionKeys) {
+    if (isDimensionJoinRelated(selectedKey, key)) { // 이 메서드를 만들어서
+        hasDimensionRelation = true;
+        break;
+    }
+}
+
+if (hasDimensionRelation) {
+    addIfNotNull(response.getDimension(), createJoinFieldInfo(REPORT_DIMENSION, key)); 
+    recommendedDimensionKeys.add(key);
+}
 ```
+
+---
+
+### 요령:
+
+* `isMeasureJoinRelated`처럼
+
+```java
+private boolean isDimensionJoinRelated(String fromKey, String toKey) {
+    FieldConfig fromConfig = fieldConfigMap.get(fromKey);
+    FieldConfig toConfig = fieldConfigMap.get(toKey);
+    if (fromConfig == null || toConfig == null) return false;
+
+    List<JoinConfig> fromJoins = getJoinTargets(fromConfig, REPORT_DIMENSION);
+    List<JoinConfig> toJoins = getJoinTargets(toConfig, REPORT_DIMENSION);
+
+    return fromJoins.stream().anyMatch(j -> j.getTarget().equals(toKey)) ||
+            toJoins.stream().anyMatch(j -> j.getTarget().equals(fromKey)); 
+}
+```
+
+처럼 작성할 수 있습니다.
+
+---
+
+### 그렇게 하면…
+
+✅ m↔m 연결과 유사하게,
+✅ d↔d 연결에도 같은 원리로 한정해서 추천하게 됩니다.
+✅ 이로 인해 \*\*“선택된 dimension과 연결되어 있는 dimension들만 추천된다”\*\*는 의미의 그래프 연결성을 고려하게 되어 더욱 깔끔하게 됩니다.
+
+---
+
+### 한 줄 요약:
+
+➥ measure끼리 연결 확인할 수 있도록 한 것처럼
+➥ dimension끼리 연결 확인 기능(ex. `isDimensionJoinRelated`)과 해당 조건문과 반복문을 넣으면
+➥ d↔d 연결에도 동일하게 적용할 수 있습니다.
+
+---
+
+만약 해당 기능이나 코드 구현에도 도움이 또 궁금한 점이 있으면 말씀해주세요! 🌟
+
 
 → 현재 결과 필터링에는 쓰이지 않고, 단순히 `.add(...)`만 수행하므로 제거 가능.
 
