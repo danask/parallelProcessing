@@ -1,3 +1,39 @@
+
+아 아주 핵심 포인트를 정확하게 집어줬어👍
+너가 말한 것처럼:
+
+만약 입력된 selectedMeasures나 selectedDimensions끼리 전혀 연결되어 있지 않다면,
+
+이는 그냥 “조건에 맞지 않는 조합”이라는 의미지.
+
+이거는 "isJoinable" 같은 별도의 함수를 만들어서 확인할 수 있다고 생각해.
+
+🔹아이디어 (isJoinable) private boolean isJoinable(Set<String> selectedMeasureKeys, Set<String> selectedDimensionKeys) { for (String measureKey : selectedMeasureKeys) { FieldConfig measure = fieldConfigMap.get(measureKey); if (measure == null) continue; List<JoinConfig> joins = getJoinTargets(measure, REPORT_DIMENSION); for (JoinConfig j : joins) { if (selectedDimensionKeys.contains(j.getTarget())) { return true; // 하나라도 연결되어 있으면 true } } } return false; } 🔹사용 if (!isJoinable(selectedMeasureKeys, selectedDimensionKeys)) { throw new IllegalArgumentException("조건에 맞지 않는 measure-dimension 조합입니다."); } 🔹확장 (M-M이나 D-D의 연결 확인) 
+
+동일하게
+
+private boolean isMeasurePairJoinable(Set<String> selectedMeasureKeys) { … } private boolean isDimensionPairJoinable(Set<String> selectedDimensionKeys) { … } 
+
+처럼 구현할 수 있어.
+
+🔹추가 고려 (Generalized) 
+
+만약 한 가지 기능으로 풀려고 하면:
+
+private boolean isJoinable(Set<String> fromKeys, Set<String> toKeys, String fromType, String toType) { for (String fromKey : fromKeys) { FieldConfig from = fieldConfigMap.get(fromKey); if (from == null) continue; List<JoinConfig> joins = getJoinTargets(from, toType); for (JoinConfig j : joins) { if (toKeys.contains(j.getTarget())) { return true; } } } return false; } 🔹정리: 
+
+✅ isJoinable 함수를 만들어서 선택된 IDs끼리 연결되어 있는지 확인할 수 있다.
+
+✅ 만약 연결되어 있지 않다면 Exception이나 오류 메시지를 발생시켜서
+사용자가 "조건에 맞지 않는 조합"이라는 것을 인지하게 만들면 된다.
+
+만약 해당 기능과 Exception Handling 까지 포함해서 한꺼번에 리팩토링하거나
+너의 getJoinRecommendations 내부에서 자연스러운 흐름으로 넣고싶다면 또 알려줘! 🌟
+
+
+
+----
+
 좋은 질문이야! `m → f` 같은 \*\*단방향 관계(measure → filter)\*\*를 **혼합 방향 그래프** 안에 명확히 표현하려면, **간선에 방향성을 표시**하고, **filter는 종착지**라는 걸 시각적으로 구분해줘야 해.
 
 ---
