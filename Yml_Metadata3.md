@@ -1,3 +1,104 @@
+좋아, 그럼 네가 요청한 `isMeasurePairJoinable`, `isDimensionPairJoinable` 및 일반화된 `isJoinable(...)` 함수까지 포함해서 아래와 같이 정리해줄게.
+
+---
+
+## ✅ 1. `isJoinable(...)` (범용)
+
+```java
+private boolean isJoinable(Set<String> fromKeys, Set<String> toKeys, String toGroup) {
+    for (String fromKey : fromKeys) {
+        FieldConfig from = fieldConfigMap.get(fromKey);
+        if (from == null) continue;
+
+        List<JoinConfig> joins = getJoinTargets(from, toGroup);
+        for (JoinConfig join : joins) {
+            if (toKeys.contains(join.getTarget())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+---
+
+## ✅ 2. `isMeasurePairJoinable(...)`
+
+```java
+private boolean isMeasurePairJoinable(Set<String> selectedMeasureKeys) {
+    for (String m1 : selectedMeasureKeys) {
+        for (String m2 : selectedMeasureKeys) {
+            if (m1.equals(m2)) continue;
+            if (isJoinable(Set.of(m1), Set.of(m2), REPORT_MEASURE)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+---
+
+## ✅ 3. `isDimensionPairJoinable(...)`
+
+```java
+private boolean isDimensionPairJoinable(Set<String> selectedDimensionKeys) {
+    for (String d1 : selectedDimensionKeys) {
+        for (String d2 : selectedDimensionKeys) {
+            if (d1.equals(d2)) continue;
+            if (isJoinable(Set.of(d1), Set.of(d2), REPORT_DIMENSION)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+---
+
+## ✅ 4. 사용 예시 (조합 유효성 체크)
+
+```java
+if (!isJoinable(selectedMeasureKeys, selectedDimensionKeys, REPORT_DIMENSION)) {
+    throw new IllegalArgumentException("선택된 measure과 dimension 간 조인이 성립하지 않습니다.");
+}
+
+if (!isMeasurePairJoinable(selectedMeasureKeys)) {
+    throw new IllegalArgumentException("선택된 measure들 간 조인이 성립하지 않습니다.");
+}
+
+if (!isDimensionPairJoinable(selectedDimensionKeys)) {
+    throw new IllegalArgumentException("선택된 dimension들 간 조인이 성립하지 않습니다.");
+}
+```
+
+---
+
+## 🔧 함께 쓰면 좋은 위치
+
+이 로직들은 `getJoinRecommendations(...)` 메소드의 **초반부** (선택값을 key로 바꾸고 나서) 넣는 게 좋아요:
+
+```java
+Set<String> selectedMeasureKeys = selectedMeasures.stream()
+    .map(k -> toFullKey(REPORT_MEASURE, k))
+    .collect(Collectors.toSet());
+// ...
+// 조인 가능성 체크
+if (!isJoinable(selectedMeasureKeys, selectedDimensionKeys, REPORT_DIMENSION)) {
+    throw new IllegalArgumentException("선택된 measure과 dimension 간 조인이 성립하지 않습니다.");
+}
+```
+
+---
+
+필요하면 여기서 더 확장해서 `M-F`, `D-F` 체크도 추가해줄 수 있어.
+혹시 그 부분도 원해?
+
+
+----
 아 아주 핵심 포인트를 정확하게 집어줬어👍
 너가 말한 것처럼:
 
