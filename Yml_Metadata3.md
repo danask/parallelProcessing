@@ -1,3 +1,98 @@
+
+좋아, 그럼 `isMeasurePairJoinable` / `isDimensionPairJoinable`을 **쌍방 확인 포함** 형태로 안전하게 다시 만들어줄게.
+이제는 **measure 간** 혹은 **dimension 간**에
+
+* `m1 → m2` 또는 `m2 → m1`
+* `d1 → d2` 또는 `d2 → d1`
+  둘 중 하나라도 있으면 **joinable**하다고 판단해.
+
+---
+
+## ✅ `isMeasurePairJoinable` (쌍방 체크)
+
+```java
+private boolean isMeasurePairJoinable(Set<String> selectedMeasureKeys) {
+    List<String> keys = new ArrayList<>(selectedMeasureKeys);
+    int size = keys.size();
+    
+    for (int i = 0; i < size; i++) {
+        String m1 = keys.get(i);
+        for (int j = i + 1; j < size; j++) {
+            String m2 = keys.get(j);
+
+            if (isJoinable(Set.of(m1), Set.of(m2), REPORT_MEASURE) ||
+                isJoinable(Set.of(m2), Set.of(m1), REPORT_MEASURE)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+---
+
+## ✅ `isDimensionPairJoinable` (쌍방 체크)
+
+```java
+private boolean isDimensionPairJoinable(Set<String> selectedDimensionKeys) {
+    List<String> keys = new ArrayList<>(selectedDimensionKeys);
+    int size = keys.size();
+
+    for (int i = 0; i < size; i++) {
+        String d1 = keys.get(i);
+        for (int j = i + 1; j < size; j++) {
+            String d2 = keys.get(j);
+
+            if (isJoinable(Set.of(d1), Set.of(d2), REPORT_DIMENSION) ||
+                isJoinable(Set.of(d2), Set.of(d1), REPORT_DIMENSION)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+---
+
+## 🔄 내부적으로 사용되는 `isJoinable` 재확인:
+
+```java
+private boolean isJoinable(Set<String> fromKeys, Set<String> toKeys, String toGroup) {
+    for (String fromKey : fromKeys) {
+        FieldConfig from = fieldConfigMap.get(fromKey);
+        if (from == null) continue;
+
+        List<JoinConfig> joins = getJoinTargets(from, toGroup);
+        for (JoinConfig join : joins) {
+            if (toKeys.contains(join.getTarget())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
+
+---
+
+### ✅ 이제 다음을 보장함:
+
+| 조합             | 정의 방향 | 판단 가능 여부   |
+| -------------- | ----- | ---------- |
+| `m1 → m2`만 정의됨 | 한 방향  | ✅ 가능       |
+| `d2 → d1`만 정의됨 | 한 방향  | ✅ 가능       |
+| `m1 ↔ m2` 정의됨  | 양방향   | ✅ 가능       |
+| 아무 조인 없음       | 없음    | ❌ false 반환 |
+
+---
+
+필요하면 이 로직을 `getJoinRecommendations` 앞단에 넣어주는 흐름까지 정리해줄 수 있어. 원해?
+
+
+----
+
 좋아, 그럼 네가 요청한 `isMeasurePairJoinable`, `isDimensionPairJoinable` 및 일반화된 `isJoinable(...)` 함수까지 포함해서 아래와 같이 정리해줄게.
 
 ---
