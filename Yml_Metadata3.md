@@ -1,4 +1,242 @@
 
+좋아, 그럼 지금까지 나눈 모든 유효성 검사를 하나로 모아서 `validateSelectedFields(...)` 함수로 통합해줄게.
+이 함수는 `getJoinRecommendations(...)` 전에 호출되도록 하면 돼.
+
+---
+
+## ✅ 전체 유효성 체크 메소드: `validateSelectedFields(...)`
+
+```java
+private void validateSelectedFields(Set<String> selectedMeasureKeys,
+                                     Set<String> selectedDimensionKeys,
+                                     Set<String> selectedFilterKeys) {
+
+    // --- 1. Measure 간 조인 가능성 ---
+    if (selectedMeasureKeys.size() > 1 && !isMeasurePairJoinable(selectedMeasureKeys)) {
+        throw new IllegalArgumentException("선택된 measure들 간 조인이 성립하지 않습니다.");
+    }
+
+    // --- 2. Dimension 간 조인 가능성 ---
+    if (selectedDimensionKeys.size() > 1 && !isDimensionPairJoinable(selectedDimensionKeys)) {
+        throw new IllegalArgumentException("선택된 dimension들 간 조인이 성립하지 않습니다.");
+    }
+
+    // --- 3. Measure ↔ Dimension 간 연결성 ---
+    if (!selectedMeasureKeys.isEmpty() && !selectedDimensionKeys.isEmpty()) {
+        if (!isMeasureDimensionJoinable(selectedMeasureKeys, selectedDimensionKeys)) {
+            throw new IllegalArgumentException("선택된 measure과 dimension 간 조인이 성립하지 않습니다.");
+        }
+    }
+
+    // --- 4. Measure가 하나인데 연결 가능한 대상이 없는 경우 ---
+    if (selectedMeasureKeys.size() == 1) {
+        String m = selectedMeasureKeys.iterator().next();
+        if (!isMeasureConnected(m)) {
+            throw new IllegalArgumentException("해당 measure는 연결 가능한 dimension/filter가 없습니다.");
+        }
+    }
+
+    // --- 5. Dimension이 하나인데 연결 가능한 대상이 없는 경우 ---
+    if (selectedDimensionKeys.size() == 1) {
+        String d = selectedDimensionKeys.iterator().next();
+        if (!isDimensionConnected(d)) {
+            throw new IllegalArgumentException("해당 dimension은 연결 가능한 measure/filter가 없습니다.");
+        }
+    }
+
+    // --- (선택) Filter는 독립적이기 때문에 유효성 검사 생략 가능 ---
+}
+```
+
+---
+
+## ✅ 보조 함수들 요약
+
+이미 만들어뒀지만 한 번 더 정리해 줄게:
+
+### `isMeasurePairJoinable(...)`
+
+```java
+private boolean isMeasurePairJoinable(Set<String> selectedMeasureKeys) {
+    if (selectedMeasureKeys.size() <= 1) return true;
+
+    List<String> keys = new ArrayList<>(selectedMeasureKeys);
+    for (int i = 0; i < keys.size(); i++) {
+        for (int j = i + 1; j < keys.size(); j++) {
+            String m1 = keys.get(i), m2 = keys.get(j);
+            if (isJoinable(Set.of(m1), Set.of(m2), REPORT_MEASURE) ||
+                isJoinable(Set.of(m2), Set.of(m1), REPORT_MEASURE)) return true;
+        }
+    }
+    return false;
+}
+```
+
+### `isDimensionPairJoinable(...)`
+
+(동일 구조)
+
+### `isMeasureDimensionJoinable(...)`
+
+```java
+private boolean isMeasureDimensionJoinable(Set<String> selectedMeasureKeys, Set<String> selectedDimensionKeys) {
+    if (selectedMeasureKeys.isEmpty() || selectedDimensionKeys.isEmpty()) return true;
+
+    return isJoinable(selectedMeasureKeys, selectedDimensionKeys, REPORT_DIMENSION) ||
+           isJoinable(selectedDimensionKeys, selectedMeasureKeys, REPORT_MEASURE);
+}
+```
+
+### `isMeasureConnected(...)`
+
+```java
+private boolean isMeasureConnected(String measureKey) {
+    FieldConfig field = fieldConfigMap.get(measureKey);
+    if (field == null) return false;
+
+    return !getJoinTargets(field, REPORT_DIMENSION).isEmpty()
+        || !getJoinTargets(field, REPORT_FILTER).isEmpty()
+        || !getJoinTargets(field, REPORT_MEASURE).isEmpty();
+}
+```
+
+### `isDimensionConnected(...)`
+
+```java
+private boolean isDimensionConnected(String dimensionKey) {
+    FieldConfig field = fieldConfigMap.get(dimensionKey);
+    if (field == null) return false;
+
+    return !getJoinTargets(field, REPORT_MEASURE).isEmpty()
+        || !getJoinTargets(field, REPORT_FILTER).isEmpty()
+        || !getJoinTargets(field, REPORT_DIMENSION).isEmpty();
+}
+```
+
+---
+
+## ✅ 사용 위치
+
+`getJoinRecommendations(...)` 안에서 키 추출 직후 다음과 같이 호출하면 돼요:
+
+```java
+Set<String> selectedMeasureKeys = selectedMeasures.stream()
+    .map(k -> toFullKey(REPORT_MEASURE, k)).collect(Collectors.toSet());
+Set<String> selectedDimensionKeys = selectedDimensions.stream()
+    .map(k -> toFullKey(REPORT_DIMENSION, k)).collect(Collectors.toSet());
+Set<String> selectedFilterKeys = selectedFilters.stream()
+    .map(k -> toFullKey(REPORT_FILTER, k)).collect(Collectors.toSet());
+
+validateSelectedFields(selectedMeasureKeys, selectedDimensionKeys, selectedFilterKeys);
+```
+
+---
+
+필요하면 로그나 사용자 친화 메시지로 더 개선해줄 수도 있어요.
+또는 `Set<CategoryFieldKey>` 기반으로 바로 받아들이게 수정도 가능해요. 필요할까?
+
+---
+
+맞아, 아주 좋은 포인트야 — 이건 실제 시스템에서 **굉장히 중요한 예외적 케이스**이기도 해.
+예를 들어:
+
+> “이 measure(m1)은 독립적으로 사용되어야 하고, 다른 measure들과는 절대 join이 안 된다.”
+
+또는
+
+> “이 measure는 특정 dimension(d1)과만 join 가능하다.”
+
+이런 제약이 있을 수 있어.
+
+---
+
+## 🔎 문제 정의
+
+지금 로직은:
+
+* **measure가 1개만 선택되었을 때는 `isMeasurePairJoinable`이 무조건 `true`를 반환**해.
+* 하지만 실상은 그 1개가 “join 가능한 dimension이 전혀 없는 measure”일 수도 있음.
+
+→ 결과적으로 **선택 자체는 valid로 통과되지만, 실제 추천은 아무것도 되지 않음.**
+
+---
+
+## ✅ 해결책
+
+measure가 하나만 선택된 경우라도,
+**그 measure가 최소한 하나의 dimension 또는 filter와 연결되어 있어야 유효**하다고 판단해야 해.
+
+---
+
+## 🔧 보완된 로직
+
+### ① measure 1개일 때 dimension/filter와 연결 가능한지 확인
+
+```java
+private boolean isMeasureConnected(String measureKey) {
+    FieldConfig field = fieldConfigMap.get(measureKey);
+    if (field == null) return false;
+
+    return !getJoinTargets(field, REPORT_DIMENSION).isEmpty()
+        || !getJoinTargets(field, REPORT_FILTER).isEmpty()
+        || !getJoinTargets(field, REPORT_MEASURE).isEmpty();
+}
+```
+
+---
+
+### ② dimension 1개일 때도 유사하게
+
+```java
+private boolean isDimensionConnected(String dimensionKey) {
+    FieldConfig field = fieldConfigMap.get(dimensionKey);
+    if (field == null) return false;
+
+    return !getJoinTargets(field, REPORT_MEASURE).isEmpty()
+        || !getJoinTargets(field, REPORT_DIMENSION).isEmpty()
+        || !getJoinTargets(field, REPORT_FILTER).isEmpty();
+}
+```
+
+---
+
+## 🧠 `getJoinRecommendations` 앞단에서 사용 예시
+
+```java
+if (selectedMeasureKeys.size() == 1) {
+    String m = selectedMeasureKeys.iterator().next();
+    if (!isMeasureConnected(m)) {
+        throw new IllegalArgumentException("해당 measure는 연결 가능한 dimension/filter가 없습니다.");
+    }
+}
+
+if (selectedDimensionKeys.size() == 1) {
+    String d = selectedDimensionKeys.iterator().next();
+    if (!isDimensionConnected(d)) {
+        throw new IllegalArgumentException("해당 dimension은 연결 가능한 measure/filter가 없습니다.");
+    }
+}
+```
+
+---
+
+## ✅ 이렇게 하면 완벽히 보장됨:
+
+| 선택 조합                      | 처리                                |
+| -------------------------- | --------------------------------- |
+| M 하나, D 하나 → 연결됨           | OK                                |
+| M 하나, D 하나 → 연결 안됨         | ❌ 오류                              |
+| M 하나, D 없음 → M이 연결돼 있으면 OK | ✅                                 |
+| M 하나, D 없음 → M이 고립돼 있으면    | ❌ 오류                              |
+| M 둘 → 서로 연결 안 됨            | ❌ 오류 (`isMeasurePairJoinable` 체크) |
+
+---
+
+필요하다면 이걸 하나의 `validateSelectedFields(...)` 유틸로 만들어줄 수도 있어!
+통합할까?
+
+---
+
 좋아, 그럼 `isMeasurePairJoinable` / `isDimensionPairJoinable`을 **쌍방 확인 포함** 형태로 안전하게 다시 만들어줄게.
 이제는 **measure 간** 혹은 **dimension 간**에
 
