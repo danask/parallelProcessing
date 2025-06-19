@@ -12,9 +12,10 @@
 
 ```java
 private boolean isMeasurePairJoinable(Set<String> selectedMeasureKeys) {
+    if (selectedMeasureKeys.size() <= 1) return true;
     List<String> keys = new ArrayList<>(selectedMeasureKeys);
     int size = keys.size();
-    
+
     for (int i = 0; i < size; i++) {
         String m1 = keys.get(i);
         for (int j = i + 1; j < size; j++) {
@@ -36,6 +37,7 @@ private boolean isMeasurePairJoinable(Set<String> selectedMeasureKeys) {
 
 ```java
 private boolean isDimensionPairJoinable(Set<String> selectedDimensionKeys) {
+    if (selectedDimensionKeys.size() <= 1) return true;
     List<String> keys = new ArrayList<>(selectedDimensionKeys);
     int size = keys.size();
 
@@ -52,6 +54,17 @@ private boolean isDimensionPairJoinable(Set<String> selectedDimensionKeys) {
     }
     return false;
 }
+
+
+
+private boolean isMeasureDimensionJoinable(Set<String> selectedMeasureKeys, Set<String> selectedDimensionKeys) {
+    if (selectedMeasureKeys.isEmpty() || selectedDimensionKeys.isEmpty()) return true;
+
+    // M → D or D → M 둘 다 가능해야 하므로 양방 체크
+    return isJoinable(selectedMeasureKeys, selectedDimensionKeys, REPORT_DIMENSION) ||
+           isJoinable(selectedDimensionKeys, selectedMeasureKeys, REPORT_MEASURE);
+}
+
 ```
 
 ---
