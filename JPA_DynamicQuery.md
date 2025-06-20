@@ -1,4 +1,59 @@
 
+
+`List<Tuple>`을 `List<Map<String, Object>>` 형태로 변환하려면, 각 `Tuple` 객체의 필드 이름(alias)과 값들을 추출해서 `Map<String, Object>`로 변환하면 됩니다.
+
+### ✅ 예제 코드:
+
+```java
+public List<Map<String, Object>> convertTupleListToMapList(List<Tuple> tuples) {
+    return tuples.stream()
+            .map(tuple -> {
+                Map<String, Object> map = new LinkedHashMap<>();
+                for (TupleElement<?> element : tuple.getElements()) {
+                    String alias = element.getAlias();
+                    Object value = tuple.get(alias);
+                    map.put(alias, value);
+                }
+                return map;
+            })
+            .collect(Collectors.toList());
+}
+```
+
+---
+
+### ✅ 주의사항:
+
+* `TupleElement.getAlias()`는 JPQL에서 `select ... as aliasName`처럼 alias를 명시했을 경우에만 값이 유효합니다.
+* alias가 없는 경우 `getAlias()`는 `null`을 반환할 수 있으므로, 필요 시 인덱스로 fallback도 가능합니다:
+
+```java
+String alias = element.getAlias();
+if (alias == null) {
+    alias = "col" + index; // 예: col0, col1 ...
+}
+```
+
+---
+
+### ✅ 사용 예:
+
+```java
+List<Tuple> tuples = typedQuery.getResultList();
+List<Map<String, Object>> result = convertTupleListToMapList(tuples);
+```
+
+---
+
+필요하시면:
+
+* `alias`가 없는 경우의 대응 방법
+* 특정 필드만 뽑는 필터링 map 변환
+* JSON 직렬화 용도에 맞춘 변환
+  도 도와드릴 수 있어요.
+
+
+----
 아하, 설명해주신 구조를 정리하면 다음과 같습니다:
 
 ---
