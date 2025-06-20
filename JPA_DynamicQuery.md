@@ -1,4 +1,64 @@
 
+좋아요! 그러면 아래처럼 `List<Tuple>`을 `List<Map<String, Object>>`로 바꾸는 **헬퍼 메서드**를 제공할게요. alias가 없는 경우에도 안전하게 처리됩니다.
+
+---
+
+### ✅ 헬퍼 메서드
+
+```java
+public static List<Map<String, Object>> convertTuplesToMapList(List<Tuple> tuples) {
+    List<Map<String, Object>> result = new ArrayList<>();
+
+    for (Tuple tuple : tuples) {
+        Map<String, Object> rowMap = new LinkedHashMap<>();
+        List<TupleElement<?>> elements = tuple.getElements();
+
+        for (int i = 0; i < elements.size(); i++) {
+            TupleElement<?> element = elements.get(i);
+            String alias = element.getAlias();
+
+            // alias가 없을 경우 fallback 이름 부여
+            if (alias == null || alias.isBlank()) {
+                alias = "col" + i;
+            }
+
+            rowMap.put(alias, tuple.get(element));
+        }
+
+        result.add(rowMap);
+    }
+
+    return result;
+}
+```
+
+---
+
+### 🔍 사용 예시
+
+```java
+List<Tuple> results = typedQuery.getResultList();
+List<Map<String, Object>> mappedResults = convertTuplesToMapList(results);
+```
+
+---
+
+### ✅ alias 지정도 함께 중요
+
+JPA CriteriaQuery 작성 시 다음처럼 `.alias()` 지정 필수:
+
+```java
+criteriaQuery.multiselect(
+    cb.countDistinct(itemRoot.get("deviceId")).alias("device_count"),
+    itemRoot.get("customerId").alias("customer_id")
+);
+```
+
+---
+
+필요하다면 `Map<String, String>`으로 key만 추출하거나, 특정 필드만 포함하는 버전도 도와드릴 수 있어요.
+
+---
 
 `List<Tuple>`을 `List<Map<String, Object>>` 형태로 변환하려면, 각 `Tuple` 객체의 필드 이름(alias)과 값들을 추출해서 `Map<String, Object>`로 변환하면 됩니다.
 
