@@ -1,3 +1,150 @@
+
+좋은 질문입니다. "보고서를 생성(Create), 수정(Update), 복제(Clone)"하는 시스템에서 MongoDB를 사용한다면, 다음과 같은 **RESTful API 디자인 패턴**을 따르면서도 **MongoDB의 특성과 클라이언트 UX 흐름**을 고려해 구성하는 것이 좋습니다.
+
+---
+
+## ✅ 전제 가정
+
+* 데이터 저장소는 MongoDB (ObjectId 기반 `_id`)
+* 클라이언트는 `report`라는 도메인 리소스를 다룸
+* 복제는 기존 보고서를 기반으로 새 보고서를 만드는 동작
+* 보고서에는 JSON 구조의 필드들이 포함될 수 있음 (구성, 필터, 시각화 등)
+
+---
+
+## ✅ API 설계 (RESTful 스타일)
+
+| 작업  | HTTP Method   | URL 예시                    | 설명               |
+| --- | ------------- | ------------------------- | ---------------- |
+| 생성  | `POST`        | `/api/reports`            | 새 보고서 생성         |
+| 조회  | `GET`         | `/api/reports/{id}`       | 보고서 상세 조회        |
+| 수정  | `PUT`/`PATCH` | `/api/reports/{id}`       | 보고서 내용 수정        |
+| 복제  | `POST`        | `/api/reports/{id}/clone` | 기존 보고서를 복제       |
+| 리스트 | `GET`         | `/api/reports`            | 필터/페이지 포함 리스트 조회 |
+
+---
+
+## ✅ 예제 시나리오
+
+### 1. 보고서 생성
+
+```http
+POST /api/reports
+Content-Type: application/json
+
+{
+  "title": "My Report",
+  "filters": { "country": "CA" },
+  "widgets": [...]
+}
+```
+
+응답:
+
+```json
+{
+  "id": "664f3029a9b3f0d8bc12e789"
+}
+```
+
+---
+
+### 2. 보고서 수정
+
+```http
+PUT /api/reports/664f3029a9b3f0d8bc12e789
+Content-Type: application/json
+
+{
+  "title": "My Updated Report",
+  "filters": { "country": "US" }
+}
+```
+
+또는 `PATCH`를 사용해서 일부만 변경 가능.
+
+---
+
+### 3. 보고서 복제
+
+```http
+POST /api/reports/664f3029a9b3f0d8bc12e789/clone
+```
+
+응답:
+
+```json
+{
+  "id": "664f34cfb1b9e1f3a3a9e021",
+  "message": "Report cloned successfully"
+}
+```
+
+> 이때 서버에서는 기존 보고서를 읽고, `_id`를 제외한 필드를 복사한 후 `title`에 `(복제)` 또는 `-copy` 등을 자동으로 붙여줄 수 있습니다.
+
+---
+
+## ✅ MongoDB 측 처리 로직 요약
+
+* **Create**: `reportRepository.insert(report)`
+* **Update**: `reportRepository.save(updatedReport)` 또는 `$set` 기반 `updateOne`
+* **Clone**:
+
+  ```java
+  Report original = reportRepository.findById(id).orElseThrow();
+  original.setId(null); // 새 ObjectId 생성
+  original.setTitle(original.getTitle() + " (복제)");
+  reportRepository.insert(original);
+  ```
+
+---
+
+## ✅ 응답 규격 (추천)
+
+가능하면 `ResponseEntity<CommonResponse<T>>` 형태로 통일하는 것도 좋습니다:
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "664f34cfb1b9e1f3a3a9e021"
+  },
+  "message": "Report cloned successfully"
+}
+```
+
+---
+
+## ✅ 확장 고려
+
+| 항목    | 설계 포인트                                           |
+| ----- | ------------------------------------------------ |
+| 버전 관리 | `/api/reports/{id}/versions` 또는 `version` 필드로 관리 |
+| 임시 저장 | `status = "DRAFT"` 상태로 저장                        |
+| 공유 링크 | `shareId` 발급해서 `/public/report/{shareId}` 제공     |
+| 접근 권한 | `createdBy`, `sharedWith` 등의 필드와 인증 필터 사용        |
+
+---
+
+## ✅ 요약 API 구조
+
+```
+POST   /api/reports               → 새 보고서 생성
+GET    /api/reports/{id}          → 보고서 조회
+PUT    /api/reports/{id}          → 전체 수정
+PATCH  /api/reports/{id}          → 부분 수정
+POST   /api/reports/{id}/clone    → 복제
+GET    /api/reports               → 리스트 조회 (검색, 필터 포함)
+```
+
+---
+
+필요하시면 MongoDB `ObjectId` 기준 생성 시점 필터링, createdBy 기반 사용자별 조회, 공유 링크 처리 등도 예제로 보여드릴게요!
+원하는 필드 구조나 실제 보고서 예시 JSON이 있다면 더 맞춤 설계도 도와드릴 수 있습니다.
+
+
+-----
+
 좋은 포인트입니다! `WebClient`에서 API를 헬스체크할 때 HTTP **401 (Unauthorized)** 와 같은 클라이언트 오류는 **정상적으로 API가 응답한 것**으로 간주하고, 반면 **500 (Internal Server Error)** 와 같은 서버 오류는 **실제로 문제가 있는 상태**로 판단하고 싶으신 거죠.
 
 이를 위해서는 `WebClient`의 `onStatus()` 조건에 따라 오류 처리 기준을 커스터마이징하면 됩니다.
