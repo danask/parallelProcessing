@@ -1,4 +1,129 @@
 
+물론입니다! 아래는 Spring Boot + MongoDB 기반 REST API에서 `{id}` 경로변수를 사용하는 **기본 컨트롤러 예제**입니다.
+
+MongoDB의 `_id`는 기본적으로 `String`으로 처리 가능합니다 (`ObjectId`도 가능하지만 대부분의 경우 문자열로 주고받습니다).
+
+---
+
+## ✅ 1. `Report` 도메인 클래스 예시
+
+```java
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+
+@Document(collection = "reports")
+public class Report {
+
+    @Id
+    private String id;
+
+    private String title;
+    private String createdBy;
+    // 기타 필드 생략
+
+    // 생성자, getter/setter
+}
+```
+
+---
+
+## ✅ 2. `ReportRepository` (Spring Data MongoDB)
+
+```java
+import org.springframework.data.mongodb.repository.MongoRepository;
+
+public interface ReportRepository extends MongoRepository<Report, String> {
+}
+```
+
+---
+
+## ✅ 3. `ReportController` - `{id}` 경로 변수 사용하는 API 예시
+
+```java
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/reports")
+public class ReportController {
+
+    private final ReportRepository reportRepository;
+
+    public ReportController(ReportRepository reportRepository) {
+        this.reportRepository = reportRepository;
+    }
+
+    // ✅ GET /api/reports/{id}
+    @GetMapping("/{id}")
+    public ResponseEntity<?> getReportById(@PathVariable String id) {
+        Optional<Report> report = reportRepository.findById(id);
+        return report.map(ResponseEntity::ok)
+                     .orElse(ResponseEntity.notFound().build());
+    }
+
+    // ✅ PUT /api/reports/{id}
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateReport(@PathVariable String id, @RequestBody Report updatedReport) {
+        return reportRepository.findById(id)
+                .map(existing -> {
+                    updatedReport.setId(existing.getId()); // ID 보존
+                    reportRepository.save(updatedReport);
+                    return ResponseEntity.ok("Updated");
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    // ✅ POST /api/reports/{id}/clone
+    @PostMapping("/{id}/clone")
+    public ResponseEntity<?> cloneReport(@PathVariable String id) {
+        return reportRepository.findById(id)
+                .map(original -> {
+                    Report clone = new Report();
+                    clone.setTitle(original.getTitle() + " (복제)");
+                    clone.setCreatedBy(original.getCreatedBy());
+                    // 기타 필드 복사
+                    Report saved = reportRepository.insert(clone);
+                    return ResponseEntity.ok(saved);
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+}
+```
+
+---
+
+## ✅ 테스트 예
+
+### 📌 GET 보고서 조회
+
+```bash
+curl http://localhost:8080/api/reports/664fabcde90123...
+```
+
+### 📌 PUT 보고서 수정
+
+```bash
+curl -X PUT http://localhost:8080/api/reports/664fabcde90123... \
+     -H "Content-Type: application/json" \
+     -d '{"title":"새 보고서", "createdBy":"daniel"}'
+```
+
+### 📌 POST 복제
+
+```bash
+curl -X POST http://localhost:8080/api/reports/664fabcde90123.../clone
+```
+
+---
+
+필요하시면 `@Valid` 검증, `DTO` 분리, 응답 포맷 통일(`CommonResponse`) 등도 함께 리팩토링해드릴게요!
+
+
+----
+
 좋은 질문입니다. "보고서를 생성(Create), 수정(Update), 복제(Clone)"하는 시스템에서 MongoDB를 사용한다면, 다음과 같은 **RESTful API 디자인 패턴**을 따르면서도 **MongoDB의 특성과 클라이언트 UX 흐름**을 고려해 구성하는 것이 좋습니다.
 
 ---
