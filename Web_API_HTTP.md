@@ -14,7 +14,7 @@ Spring Boot에서 **Controller에 들어오기 전에 입력값을 필터링**�
 @Component
 public class SqlInjectionFilter implements Filter {
 
-    private static final Pattern DANGEROUS_PATTERN = Pattern.compile("(['\"`;]|--|\\|\\|)");
+    private static final Pattern DANGEROUS_PATTERN = Pattern.compile("('|--|;|/\\*|\\*/|\\bOR\\b|\\bAND\\b|\\bSELECT\\b|\\bDROP\\b)", Pattern.CASE_INSENSITIVE);
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
