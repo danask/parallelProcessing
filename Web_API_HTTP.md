@@ -1,3 +1,124 @@
+
+아주 좋은 질문입니다.
+Spring Boot에서 **Controller에 들어오기 전에 입력값을 필터링**하고 싶다면 다음과 같은 방법을 사용할 수 있습니다:
+
+---
+
+## ✅ 방법 1: **`Filter` 구현 (Servlet Filter)**
+
+→ HTTP 요청을 가로채어 파라미터 검사 & 조기 차단할 수 있습니다.
+
+### ✳️ 사용 예시
+
+```java
+@Component
+public class SqlInjectionFilter implements Filter {
+
+    private static final Pattern DANGEROUS_PATTERN = Pattern.compile("(['\";]|--|\\|\\|)");
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+
+        HttpServletRequest httpReq = (HttpServletRequest) request;
+        Map<String, String[]> params = httpReq.getParameterMap();
+
+        for (Map.Entry<String, String[]> entry : params.entrySet()) {
+            for (String value : entry.getValue()) {
+                if (value != null && DANGEROUS_PATTERN.matcher(value).find()) {
+                    HttpServletResponse httpResp = (HttpServletResponse) response;
+                    httpResp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    httpResp.setContentType("application/json");
+                    httpResp.getWriter().write("{\"error\": \"Invalid input: potential SQL injection detected.\"}");
+                    return; // 요청 차단
+                }
+            }
+        }
+
+        chain.doFilter(request, response); // 정상 진행
+    }
+}
+```
+
+### ✅ 결과
+
+* 모든 요청 파라미터를 검사하고, 위험한 값이 있으면 400 에러로 즉시 종료.
+* Postman이나 웹에서 Controller까지 가지 않고 필터 레벨에서 차단됩니다.
+
+---
+
+## ✅ 방법 2: **`HandlerInterceptor` 사용**
+
+→ Spring MVC에서 Controller 진입 직전에 로직을 추가하는 방식.
+*단점: 이미 Spring parameter 바인딩까지 진행됨.*
+
+```java
+@Component
+public class SqlInjectionInterceptor implements HandlerInterceptor {
+
+    private static final Pattern DANGEROUS_PATTERN = Pattern.compile("(['\";]|--|\\|\\|)");
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
+            throws Exception {
+
+        Map<String, String[]> params = request.getParameterMap();
+        for (Map.Entry<String, String[]> entry : params.entrySet()) {
+            for (String value : entry.getValue()) {
+                if (value != null && DANGEROUS_PATTERN.matcher(value).find()) {
+                    response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\": \"Bad input detected.\"}");
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+}
+```
+
+그리고 config 클래스에서 등록해야 합니다:
+
+```java
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Autowired
+    SqlInjectionInterceptor interceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(interceptor);
+    }
+}
+```
+
+---
+
+## ✅ 무엇을 선택할까?
+
+| 방법                   | 위치                    | 장점               | 단점                       |
+| -------------------- | --------------------- | ---------------- | ------------------------ |
+| `Filter`             | **서블릿 레벨 (가장 먼저 동작)** | 빠르고 확실하게 막을 수 있음 | 로직이 다소 low-level         |
+| `HandlerInterceptor` | Spring MVC 직전         | Spring 친화적 구조    | 이미 Spring Binding이 일부 끝남 |
+| DTO에서 `@Pattern`     | Controller 바인딩 시      | 간단하게 적용 가능       | 유연성이 부족하고 사용자에겐 불친절      |
+| Controller 내부 검사     | Custom 처리 가능          | 가장 유연            | 실수로 누락될 수 있음             |
+
+---
+
+## 🔚 결론
+
+> **Controller 이전에 미리 막고 싶다면 → `Filter` 방식이 가장 확실**합니다.
+
+* 서블릿 필터는 가장 먼저 실행되므로 입력 파라미터 전체를 검사하고 조기 종료 가능합니다.
+* 나중에 더 고급 필터 (IP 제한, Rate limit, Bot 탐지 등) 추가할 때도 재사용하기 좋습니다.
+
+필요하시면 필터를 검색어만 검사하게 좁히거나, JSON Body까지 파싱하는 고급 필터도 만들어드릴 수 있어요.
+
+
+--------
+
 좋은 질문이에요. 말씀하신 입력값 예시 (`') OR ('1'='1`, `' OR 1=1 --`, `' OR 'a'='a`)는 **SQL Injection을 시도할 수 있는 전형적인 문자열**입니다. 이런 걸 필터링하고 싶어서 `@Pattern`을 쓰셨는데, 그 경우 **Spring MVC가 Controller에 진입하기 전에** 예외를 던지기 때문에 Postman에서 **400 Bad Request**가 바로 뜹니다.
 
 즉, 이런 경우에는:
