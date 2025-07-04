@@ -1,3 +1,88 @@
+좋은 질문이에요. 말씀하신 입력값 예시 (`') OR ('1'='1`, `' OR 1=1 --`, `' OR 'a'='a`)는 **SQL Injection을 시도할 수 있는 전형적인 문자열**입니다. 이런 걸 필터링하고 싶어서 `@Pattern`을 쓰셨는데, 그 경우 **Spring MVC가 Controller에 진입하기 전에** 예외를 던지기 때문에 Postman에서 **400 Bad Request**가 바로 뜹니다.
+
+즉, 이런 경우에는:
+
+---
+
+### ✅ `@Pattern`으로 막을 수는 있지만 → **사용자 입장에서는 무조건 에러 (400 Bad Request)**
+
+```java
+@Pattern(regexp = "^[a-zA-Z0-9가-힣\\s]{0,50}$")
+private String searchText;
+```
+
+이렇게 하면 `'` `'='` 공백 외 문자들이 들어가 있으면 **바로 에러**가 납니다. Postman은 이걸 보고 에러를 보여주죠.
+
+---
+
+## 🔧 해결 방향 제안
+
+### ✅ 방법 1: 입력은 자유롭게 받고, 백엔드 내부에서 검증 + escape
+
+```java
+@GetMapping("/search")
+public ResponseEntity<?> search(@RequestParam(required = false) String searchText) {
+    // SQL Injection 의심 문자 필터링
+    if (searchText != null && searchText.matches(".*(['\";]|--|\\|\\|).*")) {
+        return ResponseEntity.badRequest().body("불허된 문자가 포함되어 있습니다.");
+    }
+
+    // 또는 escape 처리 (DBMS 의존적)
+    String escapedSearch = escapeSql(searchText); // 커스텀 escape 함수
+    ...
+}
+```
+
+> `matches(".*(['\";]|--|\\|\\|).*")`: `'`, `"`, `;`, `--`, `||` 등이 포함됐는지를 체크
+
+### ✅ 방법 2: 검증 실패를 에러로 보내지 않고 **경고 로그 + 무시 처리**
+
+```java
+if (searchText != null && searchText.matches(".*(['\";]|--|\\|\\|).*")) {
+    log.warn("SQL injection 의심 입력값: {}", searchText);
+    searchText = null; // 또는 빈 문자열로 대체
+}
+```
+
+---
+
+## ✳️ 권장 구조 (정리)
+
+| 처리 방식                | 목적               | 장점        | 단점                    |
+| -------------------- | ---------------- | --------- | --------------------- |
+| `@Pattern` (DTO 수준)  | 사전 필터링           | 깔끔하고 빠름   | 400 Bad Request로 끊김   |
+| Controller 내부에서 검사   | 유연함              | 사용자 친화적   | 필터 로직 직접 구현 필요        |
+| PreparedStatement 사용 | SQL Injection 방지 | **가장 중요** | 반드시 적용 필요             |
+| 와일드카드 escape         | 의도치 않은 검색 방지     | 검색 정확도 향상 | DB-specific escape 필요 |
+
+---
+
+## ✅ 추가 예시: `escapeSql()` 커스텀 함수
+
+```java
+public String escapeSql(String input) {
+    if (input == null) return null;
+    return input
+            .replace("'", "''")
+            .replace("\"", "")
+            .replace(";", "")
+            .replace("--", "")
+            .replace("\\", "\\\\");
+}
+```
+
+---
+
+## 🔚 결론
+
+* `@Pattern`은 너무 엄격해서 실사용에는 불편할 수 있어요.
+* **입력은 자유롭게 받고**, 내부에서 **의심 입력은 로그 + 처리 무시** 방식이 실무에서 안정성과 유연성의 균형을 줍니다.
+* 무엇보다도, **JPA / QueryDSL / PreparedStatement** 구조를 지키는 것이 가장 중요한 SQL Injection 방어법입니다.
+
+필요하면 의심 단어 목록을 기반으로 동적 필터링 처리 로직도 만들어 드릴 수 있어요.
+
+
+----
 
 물론입니다! 아래는 Spring Boot + MongoDB 기반 REST API에서 `{id}` 경로변수를 사용하는 **기본 컨트롤러 예제**입니다.
 
