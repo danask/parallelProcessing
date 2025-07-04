@@ -1,3 +1,103 @@
+좋습니다. 지금 겪고 계신 **"백틱(\`) 입력 시 Java 쪽에서 먼저 에러가 나고, Postman에서는 400 Bad Request가 발생한다"** 문제는, **정규표현식 이전에 Spring 자체의 파라미터 바인딩 혹은 JSON 파싱 과정에서 오류가 발생**하는 경우일 수 있습니다.
+
+---
+
+## ✅ 가능한 원인 정리
+
+### 📌 1. `@Pattern` 어노테이션 사용 시 발생하는 오류
+
+만약 DTO에 이렇게 선언해두셨다면:
+
+```java
+@Pattern(regexp = "^[a-zA-Z0-9가-힣\\s]{0,50}$")
+private String searchText;
+```
+
+이 경우 백틱(\`\`\`)이 **정규식 허용 범위에 없기 때문에**, **Spring validation에서 예외를 발생시켜서 바로 400 응답을 줍니다.**
+→ **이 경우 Filter까지 도달하지 않습니다.**
+
+**해결책: `@Pattern` 제거 or 변경**
+
+```java
+@Size(max = 100) // 길이 제한만 주고
+private String searchText;
+```
+
+---
+
+### 📌 2. Jackson(JSON) 파싱 오류 (POST Body에서 발생)
+
+POST 요청에서 `application/json`으로 body에 파라미터를 넘기고 있고,
+다음과 같은 상황이라면:
+
+```json
+{
+  "searchText": "` OR 1=1"
+}
+```
+
+백틱은 JSON 문자열 내에서는 특수문자는 아니지만, 만약 escape가 잘못되면 **Jackson이 파싱 에러**를 낼 수 있습니다.
+
+**해결책**:
+
+* Postman에서 `"searchText": "\` OR 1=1"`처럼 백틱 앞에`\`를 넣으면 오히려 **잘못된 escape로 인식**됩니다.
+* 그냥 `"searchText": "` OR 1=1"\` 이런 식으로 **있는 그대로 보내세요.**
+
+---
+
+### 📌 3. GET 방식에서 필터 도달 전에 에러나는 경우
+
+Spring은 GET 쿼리 파라미터에 대해서도 내부적으로 **type binding + validation**을 수행합니다.
+만약 이런 구조라면:
+
+```java
+@GetMapping("/search")
+public ResponseEntity<?> search(@Valid SearchRequestDto dto) { ... }
+```
+
+DTO에 `@Pattern`, `@RequestParam` 검증이 걸려 있으면 **controller 진입 전 예외**가 발생합니다.
+
+---
+
+## ✅ 정확한 해결 방향
+
+### 🎯 목표: 필터에서 모든 입력 먼저 검사하고 → 이후에 Spring validation 적용
+
+### 🔧 방법 1: DTO에서 `@Pattern` 제거 (또는 완화)
+
+```java
+public class SearchRequest {
+    @Size(max = 100)
+    private String searchText;
+}
+```
+
+### 🔧 방법 2: Filter에서 입력을 검사하도록 확실히 우선순위 설정
+
+```java
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE) // 필터 우선 적용
+public class SqlInjectionFilter implements Filter {
+    ...
+}
+```
+
+---
+
+## ✅ 요약
+
+| 원인                  | 설명                        | 해결 방법                            |
+| ------------------- | ------------------------- | -------------------------------- |
+| `@Pattern`이 백틱 불허   | DTO 검증에서 먼저 에러            | `@Pattern` 제거하고 필터로 검사 이동        |
+| JSON escape 문제      | 백틱 잘못 escape하면 JSON 파싱 오류 | JSON body는 이스케이프 없이 사용           |
+| GET 방식에서 DTO 바인딩 에러 | validation 단계에서 400       | Filter 우선 적용 + DTO validation 완화 |
+
+---
+
+필요하시면 POST/GET 모두에서 동작하고, JSON Body 필드까지 검사하는 필터 예제도 확장해서 드릴게요.
+
+
+---
 
 아주 좋은 질문입니다.
 Spring Boot에서 **Controller에 들어오기 전에 입력값을 필터링**하고 싶다면 다음과 같은 방법을 사용할 수 있습니다:
