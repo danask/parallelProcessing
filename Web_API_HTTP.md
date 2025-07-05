@@ -1,3 +1,105 @@
+
+좋습니다. 주신 에러 메시지:
+
+```
+java.lang.IllegalArgumentException: Invalid character found in the request target [/v1/application/usage/apps?currentDate=2024-01-18&...&searchText=`%27%20OR%20%27a%27=%27a ]
+```
+
+이건 **Spring Boot나 Tomcat이 서블릿 요청을 처리하기도 전에, URI 자체에 포함된 비정상 문자 때문에 거부하고 있는 상태**입니다.
+
+---
+
+## ✅ 원인 정리
+
+### 💥 이 에러의 핵심은:
+
+* `searchText=` 뒤에 들어간 값이 **URI 인코딩이 완전히 안 되어 있음**
+* 예: 백틱(`\``), 공백, `'`, `%\` 등 **RFC 3986에서 URL에 바로 쓸 수 없는 문자들**이 포함됨
+* Spring이나 Tomcat은 기본적으로 **RFC 위반 문자를 포함한 URI를 예외 처리**합니다
+
+### 🔍 `%27`은 `'`, `%20`은 공백, `%3D`는 `=`, 이건 괜찮지만...
+
+문제는 이 부분:
+
+```text
+searchText=`%27%20OR%20%27a%27=%27a
+```
+
+* 백틱(\`\`\`)이 **URL 인코딩 안 되어 있음**
+* \= 기호 앞뒤 공백도 `%20`으로 인코딩했지만 **전체적으로 위험한 SQL Injection payload로 보이는 형태**
+
+---
+
+## ✅ 해결 방법
+
+### ✅ 1. **URL 인코딩을 철저히 해야 함**
+
+**Postman**에서 쿼리 파라미터를 넣을 때 반드시 "Params" 탭을 이용하거나, **value 값을 반드시 URL 인코딩**하세요.
+
+**잘못된 방식 (에러 발생)**:
+
+```
+/v1/application/usage/apps?...&searchText=`' OR 'a'='a
+```
+
+**올바른 방식**:
+
+```
+/v1/application/usage/apps?...&searchText=%60%27%20OR%20%27a%27%3D%27a
+```
+
+👉 `%60` = 백틱(`\``), `%27` = 작은따옴표(`'`), `%3D` = 등호(`=\`)
+
+---
+
+### ✅ 2. `server.tomcat.reject-illegal-header` & `server.tomcat.relaxed-query-chars` 설정
+
+Tomcat은 URI 내에 **백틱(`\``), `\[`, `]`, `{`, `}`, `|`, `\` 등**이 있으면 기본적으로 거절합니다.
+→ 이를 **명시적으로 허용**하려면 Spring Boot의 `application.yml` 또는 `application.properties`에 설정 추가:
+
+#### `application.yml` 예시:
+
+```yaml
+server:
+  tomcat:
+    relaxed-query-chars: "|{}[]\\`"
+```
+
+#### `application.properties` 예시:
+
+```properties
+server.tomcat.relaxed-query-chars=|{}[]\\`
+```
+
+⚠️ 보안상 위험성이 있으므로, 이런 설정을 사용하는 경우에는 반드시 **입력 필터링을 병행**해야 합니다.
+
+---
+
+### ✅ 3. 가능한 경우, **GET이 아닌 POST 방식으로 요청 전환 + JSON body 사용**
+
+GET은 URL에 인코딩 문제가 더 잘 발생하기 때문에,
+
+* **검색 파라미터가 복잡하거나 다국어/이모지 포함 가능성**이 높다면,
+* **POST 방식 + JSON body**를 사용하는 게 더 안전하고 안정적입니다.
+
+---
+
+## ✅ 요약
+
+| 해결 방법                           | 설명                                                    |                                        |
+| ------------------------------- | ----------------------------------------------------- | -------------------------------------- |
+| ✅ URL 인코딩 적용                    | Postman에서 `searchText` 값은 반드시 `%60%27%20OR...`처럼 인코딩  |                                        |
+| ✅ Tomcat relaxed-query-chars 설정 | `\` \`                                                | ` `\[` `]` `{` `}` `` ` \`\` 등 특수문자 허용 |
+| ✅ POST 방식으로 전환                  | GET 쿼리 문자열 문제를 회피                                     |                                        |
+| ⚠️ 필터 병행 사용                     | `relaxed-query-chars` 설정 시 필터로 SQL Injection 방어 병행 필요 |                                        |
+
+---
+
+필요하시면 POST 방식으로 바꾸고 JSON 필드 내에서 필터링하는 예제도 만들어드릴게요.
+
+
+---
+
 좋습니다. 지금 겪고 계신 **"백틱(\`) 입력 시 Java 쪽에서 먼저 에러가 나고, Postman에서는 400 Bad Request가 발생한다"** 문제는, **정규표현식 이전에 Spring 자체의 파라미터 바인딩 혹은 JSON 파싱 과정에서 오류가 발생**하는 경우일 수 있습니다.
 
 ---
