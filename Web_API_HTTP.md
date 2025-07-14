@@ -1,4 +1,133 @@
 
+좋아! 지금까지의 요구사항을 종합해서 정리하면 다음과 같아:
+
+---
+
+### ✅ 목표
+
+* `List<Map<String, Object>>` 데이터를 **CSV 파일로 다운로드**
+* **한글 헤더명 출력** (예: `date` → `날짜`, `count` → `횟수`)
+* **한글 깨짐 방지** (Excel에서 정상 표시되도록 BOM 처리 및 한글 파일명)
+* **StreamingResponseBody** 사용 → 대용량 CSV도 메모리 낭비 없이 스트리밍 방식으로 응답
+
+---
+
+## ✅ 전체 코드 (Spring Boot)
+
+```java
+@RestController
+@RequestMapping("/api")
+public class CsvExportController {
+
+    @GetMapping("/download-csv")
+    public ResponseEntity<StreamingResponseBody> downloadCsv() {
+        // 실제 데이터 (서비스에서 받아오면 됨)
+        List<Map<String, Object>> data = getChartData();
+
+        // 헤더명 매핑: key → 출력용 이름
+        Map<String, String> headerNameMap = Map.of(
+                "date", "날짜",
+                "count", "횟수"
+        );
+
+        // CSV 스트리밍 처리
+        StreamingResponseBody stream = outputStream -> {
+            // BOM 추가 (UTF-8)
+            outputStream.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+            PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8));
+
+            if (!data.isEmpty()) {
+                List<String> keys = new ArrayList<>(data.get(0).keySet());
+
+                // 헤더 라인 작성
+                List<String> headers = keys.stream()
+                        .map(k -> headerNameMap.getOrDefault(k, k))
+                        .collect(Collectors.toList());
+                writer.println(String.join(",", headers));
+
+                // 데이터 라인 작성
+                for (Map<String, Object> row : data) {
+                    String line = keys.stream()
+                            .map(key -> escapeCsv(String.valueOf(row.getOrDefault(key, ""))))
+                            .collect(Collectors.joining(","));
+                    writer.println(line);
+                }
+
+                writer.flush();
+            }
+        };
+
+        // 파일명 한글 포함 + 인코딩
+        String fileName = "차트_데이터.csv";
+        String encodedFilename = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("text/csv; charset=UTF-8"));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedFilename);
+
+        return new ResponseEntity<>(stream, headers, HttpStatus.OK);
+    }
+
+    // CSV 특수문자 처리
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        String escaped = value.replace("\"", "\"\"");
+        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
+    }
+
+    // 테스트용 데이터 (서비스 연동 가능)
+    private List<Map<String, Object>> getChartData() {
+        return List.of(
+                Map.of("date", "2025-07-01", "count", 10),
+                Map.of("date", "2025-07-02", "count", 15),
+                Map.of("date", "2025-07-03", "count", 12)
+        );
+    }
+}
+```
+
+---
+
+## ✅ 주요 기능 요약
+
+| 기능             | 구현 방법                                      |
+| -------------- | ------------------------------------------ |
+| CSV 스트리밍       | `StreamingResponseBody`                    |
+| 한글 헤더          | `Map<String, String>` 이용해 키 → 표시명 변환       |
+| Excel 한글 깨짐 방지 | UTF-8 BOM (`EF BB BF`) 출력                  |
+| 한글 파일명 처리      | `URLEncoder.encode(...)` + `filename*=` 헤더 |
+| 특수문자 처리        | `escapeCsv()` 함수로 쉼표/줄바꿈/따옴표 이스케이프         |
+
+---
+
+## ✅ 프론트에서 사용 예시
+
+```html
+<a href="/api/download-csv" download>CSV 다운로드</a>
+```
+
+또는 자바스크립트로 자동 트리거:
+
+```javascript
+window.location.href = '/api/download-csv';
+```
+
+---
+
+필요하면 확장도 가능해:
+
+* ✔️ 필드 포맷팅 (`yyyy.MM.dd`, 천 단위 콤마 등)
+* ✔️ 필터 조건에 따라 데이터 동적 변경
+* ✔️ Excel (XLSX) 다운로드로 전환 (`Apache POI`, `EasyExcel` 등)
+
+필요한 부분 더 알려줘!
+
+
+----
+
 좋습니다. 주신 에러 메시지:
 
 ```
