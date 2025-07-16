@@ -1,4 +1,118 @@
 
+좋아, 두 가지 요구를 정리하면:
+
+---
+
+### ✅ 1. **한글 깨짐 방지**
+
+→ 브라우저에서 CSV를 UTF-8로 인식하게 하려면 BOM(Byte Order Mark)을 넣거나, `Content-Disposition` 헤더를 제대로 지정해줘야 함.
+
+### ✅ 2. **헤더 이름 치환** (예: `date` → `날짜`, `count` → `횟수`)
+
+→ `Map<String, String>`을 만들어서 원래 key를 표시명(label)으로 매핑하면 됨.
+
+---
+
+## 🔧 개선된 전체 코드 예시
+
+```java
+@RestController
+@RequestMapping("/api")
+public class CsvExportController {
+
+    @GetMapping("/download-csv")
+    public void downloadCsv(HttpServletResponse response) throws IOException {
+        List<Map<String, Object>> data = getChartData(); // 실제 데이터
+
+        // 헤더 표시 이름 매핑
+        Map<String, String> headerNameMap = Map.of(
+                "date", "날짜",
+                "count", "횟수"
+        );
+
+        // 파일명 및 응답 헤더 설정 (한글 깨짐 방지 포함)
+        String fileName = URLEncoder.encode("차트_데이터.csv", StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+        response.setContentType("text/csv; charset=UTF-8");
+        response.setCharacterEncoding("UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename*=UTF-8''" + fileName);
+
+        // Writer with BOM (UTF-8 인식되도록)
+        OutputStream out = response.getOutputStream();
+        out.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}); // UTF-8 BOM
+
+        PrintWriter writer = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
+
+        if (!data.isEmpty()) {
+            // 헤더 추출 및 치환
+            List<String> keys = new ArrayList<>(data.get(0).keySet());
+            List<String> headers = keys.stream()
+                    .map(key -> headerNameMap.getOrDefault(key, key)) // 치환
+                    .collect(Collectors.toList());
+            writer.println(String.join(",", headers));
+
+            // 데이터
+            for (Map<String, Object> row : data) {
+                String line = keys.stream()
+                        .map(key -> escapeCsv(String.valueOf(row.getOrDefault(key, ""))))
+                        .collect(Collectors.joining(","));
+                writer.println(line);
+            }
+        }
+
+        writer.flush();
+        writer.close();
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        String escaped = value.replace("\"", "\"\"");
+        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
+    }
+
+    private List<Map<String, Object>> getChartData() {
+        return List.of(
+                Map.of("date", "2025-07-01", "count", 10),
+                Map.of("date", "2025-07-02", "count", 15),
+                Map.of("date", "2025-07-03", "count", 12)
+        );
+    }
+}
+```
+
+---
+
+## ✅ 결과 요약
+
+* 🔠 `Content-Disposition` + `filename*` 설정으로 **한글 파일명** 지원
+* 🧠 BOM(UTF-8) 추가로 **Excel에서 한글 깨짐 방지**
+* 🔄 `Map<String, String>`으로 **필드 이름을 자연어로 치환**
+
+---
+
+## 📦 결과 예시 (CSV 파일 내용)
+
+```
+날짜,횟수
+2025-07-01,10
+2025-07-02,15
+2025-07-03,12
+```
+
+---
+
+필요하다면 다음도 확장 가능:
+
+* 날짜/숫자 포맷 (`yyyy.MM.dd`, 쉼표 없는 숫자 등)
+* Null → "-" 변환
+* 대량 데이터일 때 `StreamingResponseBody` 처리
+
+더 필요한 부분 있어?
+
+
+
 좋아! 지금까지의 요구사항을 종합해서 정리하면 다음과 같아:
 
 ---
