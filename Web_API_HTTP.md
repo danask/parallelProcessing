@@ -1,4 +1,159 @@
-좋아, 정리해 줄게.
+
+좋습니다. 아래에 `WebClient`와 `RestTemplate` 각각에 대해 **retry, timeout, connection pool 설정**을 모두 정리해서 예제와 함께 드릴게요. 프로덕션에 바로 적용 가능한 형태로 구성했습니다.
+
+---
+
+## ✅ WebClient 설정 (Spring Boot 2.x\~3.x)
+
+### 1. **Timeout + Connection Pool + Retry 포함**
+
+```java
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
+import reactor.netty.http.client.HttpClient;
+import reactor.util.retry.Retry;
+
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+
+@Bean
+public WebClient webClient() {
+    HttpClient httpClient = HttpClient.create()
+        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+        .responseTimeout(Duration.ofSeconds(5))
+        .doOnConnected(conn ->
+            conn.addHandlerLast(new ReadTimeoutHandler(5, TimeUnit.SECONDS))
+                .addHandlerLast(new WriteTimeoutHandler(5, TimeUnit.SECONDS))
+        );
+
+    return WebClient.builder()
+        .clientConnector(new ReactorClientHttpConnector(httpClient))
+        .baseUrl("https://target-api.com")
+        .filter((request, next) -> next.exchange(request)
+            .retryWhen(Retry.fixedDelay(3, Duration.ofMillis(500))) // 재시도 3회
+        )
+        .build();
+}
+```
+
+> 🔸 기본적으로 WebClient는 `reactor-netty`를 사용하므로, Netty 기반으로 설정합니다.
+
+---
+
+## ✅ RestTemplate 설정 (Apache HttpClient 기반)
+
+### 1. **Timeout + Connection Pool 설정**
+
+```java
+@Bean
+public RestTemplate restTemplate() {
+    int timeout = 5000;
+
+    RequestConfig config = RequestConfig.custom()
+        .setConnectTimeout(timeout)
+        .setConnectionRequestTimeout(timeout)
+        .setSocketTimeout(timeout)
+        .build();
+
+    PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
+    connectionManager.setMaxTotal(100); // 전체 커넥션 수
+    connectionManager.setDefaultMaxPerRoute(20); // 목적지당 최대 커넥션 수
+
+    CloseableHttpClient httpClient = HttpClients.custom()
+        .setConnectionManager(connectionManager)
+        .setDefaultRequestConfig(config)
+        .build();
+
+    HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+
+    return new RestTemplate(factory);
+}
+```
+
+---
+
+### 2. **Retry 처리 (Spring Retry + RestTemplate)**
+
+#### 2-1. 의존성 추가 (Maven)
+
+```xml
+<dependency>
+    <groupId>org.springframework.retry</groupId>
+    <artifactId>spring-retry</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId> <!-- @Retryable 작동 위해 필요 -->
+</dependency>
+```
+
+#### 2-2. 사용 예제
+
+```java
+@EnableRetry  // Spring Boot main class 또는 config class에 선언
+@Configuration
+public class RetryConfig {
+}
+
+@Service
+public class MyService {
+
+    private final RestTemplate restTemplate;
+
+    public MyService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @Retryable(
+        value = { ResourceAccessException.class, HttpServerErrorException.class },
+        maxAttempts = 3,
+        backoff = @Backoff(delay = 1000) // 1초 딜레이
+    )
+    public String callExternalApi() {
+        ResponseEntity<String> response = restTemplate.getForEntity("https://target-api.com/resource", String.class);
+        return response.getBody();
+    }
+
+    @Recover
+    public String recover(Exception e) {
+        return "Fallback result due to: " + e.getMessage();
+    }
+}
+```
+
+---
+
+## ✅ 참고: 타임아웃 설명
+
+| 설정 종류                             | 설명                        |
+| --------------------------------- | ------------------------- |
+| `connectTimeout`                  | 서버에 연결하는 데 걸리는 최대 시간      |
+| `readTimeout` / `responseTimeout` | 서버가 응답하는 데까지 기다리는 시간      |
+| `connectionRequestTimeout`        | 커넥션 풀에서 커넥션을 얻기까지 기다리는 시간 |
+
+---
+
+## ✅ 결론
+
+| 항목       | WebClient                                              | RestTemplate                                            |
+| -------- | ------------------------------------------------------ | ------------------------------------------------------- |
+| 타임아웃 설정  | `HttpClient.create().option(...).responseTimeout(...)` | `RequestConfig`                                         |
+| 커넥션 풀    | Netty는 자동 또는 `ConnectionProvider`로 설정 가능               | Apache HttpClient의 `PoolingHttpClientConnectionManager` |
+| Retry 지원 | `retryWhen(...)` 직접 구현                                 | `@Retryable` (Spring Retry 사용)                          |
+
+---
+
+필요하다면 다음도 알려드릴 수 있어요:
+
+* Circuit Breaker (Resilience4j) 설정
+* WebClient 로깅 (`logging.level.reactor.netty` 등)
+* WebClient에서 타임아웃, 실패 로직 별도 fallback 처리
+
+어떤 환경 (예: ECS, EC2, 쿠버네티스)인지 말씀해 주시면 그에 맞게 커넥션 유지 전략도 함께 설명드릴게요.
+
+
+--------------
 요구사항은 다음 두 가지 API:
 
 ---
