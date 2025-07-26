@@ -1,3 +1,154 @@
+"keep-alive"를 계속 보내는 접근은 경우에 따라 효과적일 수 있지만, 모든 상황에 적절한 해결책은 아닙니다. 아래에 이 문제를 분석하고 해결하기 위한 방향을 정리해드릴게요.
+
+
+---
+
+💡 상황 요약
+
+/v1/query를 호출할 때 간헐적으로 /v1/query/v1/query가 되는 문제 발생
+
+오랫동안 접속이 없거나 연속적으로 호출할 경우 500 에러 발생
+
+일정 시간이 지나면 connection 이 끊기거나 문제가 생기는 정황
+
+WebClient/RestTemplate 사용
+
+
+
+---
+
+🧠 가능한 원인
+
+1. Connection Pool에서 Idle Connection이 재사용되다 끊긴 경우
+
+서버나 프록시(Nginx, LB 등)가 idle connection을 일정 시간 후 끊는데,
+
+클라이언트는 그 끊긴 connection을 다시 쓰려다 에러 발생
+
+
+✅ 해결책:
+
+connection idle timeout 을 짧게 설정하거나
+
+connection validation (예: stale connection check)을 사용하거나
+
+주기적으로 ping/keep-alive 요청 보내기
+
+
+
+---
+
+2. Client 측의 URL 조립 버그
+
+WebClient에서 base URL과 요청 URL을 잘못 결합해 v1/query/v1/query가 되는 경우
+
+
+// baseUrl: http://api.example.com/v1/query
+webClient.get()
+    .uri("/v1/query") // -> http://api.example.com/v1/query/v1/query
+
+✅ 해결책:
+
+.baseUrl("http://host") 로 설정하고 .uri("/v1/query")
+
+또는 .baseUrl("http://host/v1") + .uri("/query") 로 일관성 유지
+
+
+
+---
+
+3. 서버 측 Rate Limit / Thread Pool 고갈
+
+연속 호출 시 서버의 리소스(스레드, DB connection 등)가 고갈되어 500 에러
+
+특히 health check 가 많으면 서버 자원을 낭비할 수 있음
+
+
+✅ 해결책:
+
+서버에 적절한 rate-limit, circuit breaker 적용
+
+health check endpoint는 최대한 lightweight하게 유지
+
+500 발생 시 재시도(Retry) 설정 고려
+
+
+
+---
+
+✅ Keep-Alive 주기적 전송? (Ping Strategy)
+
+🔹 효과 있을 수 있는 경우
+
+연결이 자주 끊기는 경우, 커넥션 풀 내에서 keep-alive를 주기적으로 유지하면 연결 안정성 향상
+
+
+🔹 한계 및 주의점
+
+너무 자주 보내면 리소스 낭비
+
+LB나 프록시가 idle connection을 60초 이내로 kill 할 수 있으니 주기 맞추기
+
+실제 API call이 아닌 dummy/ping call이어야 함
+
+
+// 예: 30초마다 dummy ping
+@Scheduled(fixedDelay = 30_000)
+public void keepConnectionAlive() {
+    webClient.get()
+        .uri("/ping")
+        .retrieve()
+        .bodyToMono(Void.class)
+        .subscribe();
+}
+
+
+---
+
+🛠 함께 쓰면 좋은 설정들
+
+🔹 WebClient Timeout + Retry + Connection Pool
+
+@Bean
+public WebClient webClient() {
+    HttpClient httpClient = HttpClient.create()
+        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
+        .responseTimeout(Duration.ofSeconds(5))
+        .doOnConnected(conn -> conn
+            .addHandlerLast(new ReadTimeoutHandler(5))
+            .addHandlerLast(new WriteTimeoutHandler(5)))
+        .keepAlive(true)
+        .tcpConfiguration(client ->
+            client.option(ChannelOption.SO_KEEPALIVE, true)
+        )
+        .metrics(true);
+
+    return WebClient.builder()
+        .clientConnector(new ReactorClientHttpConnector(httpClient))
+        .baseUrl("http://your-api.com")
+        .build();
+}
+
+
+---
+
+🔚 결론
+
+문제	원인 가능성	조치
+
+URL 중복	URI 설정 오류	baseUrl, uri 확인
+간헐적 500	끊긴 커넥션 재사용, 서버 과부하	커넥션 풀, keep-alive, retry, timeout 설정
+연속 호출 시 500	서버 리소스 부족	Rate limit / 백오프 / 서킷브레이커
+keep-alive 주기적 호출	Idle 방지 가능	주의해서 적용 (30~60초)
+
+
+
+---
+
+필요하면 WebClient 설정, 서킷브레이커, 또는 상태 추적 모니터링 설정도 도와드릴게요.
+
+
+
 
 그렇다면 문제는 단순한 코드 버그가 아니라 **동적 환경에서 URL이 중복되거나 잘못 조립되는 시점이 존재한다**는 뜻입니다. 즉, 다음 중 하나 혹은 복합적 원인이 있을 수 있습니다:
 
