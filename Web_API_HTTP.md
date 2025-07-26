@@ -1,3 +1,117 @@
+그렇다면 문제는 단순한 코드 버그가 아니라 **동적 환경에서 URL이 중복되거나 잘못 조립되는 시점이 존재한다**는 뜻입니다. 즉, 다음 중 하나 혹은 복합적 원인이 있을 수 있습니다:
+
+---
+
+## ✅ 흔히 발생하는 상황별 원인 (헬스체크 URL이 `됐다 안됐다` 또는 `/v1/query/v1/query`가 가끔 나올 때)
+
+### 1. **동적으로 URL 조립할 때 슬래시 유무에 따라 중복 경로 발생**
+
+```java
+String baseUrl = "https://api.com/v1/query"; // 슬래시 없음
+String path = "/v1/query";                   // 슬래시 있음
+
+String fullUrl = baseUrl + path; // 결과: https://api.com/v1/query/v1/query (❌)
+```
+
+✅ 해결: `UriComponentsBuilder`를 사용해서 안전하게 조립
+
+```java
+String fullUrl = UriComponentsBuilder.fromHttpUrl(baseUrl)
+    .path(path)
+    .build()
+    .toUriString();
+```
+
+---
+
+### 2. **Spring `WebClient`의 `baseUrl()` 설정과 `.uri()`가 충돌**
+
+| 설정                                                           | 현상                           |
+| ------------------------------------------------------------ | ---------------------------- |
+| baseUrl: `https://api.com/v1/query` <br> `.uri("/v1/query")` | 최종 URL이 `/v1/query/v1/query` |
+| baseUrl: `https://api.com` <br> `.uri("/v1/query")`          | 올바르게 작동                      |
+
+> 그런데 `.uri("v1/query")` (슬래시 없음)으로 쓸 경우, baseUrl에 path가 있다면 그대로 붙습니다 → 이게 "됐다 안됐다" 하는 원인이 될 수 있음.
+
+✅ 해결: `.uri()`에 인자를 명확하게 주거나, baseUrl을 고정된 `/` 없는 주소로 설정
+
+---
+
+### 3. **헬스체크 로직에서 URL 캐시나 조건 분기 버그**
+
+* URL을 캐시에 저장하거나 동적으로 생성한 후 reuse하는 구조에서, 간혹 중복된 URL이 누적됨
+* 예:
+
+  ```java
+  // 조건 따라 baseUrl이 설정됨
+  String baseUrl = isInternal ? "http://internal/api" : "http://external/api/v1/query";
+  ```
+
+  이후 동일하게 `.uri("/v1/query")`를 붙여버림 → 경우에 따라 중복 발생
+
+✅ 해결:
+
+* 모든 URL 조합부에 로그를 심어, 실제 URL 조립 전후 값을 확인
+* 조건 분기를 없애고, baseUrl + path를 일관성 있게 처리
+
+---
+
+### 4. **로드 밸런서(LB) 또는 프록시가 경로를 변경**
+
+* 예: AWS ALB, Istio, Nginx 등이 `/v1/query`를 프록시 내부로 넘기면서 다시 붙이는 설정이 존재
+* 또는 특정 타겟 인스턴스만 rewrite 룰이 적용되어 URL이 변형될 수도 있음
+
+✅ 해결:
+
+* LB, 프록시, Istio ingress 등의 설정 확인
+* LB 대상 그룹에 따라 경로 변경이 발생하는지 비교
+
+---
+
+### 5. **WebClient 커스텀 필터나 공통 interceptor가 중복 조작**
+
+* 모든 요청에 prefix를 자동으로 붙이는 필터가 존재하고,
+* 코드에서도 수동으로 `/v1/query`를 붙이면 이중으로 생김
+
+✅ 확인:
+
+* `WebClient.builder().filter(...)` 내 로직 점검
+* interceptor나 logging filter 등 공통 모듈에서 URL을 수정하지 않는지
+
+---
+
+## ✅ 체크리스트 요약
+
+| 체크 포인트                         | 설명                                           |
+| ------------------------------ | -------------------------------------------- |
+| `baseUrl`과 `uri()`의 path 충돌 여부 | 둘 다 경로 포함 시 중복 가능성                           |
+| 슬래시(`/`) 유무에 따른 concat 버그      | `"a/" + "/b"` → `a//b`, `"a" + "/b"` → `a/b` |
+| 조건 분기 또는 캐시된 URL의 오류           | 동적으로 조립한 URL이 상태 따라 잘못됨                      |
+| 프록시 / LB 설정                    | 프록시가 내부에서 path 재작성 가능                        |
+| WebClient filter/interceptor   | 공통 필터가 URL을 수정하지 않는지                         |
+
+---
+
+## ✅ 대응 전략
+
+1. **URL 조립 시 로그 남기기** (경로/슬래시 포함 여부 명확히)
+2. `UriComponentsBuilder` 등 안전한 방식 사용
+3. 공통 baseUrl은 `/` 없이 설정, `.uri()`는 항상 `/v1/query`처럼 절대 경로
+4. 가능하면 baseUrl에 path 붙이지 말 것 (그럼 `.uri("v1/query")`이 의도대로 작동 안함)
+5. WebClient 필터와 proxy 설정 리뷰
+
+---
+
+필요하시면 다음도 도와드릴 수 있어요:
+
+* `WebClient` + `Scheduler`로 주기적 헬스 체크 구성 코드
+* Istio/Nginx 등 ingress 설정 확인 예제
+* 로그 필터를 통해 URL 추적하는 공통 코드
+
+어느 쪽 코드에서 조립 중인지 (RestTemplate/WebClient 등) 알려주시면 정확히 진단해드릴 수 있습니다.
+
+---
+
 "keep-alive"를 계속 보내는 접근은 경우에 따라 효과적일 수 있지만, 모든 상황에 적절한 해결책은 아닙니다. 아래에 이 문제를 분석하고 해결하기 위한 방향을 정리해드릴게요.
 
 
@@ -91,7 +205,7 @@ LB나 프록시가 idle connection을 60초 이내로 kill 할 수 있으니 주
 
 실제 API call이 아닌 dummy/ping call이어야 함
 
-
+```java
 // 예: 30초마다 dummy ping
 @Scheduled(fixedDelay = 30_000)
 public void keepConnectionAlive() {
@@ -101,7 +215,7 @@ public void keepConnectionAlive() {
         .bodyToMono(Void.class)
         .subscribe();
 }
-
+```
 
 ---
 
@@ -109,6 +223,7 @@ public void keepConnectionAlive() {
 
 🔹 WebClient Timeout + Retry + Connection Pool
 
+```java
 @Bean
 public WebClient webClient() {
     HttpClient httpClient = HttpClient.create()
@@ -128,7 +243,7 @@ public WebClient webClient() {
         .baseUrl("http://your-api.com")
         .build();
 }
-
+```
 
 ---
 
