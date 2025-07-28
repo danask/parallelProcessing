@@ -1,3 +1,236 @@
+
+Spring Boot에서 위 `WebClient` 설정을 한 번만 설정하고 재사용하려면 \*\*Bean으로 등록해서 DI(의존성 주입)\*\*하면 됩니다. 아래와 같이 설정 클래스를 만들면 됩니다.
+
+---
+
+### ✅ `@Configuration` 클래스에 `@Bean` 등록
+
+```java
+import io.netty.channel.ChannelOption;
+import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.handler.timeout.WriteTimeoutHandler;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+
+@Configuration
+public class WebClientConfig {
+
+    @Bean
+    public WebClient webClient() {
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(Duration.ofSeconds(10))
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+                .doOnConnected(conn -> conn
+                        .addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.SECONDS))
+                        .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.SECONDS)));
+
+        return WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .build();
+    }
+}
+```
+
+---
+
+### ✅ 사용하는 곳에서는 주입만 하면 됨
+
+```java
+@Service
+public class ApiService {
+
+    private final WebClient webClient;
+
+    public ApiService(WebClient webClient) {
+        this.webClient = webClient;
+    }
+
+    public void callApi() {
+        webClient.get()
+                 .uri("https://example.com/api")
+                 .retrieve()
+                 .bodyToMono(String.class)
+                 .subscribe(System.out::println);
+    }
+}
+```
+
+---
+
+이렇게 하면 **WebClient 인스턴스 하나만 생성해서** 재사용하므로 효율적이고, `WebClient.builder()`를 반복적으로 호출할 필요도 없습니다.
+
+필요하면 `@Qualifier("yourWebClient")`로 여러 개 구성도 가능합니다.
+
+
+---
+
+좋은 질문이에요.
+`WebClient`는 **매번 요청마다 새로 만드는 것보다, 재사용하는 방식이 훨씬 효율적**입니다.
+
+당신이 올린 코드:
+
+```java
+HttpClient httpClient = HttpClient.create()
+    .responseTimeout(Duration.ofSeconds(10))
+    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+    .doOnConnected(conn -> conn
+        .addHandlerLast(new ReadTimeoutHandler(10))
+        .addHandlerLast(new WriteTimeoutHandler(10)));
+
+WebClient webClient = WebClient.builder()
+    .clientConnector(new ReactorClientHttpConnector(httpClient))
+    .build();
+```
+
+이건 보통 **초기화 시점에 한 번만 구성해놓고, 이후에 계속 재사용**합니다.
+
+---
+
+### ✅ 추천 구조
+
+보통 Spring Boot 환경에서는 다음처럼 `@Bean`으로 등록해서 **싱글톤으로 사용**합니다:
+
+```java
+@Configuration
+public class WebClientConfig {
+
+    @Bean
+    public WebClient webClient() {
+        HttpClient httpClient = HttpClient.create()
+            .responseTimeout(Duration.ofSeconds(10))
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+            .doOnConnected(conn -> conn
+                .addHandlerLast(new ReadTimeoutHandler(10))
+                .addHandlerLast(new WriteTimeoutHandler(10)));
+
+        return WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(httpClient))
+            .build();
+    }
+}
+```
+
+그리고 주입해서 사용:
+
+```java
+@Service
+public class SomeService {
+    private final WebClient webClient;
+
+    public SomeService(WebClient webClient) {
+        this.webClient = webClient;
+    }
+
+    public void callSomething() {
+        webClient.get()
+            .uri("https://example.com")
+            .retrieve()
+            .bodyToMono(String.class)
+            .subscribe();
+    }
+}
+```
+
+---
+
+### ❌ 매번 생성하면 안 좋은 이유
+
+* 커넥션 풀을 재사용 못 함 (성능 저하)
+* GC 부하 증가
+* 타임아웃 등 설정 누락 위험
+
+---
+
+### ✅ 요약
+
+* 위 코드는 **초기 한 번만 설정하고 재사용하는 것이 맞음**.
+* Spring 환경이면 `@Bean` 으로 등록해서 DI로 주입받아 사용하세요.
+
+필요하면 `baseUrl`이나 `defaultHeader` 등도 같이 세팅해줄 수 있어요. 원하시면 템플릿 코드도 만들어 드릴게요.
+
+
+---
+
+좋은 질문입니다. 결론부터 말씀드리면:
+
+### ❗아니요, **매번 요청할 때마다 `WebClient`를 새로 생성하면 안 됩니다.**
+
+---
+
+### ✅ 올바른 방식
+
+`WebClient`는 재사용 가능한 객체이므로 **한 번만 생성**해서 재사용하는 것이 **권장되는 방식**입니다. 위의 코드처럼 커넥션 타임아웃, 응답 타임아웃 등을 설정한 `WebClient`는 보통 다음과 같이 설정합니다:
+
+```java
+@Configuration
+public class WebClientConfig {
+
+    @Bean
+    public WebClient customWebClient() {
+        HttpClient httpClient = HttpClient.create()
+            .responseTimeout(Duration.ofSeconds(10))
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+            .doOnConnected(conn -> conn
+                .addHandlerLast(new ReadTimeoutHandler(10))
+                .addHandlerLast(new WriteTimeoutHandler(10)));
+
+        return WebClient.builder()
+            .clientConnector(new ReactorClientHttpConnector(httpClient))
+            .build();
+    }
+}
+```
+
+그리고 나서 필요한 곳에서 DI 받아서 사용:
+
+```java
+@Service
+public class ApiService {
+
+    private final WebClient webClient;
+
+    public ApiService(WebClient customWebClient) {
+        this.webClient = customWebClient;
+    }
+
+    public Mono<String> callServer() {
+        return webClient.get()
+            .uri("https://example.com/api/test")
+            .retrieve()
+            .bodyToMono(String.class);
+    }
+}
+```
+
+---
+
+### 🔍 왜 매번 만들면 안 되는가?
+
+1. **리소스 낭비**: `WebClient`는 내부적으로 커넥션 풀(`ConnectionPool`)을 사용합니다. 매번 만들면 커넥션 풀도 계속 새로 생성되어 성능 저하.
+2. **버그 가능성**: 타임아웃 설정을 매번 다르게 쓰면 예측하기 어려운 문제 발생.
+3. **불필요한 GC 부담**: 불필요하게 많은 인스턴스가 생기고, GC 성능 저하 유발 가능.
+
+---
+
+### 🤔 참고: 왜 ping은 되고 api는 500일까?
+
+* `ping`은 단순한 요청이기 때문에 토큰 없이도 또는 인증 없이도 동작할 수 있지만,
+* **실제 API**는 `Authorization`, `Content-Type`, `Body`, `Headers` 등이 더 많아지고, 서버에서 이를 처리하는 중 **JWT 만료**, **세션 관리**, **프록시 레이어 문제**, **서버 쪽 상태 이상** 등으로 500이 나올 수 있습니다.
+
+이 문제는 `WebClient` 설정 외에도 서버 상태, 인증 흐름 등을 함께 봐야 하는 이슈입니다.
+
+---
+
+필요하시면 WebClient에 로깅 필터도 같이 붙여드릴게요.
+
+
+---
 좋아요, 정리해서 문제 상황과 가능성, 해결 방안 중심으로 아래와 같이 안내드릴게요.
 
 ---
