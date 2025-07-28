@@ -1,3 +1,205 @@
+좋아요, 정리해서 문제 상황과 가능성, 해결 방안 중심으로 아래와 같이 안내드릴게요.
+
+---
+
+## ✅ 현재 상황 요약
+
+* **Spring Client → 다른 Spring 서버 API 호출**
+* 서버 재시작 직후엔 정상 동작 → 일정 시간 후 **간헐적으로 500 오류 발생**
+* `/ping` 엔드포인트로 **30초마다 keep-alive 호출 시 401 OK로 응답** 받음 (즉, 연결 자체는 살아 있음)
+* 그런데 **실제 API 호출 시 500 오류 발생**
+
+---
+
+## ✅ 원인 가능성 정리 (Client/Server 분리)
+
+### 🌐 1. 서버 측 문제 (API 서버)
+
+| 가능성                     | 설명                                                                | 확인 방법                                                                                           |
+| ----------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| A. 인증 토큰 상태 이상          | `/ping`은 인증 불필요하거나 Refresh 없이 작동, 반면 실 API는 인증 필요 → 만료되었거나 비정상 처리 | `/api` 호출 시 Authorization 헤더 확인, 서버 로그에서 인증 관련 에러 (`Invalid token`, `Missing credentials` 등) 확인 |
+| B. 세션/캐시/ThreadLocal 누수 | 서버가 오래 동작하다 보면 특정 상태나 캐시가 오염되거나 세션 timeout 발생                     | 서버 로그에서 `NullPointerException`, `IllegalStateException` 또는 `cache`, `session` 키워드 검색            |
+| C. 서버 내부 상태 불안정         | 연결 풀 고갈 (DB 커넥션, HTTP Pool 등)                                     | DB 커넥션 풀, thread pool, queue 상태 모니터링 필요 (Actuator / Metrics / 로그)                               |
+| D. 특정 요청 패턴에서 예외        | 요청 바디, 파라미터, 헤더가 일부 요청에서 달라지는 경우                                  | 클라이언트 로그와 서버 로그를 `traceId` 로 묶어서 비교 분석 필요                                                       |
+
+---
+
+### ☁️ 2. 클라이언트(Spring Client) 측 문제
+
+| 가능성                        | 설명                                                | 확인 방법                                                             |
+| -------------------------- | ------------------------------------------------- | ----------------------------------------------------------------- |
+| A. 인증 헤더 누락                | `/ping`은 헤더 없이도 되는데, 실제 API는 인증 필요 → 토큰 갱신/설정이 누락 | 요청 로그 찍어서 헤더 내용 확인                                                |
+| B. HTTP Connection Pool 고갈 | WebClient가 커넥션을 재사용하지 못하고 끊긴 연결을 계속 시도 → 500 가능   | `Connection reset`, `Premature close`, `ReactorNetty` 관련 에러 로그 확인 |
+| C. WebClient 상태 오류         | 오래된 인스턴스를 재사용하거나 Reactor context 누락 시 오류 발생       | WebClient 재구성 혹은 `.clone()` → 요청 마다 fresh 상태로 만들기                 |
+| D. 잘못된 요청 (URI, 바디 등)      | uri 조립 문제는 해결했다고 했지만, 바디 또는 파라미터 구조는 여전히 변할 수 있음  | 실제 500 날리는 요청 전체 로그 기록 (Body 포함해서)                                |
+
+---
+
+## 🔧 해결책 정리
+
+### 🔹 클라이언트 쪽에서 가능한 조치
+
+1. **요청 로그 전량 기록 (debug level)**
+
+   * URI, 헤더, 바디, 응답 코드까지 **30초 주기로 전량 출력**
+   * 요청 실패 구간에서 어떤 차이가 있는지 명확히 비교
+
+2. **WebClient 커넥션 풀 설정 명확히 하기**
+
+   ```java
+   HttpClient httpClient = HttpClient.create()
+       .responseTimeout(Duration.ofSeconds(10))
+       .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+       .doOnConnected(conn -> conn
+           .addHandlerLast(new ReadTimeoutHandler(10))
+           .addHandlerLast(new WriteTimeoutHandler(10)));
+
+   WebClient webClient = WebClient.builder()
+       .clientConnector(new ReactorClientHttpConnector(httpClient))
+       .build();
+   ```
+
+3. **WebClient를 요청마다 새로 clone 해서 사용**
+
+   ```java
+   webClient.mutate().build().get().uri(...).retrieve()...
+   ```
+
+4. **Ping이 아닌 실제 API 샘플로 keep-alive**
+   → 실제 사용하는 엔드포인트 (e.g. `/api/status`)로 dummy call
+   → 이걸로도 500이 나면 서버 측 문제 확실
+
+---
+
+### 🔹 서버 측에서 가능한 조치
+
+1. **API 응답에 대한 `stacktrace` 로그 출력**
+
+   * Spring Boot 3.x 기준 `error.includeStacktrace=always` 설정하고 actuator 통해 확인
+
+2. **요청 `traceId` or `requestId` 로 전량 추적**
+
+   * 클라이언트 → 서버 → 로그까지 동일한 ID로 추적하여 context 유지
+
+3. **Actuator + Prometheus 설정 후 힙, 커넥션 풀, GC 상태 모니터링**
+   → 특정 시간대의 pool 고갈 여부 확인
+
+---
+
+## ✅ 핵심 진단 포인트
+
+* `/ping`은 통과하지만 `실제 API 호출`은 500 → **인증/세션/상태 문제일 가능성 높음**
+* 일정 시간 후 발생 → **풀 고갈 / context 오염 / 세션 만료 / 인증 갱신 실패** 유형이 의심됨
+* 서버 로그에 500 에러 원인이 반드시 남으므로 **서버 측 분석도 반드시 필요**
+* **클라이언트에서 해결만으로 한계** 있음 → 서버와 함께 병렬 분석 필요
+
+---
+
+필요하면 `WebClient 설정`, `Actuator metrics`, `요청 log 템플릿`, `TraceID 삽입 방법`도 정리해 드릴게요.
+
+-----
+
+좋습니다, 상황을 정리해 보면:
+
+---
+
+### ✅ 현재 상황 요약
+
+* **Spring WebClient 사용 중**
+* `/ping`을 30초 간격으로 호출하여 세션이 **401 Unauthorized**로 유지되는 것을 확인함 → 세션이 **유효**함.
+* 그런데 정작 **진짜 API 요청**을 보낼 때는 **간헐적으로 500 Internal Server Error** 발생.
+* Spring 서버를 재시작하면 한동안 정상 작동하다가 시간이 지나면 500이 다시 발생.
+
+---
+
+## 🔍 가능한 원인 정리
+
+### 1. **서버 세션/토큰 문제는 아님**
+
+* 이미 ping 으로 **세션이 만료되지 않았음이 확인**됐음 → `401` 안 나오고 유지됨.
+
+### 2. **서버 쪽 리소스 누수 / 누적 상태 문제 (가장 유력)**
+
+* 일정 시간 이후에만 발생 → 메모리 누수, connection pool 고갈, 버퍼 overflow 가능성 있음.
+* 특히 서버가 로드를 쌓아가다가 일정 시점 이후부터 500 응답 시작되는 현상은 **GC 미비, thread 누락, database connection 누락** 등을 강하게 의심함.
+
+### 3. **HTTP Keep-Alive or Connection Pool 문제**
+
+* 클라이언트(WebClient)나 서버 측에서 **keep-alive 연결이 재사용**되는 중간에 문제가 생김 → 재사용된 connection 이 **유효하지 않음**에도 불구하고 계속 쓰려다가 오류 발생.
+* 재시작하면 커넥션이 초기화되어 잠시 정상 동작함.
+
+### 4. **Reverse Proxy (Nginx 등) Timeout / Buffer 제한**
+
+* 클라이언트는 유효한 요청을 보내지만 중간 프록시(예: Nginx) 또는 gateway 가 **buffer overflow**나 timeout 등의 이유로 500 반환.
+* 서버 로그에 기록이 잘 안 남을 수도 있음.
+
+### 5. **Server-side Internal Exception**
+
+* 서버 API 내부에서 상태가 꼬인 상태에서 예외 발생 (예: DB 연결 timeout, NullPointerException, etc.)
+* 재시작하면 내부 상태 초기화되어 잠시 정상화.
+
+---
+
+## 🔧 해결책 제안
+
+### 🔹 클라이언트 측 대응 (Spring WebClient)
+
+| 조치                       | 설명                                                                          |
+| ------------------------ | --------------------------------------------------------------------------- |
+| ✅ Connection pool 재사용 제한 | `WebClient`가 오래된 커넥션을 계속 재사용하면 문제가 될 수 있음.<br>→ 다음 설정으로 연결을 일정 시간 지나면 끊게 설정 |
+
+```java
+HttpClient httpClient = HttpClient.create()
+    .responseTimeout(Duration.ofSeconds(10))
+    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
+    .doOnConnected(conn -> conn
+        .addHandlerLast(new ReadTimeoutHandler(10))
+        .addHandlerLast(new WriteTimeoutHandler(10)))
+    .keepAlive(false);  // <== 중요: keep-alive 끔
+
+WebClient webClient = WebClient.builder()
+    .clientConnector(new ReactorClientHttpConnector(httpClient))
+    .build();
+```
+
+| 조치                       | 설명                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅ ping 대신 실제 샘플 API call | `/ping`이 실제로 아무 리소스도 안 잡는 경우, 내부 세션이나 커넥션 사용 상태를 테스트하기 어렵다.<br>→ 실제 비즈니스 API 와 **유사한 구조**를 가진 `/sampleQuery` 나 `/fakeSearch` 같은 API 를 주기적으로 호출해보는 게 좋음. |
+
+---
+
+### 🔹 서버 측 대응
+
+| 조치                                   | 설명                                                                                 |
+| ------------------------------------ | ---------------------------------------------------------------------------------- |
+| ✅ 로그 수준 올리기                          | `/ping`은 되는데, 실제 요청이 500 이 나면, 서버 **내부 API 로그**나 **예외 로그**를 확인해야 root cause 분석 가능. |
+| ✅ Connection pool, DB pool 상태 확인     | DB 커넥션을 제대로 반납하지 않거나, 특정 상태에서 계속 누수되면 누적되고 결국 500 에러 유발.                           |
+| ✅ API에 대한 `@Transactional`, 에러 캐치 확인 | 내부 API에서 Exception 이나 NullPointerException 등의 서버 에러가 날 경우 catch 안하면 500 으로 응답됨.    |
+
+---
+
+## ❓ Client만으로 해결 가능한가?
+
+* 완전히는 **불가능합니다**.
+* 클라이언트 쪽에서 커넥션 재설정, timeout 관리, ping 등으로 **간접적으로 증상 완화는 가능**.
+* 그러나 진짜 원인이 서버 내부 자원 고갈이라면 **서버 수정 없이는 근본 해결은 어려움**.
+
+---
+
+## 🔎 추천 디버깅 흐름
+
+1. **WebClient 로그 레벨**을 `DEBUG`로 올려서 500 응답 나올 때 request/response 추적
+2. 서버측 access log와 error log를 500 코드 중심으로 확인
+3. 문제가 발생한 시간대의 서버 thread dump (heap dump도 가능하면 좋음)
+4. DB 쪽 connection 누수 확인 (HikariCP 등 pool 상태)
+5. 커넥션 pool / thread pool / file descriptor 누수 확인 (`lsof`, `netstat`, `jstack`, `jmap` 활용)
+
+---
+
+원하시면 `WebClient`를 안정적으로 구성하는 샘플 코드 전체도 드릴 수 있습니다.
+
+
+----
 정리해드리겠습니다.
 
 ---
