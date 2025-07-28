@@ -1,3 +1,294 @@
+
+좋아요. 지금까지 상황을 정리하고 해결책을 **"config 큰 변경 없이"**, 그리고 **버전 업데이트된 `confluentinc/cp-zookeeper:7.6.1`, `confluentinc/cp-kafka:7.6.1` 기준**으로 다시 구성해드릴게요. 또한 **ARM64 (M1/M2/M3, Apple Silicon)** 호환도 함께 고려하겠습니다.
+
+---
+
+## ✅ 문제 요약
+
+* 에러: `Connection to node -1 (/127.0.0.1:9092) could not be established`
+* 원인:
+
+  1. Kafka 브로커 `advertised.listeners` 설정 문제
+  2. Kafka 도커 이미지가 ARM64와 호환되지 않아 실행 실패 또는 이상동작
+* 추가 메시지: `platform mismatch (amd64 vs arm64)` → M1/M2 Mac 환경
+
+---
+
+## ✅ 해결 방안 요약 (변경 최소화)
+
+### 1. Docker Compose (Kafka/Zookeeper) 설정 예시 (ARM64 호환, 버전 7.6.1)
+
+```yaml
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    platform: linux/amd64
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  broker:
+    image: confluentinc/cp-kafka:7.6.1
+    platform: linux/amd64
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+```
+
+🔧 **변경 사항 요약**
+
+* `platform: linux/amd64` 추가하여 M1/M2 환경에서도 x86 이미지 실행 가능
+* `KAFKA_ADVERTISED_LISTENERS` 를 `localhost:9092` 로 고정 → 클라이언트 접근 가능
+* Kafka/Zookeeper 최신 버전 `7.6.1` 사용
+
+---
+
+## ✅ 실행 명령어
+
+```bash
+docker-compose up -d
+```
+
+### 확인:
+
+```bash
+docker-compose ps
+# → zookeeper와 broker 둘 다 "Up" 상태여야 함
+
+docker logs broker -f
+# → "started (kafka.server.KafkaServer)" 로그가 보여야 정상
+```
+
+---
+
+## ✅ 클라이언트 연결 확인 (예: kafka-console-producer)
+
+```bash
+docker exec -it <broker-container-id> kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --create --topic test-topic --partitions 1 --replication-factor 1
+
+docker exec -it <broker-container-id> kafka-console-producer \
+  --broker-list localhost:9092 \
+  --topic test-topic
+```
+
+---
+
+## ✅ 추가 팁 (Kafka 클라이언트 연결 오류 방지)
+
+만약 **외부 애플리케이션(Spring, Node.js, Python 등)** 이 Kafka에 접속할 경우, `localhost` 대신 `host.docker.internal` 혹은 실제 IP로 변경 필요:
+
+```yaml
+# 예시 (Mac에서 외부 접속 허용)
+KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://host.docker.internal:9092
+```
+
+---
+
+필요하면 `docker-compose.override.yml` 로 ARM64 전용 설정 따로 분리해도 돼요.
+
+---
+
+## ✅ 마무리
+
+Daniel의 기존 구성에서 **크게 변경하지 않으면서** 문제를 해결할 수 있는 방법을 적용했고, 최신 버전도 반영했어요. 다음과 같이 정리 가능합니다:
+
+| 항목                   | 기존    | 변경 사항                      |
+| -------------------- | ----- | -------------------------- |
+| Kafka/Zookeeper 이미지  | 구버전   | `7.6.1` 최신                 |
+| 플랫폼 호환성              | 오류    | `platform: linux/amd64` 추가 |
+| advertised.listeners | 일부 누락 | 명시적으로 `localhost:9092` 고정  |
+
+---
+
+필요하면 Spring 쪽 설정도 예제로 알려드릴 수 있어요.
+다시 연결이 안 되거나 에러 메시지가 조금이라도 달라지면 전체 로그랑 함께 공유해주세요.
+
+
+----
+
+좋습니다! 원래 사용 중인 `confluentinc/cp-server:6.2.1` 이미지를 그대로 유지하면서, **Mac M3(ARM64) 환경에서도 문제없이 실행되도록 최소한의 수정**만 적용한 `docker-compose.yml`을 아래에 제공합니다.
+
+---
+
+## ✅ 수정 포인트 요약
+
+| 항목                      | 설명                                    |
+| ----------------------- | ------------------------------------- |
+| `platform: linux/amd64` | M3에서 x86 이미지 실행 가능하도록 지정 (QEMU 에뮬레이션) |
+| `KAFKA_LISTENERS` 추가    | `localhost:9092` 실제 바인딩 안 되던 문제 해결    |
+| 나머지 환경 변수               | 그대로 유지                                |
+
+---
+
+## ✅ 수정된 Kafka Compose 설정 (기존 구조 유지)
+
+```yaml
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:6.2.1
+    platform: linux/amd64  # ✅ 추가
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+
+  broker:
+    image: confluentinc/cp-server:6.2.1
+    platform: linux/amd64  # ✅ 추가
+    hostname: broker
+    container_name: broker
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    expose:
+      - "9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+
+      # ✅ 실제 포트를 바인딩하게 명시 (없으면 localhost:9092 못 씀)
+      KAFKA_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://0.0.0.0:9092
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: broker:29092
+      CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zookeeper:2181
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'true'
+      CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+```
+
+---
+
+## ✅ 클라이언트 설정 예시 (Spring, CLI 등)
+
+```properties
+bootstrap.servers=localhost:9092
+```
+
+> `localhost:9092` 로 접속해야 하며, 위 설정에서 `PLAINTEXT_HOST://localhost:9092`가 브로커가 클라이언트에게 알려주는 주소로 광고됩니다.
+
+---
+
+## ✅ 실행 후 테스트
+
+```bash
+# Kafka topic list
+docker exec -it broker kafka-topics --bootstrap-server localhost:9092 --list
+
+# 새 토픽 생성
+docker exec -it broker kafka-topics --create --bootstrap-server localhost:9092 --topic test-topic --partitions 1 --replication-factor 1
+```
+
+---
+
+필요하면 `schema-registry`, `kafka-rest`, `kafka-ui`, `connect` 등도 이 구조에 맞춰 확장해드릴 수 있습니다.
+
+
+----------------
+
+아, 이 메시지는 \*\*MacBook M3 (ARM64 아키텍처)\*\*에서 `confluentinc/cp-server:6.2.1`과 같은 **x86\_64 전용 이미지**를 돌릴 때 흔히 뜨는 경고입니다:
+
+---
+
+## ⚠️ 메시지 해석:
+
+```
+The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)
+```
+
+이 말은:
+
+* 너의 Mac은 `ARM64` (M1, M2, M3) 아키텍처인데
+* Kafka 이미지(`cp-server`)는 `x86_64` 용이기 때문에
+* Docker가 내부적으로 **QEMU 에뮬레이션**을 사용해서 돌릴 수는 있지만, 느리거나 불안정할 수 있다
+
+> 즉, 이건 **실행은 되지만 성능 저하나 비정상적인 동작 가능성이 있는 상태**라는 경고입니다.
+
+---
+
+## ✅ 해결 방법
+
+### 🔧 방법 1: `platform`을 명시하여 명확히 돌리기 (에뮬레이션 허용)
+
+```yaml
+broker:
+  image: confluentinc/cp-server:6.2.1
+  platform: linux/amd64
+```
+
+또한 `zookeeper`에도 추가:
+
+```yaml
+zookeeper:
+  image: confluentinc/cp-zookeeper:6.2.1
+  platform: linux/amd64
+```
+
+> 이렇게 하면 Docker가 에뮬레이션을 확실히 적용해서 "에러"는 안 나고, "성능은 조금 느릴 수 있음" 정도로 사용할 수 있습니다.
+
+---
+
+### 🔧 방법 2: ARM64 지원 Kafka 이미지로 교체 (Bitnami 추천)
+
+Confluent 이미지 대신 **Bitnami Kafka**를 쓰면 M1/M2/M3에서 네이티브로 빠르게 동작합니다.
+
+```yaml
+image: bitnami/kafka:3.7
+```
+
+Bitnami는 `linux/arm64`와 `linux/amd64` 둘 다 지원하는 멀티 아키텍처 이미지를 제공합니다.
+
+> 단점: Confluent 기능 (`cp-server`, Schema Registry, Control Center 등)를 쓰려면 추가 설정 필요
+
+---
+
+## ✅ 결론
+
+| 옵션                         | 설명                               | 추천 상황                                  |
+| -------------------------- | -------------------------------- | -------------------------------------- |
+| `platform: linux/amd64` 추가 | 기존 Confluent 이미지 유지 가능, 에뮬레이션 사용 | Confluent Platform 사용 꼭 필요할 때          |
+| Bitnami 이미지로 변경            | M3에서 네이티브 실행, 빠름                 | Schema Registry 등 필요 없거나, 직접 붙일 수 있을 때 |
+
+---
+
+Daniel처럼 **Kafka 테스트/로컬 개발 환경을 빠르고 안정적으로 만들고 싶다면** → `bitnami/kafka` + `bitnami/zookeeper`가 좋고,
+**Confluent 기능이 필요하면** → `platform: linux/amd64`를 붙여서 에뮬레이션으로 실행하세요.
+
+필요하시면 둘 중 하나로 전체 Compose 파일 구성 도와드릴게요.
+
+
+----
 좋습니다! 기존의 `confluentinc/cp-server:6.2.1` 이미지 형식을 유지하면서 **Kafka 클라이언트가 `localhost:9092`로 접속 가능하게 만들기 위한 설정만 최소 변경**한 버전을 아래에 제공합니다.
 
 ---
