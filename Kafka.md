@@ -1,3 +1,97 @@
+좋습니다! 기존의 `confluentinc/cp-server:6.2.1` 이미지 형식을 유지하면서 **Kafka 클라이언트가 `localhost:9092`로 접속 가능하게 만들기 위한 설정만 최소 변경**한 버전을 아래에 제공합니다.
+
+---
+
+## ✅ 문제 핵심 요약 (재확인)
+
+현재 설정의 문제는 `KAFKA_ADVERTISED_LISTENERS`에 \*\*`PLAINTEXT_HOST://localhost:9092`\*\*가 있지만,
+Kafka 내부 설정상 **해당 리스너가 `LISTENERS`에 없어서 실제 바인딩되지 않음**입니다.
+
+---
+
+## ✅ 수정된 설정 (`LISTENERS` 추가 포함)
+
+```yaml
+broker:
+  image: confluentinc/cp-server:6.2.1
+  hostname: broker
+  container_name: broker
+  depends_on:
+    - zookeeper
+  ports:
+    - "9092:9092"
+    - "9101:9101"
+  expose:
+    - "9092"
+  environment:
+    KAFKA_BROKER_ID: 1
+    KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+    # 👇 LISTENERS 추가
+    KAFKA_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://0.0.0.0:9092
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+    KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+    KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+    KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    KAFKA_JMX_PORT: 9101
+    KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: broker:29092
+    CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zookeeper:2181
+    CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+    CONFLUENT_METRICS_ENABLE: 'true'
+    CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+```
+
+---
+
+## ✅ 핵심 변경 포인트 요약
+
+| 항목                           | 원래 값   | 변경 후                                                       |
+| ---------------------------- | ------ | ---------------------------------------------------------- |
+| `KAFKA_LISTENERS`            | ❌ 없음   | ✅ `PLAINTEXT://broker:29092,PLAINTEXT_HOST://0.0.0.0:9092` |
+| `KAFKA_ADVERTISED_LISTENERS` | 그대로 유지 | ✅ `localhost:9092` 는 이제 실제 바인딩됨                            |
+| 포트                           | 그대로 유지 | ✅ 외부 클라이언트가 `localhost:9092` 로 접속 가능해짐                     |
+
+---
+
+## ✅ 클라이언트 설정 예
+
+Kafka 클라이언트(Java 등)에서 다음과 같이 설정합니다:
+
+```properties
+bootstrap.servers=localhost:9092
+```
+
+---
+
+## ✅ 테스트 확인 방법
+
+Kafka가 제대로 리스닝하고 광고(advertise)하고 있는지 확인하려면:
+
+```bash
+docker exec -it broker bash
+kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+또는
+
+```bash
+nc -vz localhost 9092
+```
+
+로 포트 오픈 여부 확인.
+
+---
+
+필요하시면 여기에 Schema Registry, Kafka REST Proxy, Kafka UI, Connect 등을 붙인 `confluent` 풀스택 구성도 드릴 수 있습니다.
+
+
+-----
+
 네, **Docker Desktop에서도 동일한 문제가 발생한다면 거의 100% `KAFKA_ADVERTISED_LISTENERS` 설정 이슈**입니다. 특히 다음과 같은 상황일 가능성이 높습니다:
 
 ---
