@@ -86,6 +86,93 @@ Join<MvAbnormalCountDaily, DimDevice> deviceJoin =
 필요하면 `JoinGraph` 구조나 동적 기준에 따라 join 재사용/생성하는 유틸리티까지 확장 가능합니다.
 혹시 그런 구조도 쓰시나요? (예: queryDsl처럼 어떤 필드가 필요한지에 따라 join 자동 생성)
 
+맞습니다. 아주 중요한 지적이에요.
+다음 메서드:
+
+```java
+public static <F, T> Join<F, T> createJoin(From<F, ?> from, String fieldName, JoinType joinType, Class<T> targetClass) {
+    return from.join(fieldName, joinType).as(targetClass);
+}
+```
+
+는 **컴파일 오류**가 발생할 수 있습니다. 이유는 다음과 같습니다:
+
+---
+
+## ❗ 문제 원인
+
+* `from.join(...)`의 리턴 타입은 `Join<Object, Object>` 또는 `Join<Y, ?>`인데
+* 이를 **`Join<F, T>`로 캐스팅하는 건 컴파일러가 허용하지 않음**
+* `as(targetClass)`는 `Expression<T>`을 반환하지만, `Join<F, T>`와는 호환되지 않음
+
+즉, `as(...)`는 join의 **값**을 변환하는 용도로만 쓰이며, join의 **타입 자체를 변경**하지는 못해요.
+
+---
+
+## ✅ 해결 방법: 강제 형변환 (unchecked cast)
+
+정확히는 JPA에서 동적 Join을 안전하게 만드는 방법은 없기 때문에, **unchecked cast**를 사용하는 수밖에 없습니다:
+
+```java
+@SuppressWarnings("unchecked")
+public static <F, T> Join<F, T> createJoin(From<F, ?> from, String fieldName, JoinType joinType) {
+    return (Join<F, T>) from.join(fieldName, joinType);
+}
+```
+
+### 사용 예:
+
+```java
+Join<MvAbnormalCountDaily, DimDevice> deviceJoin =
+    createJoin(root, "dimDevice", JoinType.LEFT);
+```
+
+> `targetClass` 인자 없이 쓰는 이유: 어차피 형 안전은 컴파일 시 보장되지 않고, `.as(...)`는 도움 안 되기 때문입니다.
+
+---
+
+## ✅ 전체 예제 (유틸 포함)
+
+```java
+public class JoinUtil {
+    @SuppressWarnings("unchecked")
+    public static <F, T> Join<F, T> createJoin(From<F, ?> from, String fieldName, JoinType joinType) {
+        return (Join<F, T>) from.join(fieldName, joinType);
+    }
+}
+```
+
+---
+
+## ✅ 추가 팁: `Map<String, Join<?, ?>>` 로 join 캐싱하려면?
+
+```java
+@SuppressWarnings("unchecked")
+public static <F, T> Join<F, T> getOrCreateJoin(
+        From<F, ?> from,
+        String fieldName,
+        JoinType joinType,
+        Map<String, Join<?, ?>> joinCache
+) {
+    return (Join<F, T>) joinCache.computeIfAbsent(fieldName, key -> from.join(key, joinType));
+}
+```
+
+---
+
+## 🔐 요약
+
+| 항목                               | 설명                   |
+| -------------------------------- | -------------------- |
+| `as(targetClass)`                | 타입 변환 아님, 값 변환임      |
+| `Join<F, T>`로 캐스팅                | 런타임만 가능, 컴파일러는 강제 불가 |
+| `@SuppressWarnings("unchecked")` | 안전하게 사용하는 방법         |
+| `targetClass` 인자                 | 의미 없음, 제거해도 됨        |
+
+---
+
+필요하시면 여러 단계의 `path` (`"a.b.c"`)를 자동으로 따라가며 join하는 로직도 만들어 드릴 수 있어요.
+그런 거 원하시나요?
 
 
 -----
