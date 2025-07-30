@@ -1,4 +1,95 @@
 
+JPA Criteria API에서 `.as(alias)` 같은 방식으로 **JPQL의 alias (별칭)** 을 붙이는 것은 직접적으로 지원하지 않습니다. 대신, CriteriaQuery의 `multiselect`에서 별칭을 부여할 수 있습니다. 예를 들어:
+
+```java
+criteriaQuery.multiselect(
+    root.get("someField").alias("someAlias"),
+    anotherJoin.get("anotherField").alias("alias2")
+);
+```
+
+하지만 `queryContext.fieldNamePath.add(...)`에 넣는 시점은 아직 `multiselect`를 구성하는 단계가 아니므로, alias를 설정할 수 없습니다.
+
+### 해결 방안
+
+`fieldNamePath`와 별칭 정보를 함께 다룰 수 있도록 구조를 바꿔야 합니다.
+
+---
+
+### ✅ 방법 1: `Tuple` 쿼리를 위한 별도의 DTO 생성
+
+```java
+public class PathWithAlias {
+    private Path<?> path;
+    private String alias;
+
+    public PathWithAlias(Path<?> path, String alias) {
+        this.path = path;
+        this.alias = alias;
+    }
+
+    // getters
+}
+```
+
+그리고 `PieQueryContext`에 이렇게 필드를 바꿉니다:
+
+```java
+List<PathWithAlias> fieldNamePathWithAlias = new ArrayList<>();
+```
+
+사용 예:
+
+```java
+queryContext.fieldNamePathWithAlias.add(new PathWithAlias(packageJoin.get(DDE_PACKAGE_NAME_FIELD), DDE_PACKAGE_NAME_FIELD));
+```
+
+그리고 `CriteriaQuery<Tuple>`에서 이렇게 사용합니다:
+
+```java
+criteriaQuery.multiselect(
+    fieldNamePathWithAlias.stream()
+        .map(p -> p.getPath().alias(p.getAlias()))
+        .toArray(Selection[]::new)
+);
+```
+
+---
+
+### ✅ 방법 2: 기존 구조 유지하면서 별도로 alias 맵핑 정보 저장
+
+```java
+Map<Path<?>, String> aliasMap = new HashMap<>();
+aliasMap.put(packageJoin.get(DDE_PACKAGE_NAME_FIELD), DDE_PACKAGE_NAME_FIELD);
+```
+
+multiselect 시:
+
+```java
+criteriaQuery.multiselect(
+    aliasMap.entrySet().stream()
+        .map(e -> e.getKey().alias(e.getValue()))
+        .toArray(Selection[]::new)
+);
+```
+
+---
+
+### 요약
+
+| 목적                                     | 방법                            | 설명                              |
+| -------------------------------------- | ----------------------------- | ------------------------------- |
+| `Path + alias` 같이 관리                   | DTO(`PathWithAlias`) 또는 `Map` | CriteriaQuery에서 alias 처리        |
+| `fieldNamePath.add(...)`에서 alias 직접 지정 | ❌ 불가능                         | Path 객체 자체에 alias 없음            |
+| `multiselect(...)`에서 alias 지정          | ✅ `alias(...)` 사용 가능          | `Selection<?>.alias(String)` 활용 |
+
+---
+
+필요하시면 `PathWithAlias` 기반 전체 구조 코드도 같이 정리해드릴게요.
+
+
+-----
+
 좋은 접근입니다.
 현재 `addDimensionFields(...)` 메서드는 `MvAbnormalCountDaily` 엔티티를 기준으로 `deviceJoin`, `packageJoin`을 수행하고 있는데, **`MvAbnormalCountDaily`가 고정된 부분이 일반화를 막고 있죠.**
 
