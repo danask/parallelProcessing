@@ -1,4 +1,126 @@
 
+좋은 접근입니다.
+현재 `addDimensionFields(...)` 메서드는 `MvAbnormalCountDaily` 엔티티를 기준으로 `deviceJoin`, `packageJoin`을 수행하고 있는데, **`MvAbnormalCountDaily`가 고정된 부분이 일반화를 막고 있죠.**
+
+---
+
+## 🎯 목표
+
+1. `MvAbnormalCountDaily` 대신 다양한 루트 엔티티로부터 `join()`할 수 있도록 일반화
+2. 최소한 `deviceJoin`, `packageJoin` 관련 로직을 **재사용 가능한 메서드**로 분리
+
+---
+
+## ✅ 1단계: `deviceJoin`, `packageJoin` 추출하기
+
+### 🔧 유틸 함수 형태
+
+```java
+@SuppressWarnings("unchecked")
+public static <F, T> Join<F, T> getOrCreateJoin(
+    From<F, ?> from,
+    String fieldName,
+    JoinType joinType
+) {
+    return (Join<F, T>) from.join(fieldName, joinType);
+}
+```
+
+---
+
+## ✅ 2단계: `device` 관련 로직 분리
+
+```java
+private void handleDeviceJoin(PieQueryContext queryContext, String dimension) {
+    Join<?, DimDevice> deviceJoin = getOrCreateJoin(queryContext.itemRoot, DIM_DEVICE_FIELD_NAME, JoinType.LEFT);
+    queryContext.customerIdPath = deviceJoin.get(ETLDOCBASE_CUSTOMERID_FIELD);
+
+    List<String> deviceFields = Arrays.asList(
+        DDE_DEVICE_ID_FIELD,
+        DDE_DEVICE_MODEL_FIELD,
+        DDE_OS_VERSION_FIELD,
+        DDE_FIRMWARE_VERSION_FIELD,
+        ETLDOCBASE_GROUP_NAME_FIELD
+    );
+
+    if (deviceFields.contains(dimension)) {
+        queryContext.fieldNamePath.add(deviceJoin.get(dimension));
+    }
+}
+```
+
+---
+
+## ✅ 3단계: `package` 관련 로직 분리
+
+```java
+private void handlePackageJoin(PieQueryContext queryContext, String dimension) {
+    Join<?, DimPackage> packageJoin = getOrCreateJoin(queryContext.itemRoot, DIM_PACKAGE_FIELD_NAME, JoinType.LEFT);
+    queryContext.fieldNamePath.add(packageJoin.get(dimension));
+
+    if (DDE_APP_NAME_FIELD.equals(dimension)) {
+        queryContext.fieldNamePath.add(packageJoin.get(DDE_PACKAGE_NAME_FIELD));
+    }
+    if (DDE_PACKAGE_NAME_FIELD.equals(dimension)) {
+        queryContext.fieldNamePath.add(packageJoin.get(DDE_APP_NAME_FIELD));
+    }
+    if (DDE_APP_VERSION_FIELD.equals(dimension)) {
+        queryContext.fieldNamePath.add(packageJoin.get(DDE_APP_NAME_FIELD));
+        queryContext.fieldNamePath.add(packageJoin.get(DDE_PACKAGE_NAME_FIELD));
+    }
+}
+```
+
+---
+
+## ✅ 최종: 리팩토링된 `addDimensionFields(...)`
+
+```java
+private void addDimensionFields(PieQueryContext queryContext, String dimension) {
+    handleDeviceJoin(queryContext, dimension);
+
+    if (DDE_APP_NAME_FIELD.equals(dimension)
+        || DDE_PACKAGE_NAME_FIELD.equals(dimension)
+        || DDE_APP_VERSION_FIELD.equals(dimension)) {
+        handlePackageJoin(queryContext, dimension);
+    }
+}
+```
+
+---
+
+## ✅ 보너스: `itemRoot` 타입 일반화
+
+현재는 `Root<MvAbnormalCountDaily>`로 고정돼 있는데, `PieQueryContext`의 제네릭 타입을 선언하면 더 일반화할 수 있습니다.
+
+```java
+class PieQueryContext<T> {
+    public Root<T> itemRoot;
+    public Path<?> customerIdPath;
+    public List<Path<String>> fieldNamePath = new ArrayList<>();
+}
+```
+
+이렇게 하면 `MvAbnormalCountDaily` 외 다른 루트 엔티티에도 재사용 가능해요.
+
+---
+
+## 🔚 요약
+
+| 목적          | 결과                                                  |
+| ----------- | --------------------------------------------------- |
+| 중복 제거       | `handleDeviceJoin`, `handlePackageJoin` 분리          |
+| 타입 일반화      | `Join<?, DimDevice>` 사용 (`MvAbnormalCountDaily` 제거) |
+| 유연한 Join 유틸 | `getOrCreateJoin(...)` 메서드 제공                       |
+| 루트 엔티티 일반화  | `PieQueryContext<T>`로 확장 가능                         |
+
+---
+
+필요하면 더 동적으로 join 필드명이나 대상 클래스까지 매핑하는 구조 (`Map<String, Class<?>>`, `JoinGraph`)로도 확장할 수 있습니다.
+원하시나요?
+
+
+----
 
 좋습니다!
 당신이 하려는 건:
