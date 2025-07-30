@@ -1,4 +1,114 @@
 
+아래는 주어진 YAML 기반 설정(`dde.measure`)에서 `sum_total_run_time`과 같은 metric name을 가지고 관련된 `group`, `category`, `fieldKey`, `label` 등을 역으로 찾아오는 전체 로직입니다. 이미 파싱된 구조에서 `Map<String, FieldConfig>` 형식을 사용하는 것을 전제로 구성되어 있으며, `group`(예: `dde`), `category`(예: `mv_app_usage`), `fieldKey`(예: `totalRunTime`), `label`(예: `Total Run Time`), `metricLabel`(예: `Sum`), `metricName`(예: `sum_total_run_time`) 등을 찾아냅니다.
+
+### ✅ 전제 구조
+
+```java
+class FieldConfig {
+    String label;
+    Map<String, MetricConfig> metric;
+    Map<String, String> operator;
+    JoinConfig joins;
+}
+
+class MetricConfig {
+    String label;
+    String unit;
+    String name;
+}
+```
+
+### ✅ 전체 검색 로직
+
+```java
+public class FieldFinder {
+
+    public static class Result {
+        String group;
+        String category;
+        String fieldKey;
+        String fieldLabel;
+        String metricKey;
+        String metricLabel;
+        String metricName;
+
+        @Override
+        public String toString() {
+            return String.format(
+                "group=%s, category=%s, fieldKey=%s, fieldLabel=%s, metricKey=%s, metricLabel=%s, metricName=%s",
+                group, category, fieldKey, fieldLabel, metricKey, metricLabel, metricName
+            );
+        }
+    }
+
+    public static Optional<Result> findFieldByMetricName(
+        Map<String, Map<String, Map<String, FieldConfig>>> allGroups, String metricNameToFind
+    ) {
+        for (Map.Entry<String, Map<String, Map<String, FieldConfig>>> groupEntry : allGroups.entrySet()) {
+            String group = groupEntry.getKey(); // ex) "dde"
+            Map<String, Map<String, FieldConfig>> categories = groupEntry.getValue();
+
+            for (Map.Entry<String, Map<String, FieldConfig>> categoryEntry : categories.entrySet()) {
+                String category = categoryEntry.getKey(); // ex) "mv_app_usage"
+                Map<String, FieldConfig> fields = categoryEntry.getValue();
+
+                for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+                    String fieldKey = fieldEntry.getKey(); // ex) "totalRunTime"
+                    FieldConfig fieldConfig = fieldEntry.getValue();
+
+                    if (fieldConfig.getMetric() != null) {
+                        for (Map.Entry<String, MetricConfig> metricEntry : fieldConfig.getMetric().entrySet()) {
+                            String metricKey = metricEntry.getKey(); // ex) "sum"
+                            MetricConfig metric = metricEntry.getValue();
+                            if (metricNameToFind.equals(metric.getName())) {
+                                Result result = new Result();
+                                result.group = group;
+                                result.category = category;
+                                result.fieldKey = fieldKey;
+                                result.fieldLabel = fieldConfig.getLabel();
+                                result.metricKey = metricKey;
+                                result.metricLabel = metric.getLabel();
+                                result.metricName = metric.getName();
+                                return Optional.of(result);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+}
+```
+
+### ✅ 사용 예시
+
+```java
+Optional<FieldFinder.Result> result = FieldFinder.findFieldByMetricName(allGroups, "sum_total_run_time");
+
+result.ifPresent(System.out::println);
+```
+
+---
+
+### ✅ 입력 데이터 구조 예시
+
+`allGroups` 구조는 아래처럼 구성된다고 가정합니다:
+
+```java
+Map<String, Map<String, Map<String, FieldConfig>>> allGroups = new HashMap<>();
+// group = "dde"
+// category = "mv_app_usage"
+// fieldKey = "totalRunTime"
+```
+
+---
+
+필요하시면 YAML 파싱부터 이 구조로 만드는 코드도 추가해드릴 수 있습니다.
+이제 `sum_total_run_time` 같은 metric name을 하나만 가지고도 전체 구조를 역추적해서 찾아낼 수 있습니다.
+
+
+-----
 
 좋은 질문입니다. 지금 말씀하신 `YamlNode root` 대신에 다른 방식, 예컨대 Jackson의 `JsonNode`, SnakeYAML의 `YamlMapping`, 또는 Spring 환경이라면 `Map<String, Object>` 같은 구조를 사용하는 방식도 당연히 가능합니다. 어떤 걸 쓸 수 있는지는 **전체 YAML 구조 파싱 방식**과 \*\*당신의 목적(예: 탐색, 변경, 추천 로직 등)\*\*에 따라 달라집니다.
 
