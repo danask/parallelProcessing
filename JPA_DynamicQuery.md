@@ -1,3 +1,39 @@
+맞습니다. `CriteriaQuery.groupBy()`는 `List<Expression<?>>`이나 `Expression<?>...` 형식의 **varargs (가변 인자)** 를 받기 때문에, 아래와 같은 방식으로 처리하는 것이 올바릅니다:
+
+---
+
+### ✅ 올바른 `groupBy` 처리 방식
+
+```java
+List<Path<?>> groupByPaths = fieldNamePathWithAlias.stream()
+        .skip(1)
+        .map(FieldPathWithAlias::getPath)
+        .collect(Collectors.toList());
+
+criteriaQuery.groupBy(groupByPaths);
+```
+
+혹은 배열로 처리한다면:
+
+```java
+criteriaQuery.groupBy(groupByPaths.toArray(new Expression[0]));
+```
+
+> `Path`는 `Expression`의 하위 타입이기 때문에 `Expression[]`로도 문제없습니다.
+
+---
+
+### 🔍 참고
+
+* `groupBy(Path[] groupByPaths)`처럼 직접 배열을 넘기려면, `Path[]` 타입보다 `Expression<?>[]`로 캐스팅되거나 유도될 수 있어야 하므로 `toArray(new Expression[0])` 사용을 권장합니다.
+* `criteriaQuery.groupBy(...)`는 내부적으로 `List<Expression<?>>`을 사용합니다.
+
+---
+
+필요하면 `FieldPathWithAlias` 클래스와 함께 전체 context 코드도 리팩토링해 드릴 수 있습니다.
+
+
+---
 
 JPA Criteria API에서 `.as(alias)` 같은 방식으로 **JPQL의 alias (별칭)** 을 붙이는 것은 직접적으로 지원하지 않습니다. 대신, CriteriaQuery의 `multiselect`에서 별칭을 부여할 수 있습니다. 예를 들어:
 
