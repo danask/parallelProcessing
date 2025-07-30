@@ -1,3 +1,84 @@
+
+좋은 질문입니다. `queryContext.fieldNamePath.add(...)` 부분에 넣는 필드를 `countDistinct`로 감싸고 `alias`까지 붙이고 싶다면, `Path<?>` 대신 `Selection<?>` 타입을 만들어야 하고, 이후 `multiselect(...)` 또는 `criteriaQuery.select(...)`에 넣을 수 있게 구성해야 합니다.
+
+---
+
+## ✅ 1. `countDistinct` + `alias` 붙이는 방법
+
+```java
+Path<?> measurePath = queryContext.itemRoot.get(measure);
+Expression<Long> countDistinctExpr = cb.countDistinct(measurePath);
+Selection<?> countDistinctWithAlias = countDistinctExpr.alias("cnt_" + measure);
+```
+
+이렇게 만든 `countDistinctWithAlias`를 `multiselect(...)` 또는 `select(...)`에 넣으면 됩니다.
+
+---
+
+## ✅ 2. `queryContext.fieldNamePath`에 이런 것도 같이 넣고 싶다면?
+
+`Path` 대신 `Selection<?>` 또는 별도 클래스를 써야 합니다.
+
+예를 들어, `FieldPathWithAlias` 같은 커스텀 클래스가 있다면:
+
+```java
+queryContext.fieldNamePath.add(new FieldPathWithAlias(countDistinctExpr, "cnt_" + measure));
+```
+
+---
+
+## ✅ 예제 정리
+
+```java
+// 기본 Path
+Path<?> measurePath = queryContext.itemRoot.get(measure);
+
+// countDistinct + alias
+Expression<Long> countDistinctExpr = cb.countDistinct(measurePath);
+Selection<?> countDistinctWithAlias = countDistinctExpr.alias("cnt_" + measure);
+
+// 넣기
+queryContext.fieldNamePath.add(new FieldPathWithAlias(countDistinctExpr, "cnt_" + measure));
+
+// 나중에 select 시
+criteriaQuery.multiselect(
+    queryContext.fieldNamePath.stream()
+        .map(FieldPathWithAlias::getExpression)
+        .collect(Collectors.toList())
+);
+```
+
+---
+
+## ✅ `FieldPathWithAlias` 구조 예시
+
+```java
+public class FieldPathWithAlias {
+    private final Expression<?> expression;
+    private final String alias;
+
+    public FieldPathWithAlias(Expression<?> expression, String alias) {
+        this.expression = expression;
+        this.alias = alias;
+    }
+
+    public Expression<?> getExpression() {
+        return expression.alias(alias);
+    }
+
+    public String getAlias() {
+        return alias;
+    }
+}
+```
+
+---
+
+필요하면 이 `FieldPathWithAlias`에 `getPath()`나 `getFieldName()`도 붙여서 `groupBy` 등에도 사용할 수 있게 확장 가능합니다.
+원하시면 전체 리팩토링 코드 드릴게요.
+
+
+---
 맞습니다. `CriteriaQuery.groupBy()`는 `List<Expression<?>>`이나 `Expression<?>...` 형식의 **varargs (가변 인자)** 를 받기 때문에, 아래와 같은 방식으로 처리하는 것이 올바릅니다:
 
 ---
