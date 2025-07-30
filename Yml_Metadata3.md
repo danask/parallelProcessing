@@ -1,5 +1,107 @@
 
 
+좋은 질문입니다. 지금 말씀하신 `YamlNode root` 대신에 다른 방식, 예컨대 Jackson의 `JsonNode`, SnakeYAML의 `YamlMapping`, 또는 Spring 환경이라면 `Map<String, Object>` 같은 구조를 사용하는 방식도 당연히 가능합니다. 어떤 걸 쓸 수 있는지는 **전체 YAML 구조 파싱 방식**과 \*\*당신의 목적(예: 탐색, 변경, 추천 로직 등)\*\*에 따라 달라집니다.
+
+---
+
+### 🔍 이전 로직에서 어떤 걸 사용했는지 짚어봅시다
+
+이전 대화에서 YAML 기반 Join Graph 를 구성할 때 보통 아래 중 하나를 사용했습니다:
+
+#### ✅ 1. SnakeYAML + Map 구조
+
+```java
+Yaml yaml = new Yaml();
+InputStream inputStream = new FileInputStream(new File("your.yml"));
+Map<String, Object> data = yaml.load(inputStream);
+```
+
+이 경우 `data`는 중첩된 `Map<String, Object>` 구조이며, key 값을 따라 탐색하는 식으로 `sum_total_run_time`에 접근할 수 있습니다.
+
+---
+
+### 🧭 목표: `sum_total_run_time`을 기반으로 아래 값을 얻고 싶다고 하셨습니다
+
+* `group`: `mv_app_usage`
+* `category`: `totalRunTime`
+* `fieldkey`: `sum`
+* `label`: `"Sum"`
+* 그 외에 unit, name 등도 가능
+
+---
+
+### ✨ 예시 코드 (기존 방식 Map\<String, Object> 기반 탐색)
+
+```java
+public Map<String, Object> findFieldInfoByMetricName(Map<String, Object> yamlRoot, String metricName) {
+    Map<String, Object> result = new HashMap<>();
+
+    Map<String, Object> measures = (Map<String, Object>) ((Map<String, Object>) yamlRoot.get("dde")).get("measure");
+
+    for (String groupKey : measures.keySet()) {
+        Map<String, Object> group = (Map<String, Object>) measures.get(groupKey);
+        Map<String, Object> fields = (Map<String, Object>) group.get("fields");
+
+        for (String categoryKey : fields.keySet()) {
+            Map<String, Object> field = (Map<String, Object>) fields.get(categoryKey);
+            Map<String, Object> metrics = (Map<String, Object>) field.get("metric");
+
+            for (String fieldKey : metrics.keySet()) {
+                Map<String, Object> metric = (Map<String, Object>) metrics.get(fieldKey);
+
+                if (metricName.equals(metric.get("name"))) {
+                    result.put("group", groupKey);
+                    result.put("category", categoryKey);
+                    result.put("fieldkey", fieldKey);
+                    result.put("label", metric.get("label"));
+                    result.put("unit", metric.get("unit"));
+                    result.put("name", metric.get("name"));
+                    return result;
+                }
+            }
+        }
+    }
+
+    return null;
+}
+```
+
+---
+
+### 📘 출력 예시
+
+```java
+{
+  group=mv_app_usage,
+  category=totalRunTime,
+  fieldkey=sum,
+  label=Sum,
+  unit=count,
+  name=sum_total_run_time
+}
+```
+
+---
+
+### 🧠 그럼 YamlNode 를 안 쓰는 이유?
+
+`YamlNode`는 Java 17+에서 등장한 SnakeYAML Engine의 객체 모델로, 탐색은 용이하지만:
+
+* 타입 캐스팅이 번거롭고
+* Spring 기반 시스템과 호환성 떨어짐
+* 많은 프로젝트에서 여전히 Map\<String, Object> 기반 파싱을 선호
+
+따라서 단순 탐색이라면 `Map<String, Object>` 방식이 더 직관적이고 실용적입니다.
+
+---
+
+필요하다면 이걸 바탕으로 추천 시스템, join graph 매핑, 혹은 field 선택 UI에 연동하는 것도 가능합니다.
+
+추가로 DSL 기반으로 만들거나, 성능 고려한 구조화가 필요하면 알려주세요.
+
+
+----
+
 `sum_total_run_time`과 같은 **metric name**을 가지고 관련된 정보(예: group, category, fieldKey, label 등)를 역으로 찾으려면, 다음 방식으로 YAML 전체를 탐색하는 역매핑(reverse mapping) 로직이 필요합니다.
 
 ---
