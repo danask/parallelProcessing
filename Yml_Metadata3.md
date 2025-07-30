@@ -1,4 +1,101 @@
 
+
+`sum_total_run_time`과 같은 **metric name**을 가지고 관련된 정보(예: group, category, fieldKey, label 등)를 역으로 찾으려면, 다음 방식으로 YAML 전체를 탐색하는 역매핑(reverse mapping) 로직이 필요합니다.
+
+---
+
+### ✅ 1. 매핑 기준 이해
+
+너가 말한 구성은 대략 다음처럼 구성되어 있어:
+
+* **group**: `mv_app_usage`
+* **category** (optional): `totalRunTime`
+* **fieldKey**: `totalRunTime`
+* **metric name**: `sum_total_run_time`
+* **label**: `"Total Run Time"` (field), `"Sum"` (metric)
+* **join 정보**: `joins.measure` 등에 위치
+
+---
+
+### ✅ 2. 역탐색 예시 로직
+
+```java
+class MetricInfo {
+    String group;
+    String fieldKey;
+    String metricKey;
+    String metricName;
+    String label;
+    String unit;
+    // + other info like join target if needed
+}
+```
+
+### 자바 코드 로직 예시 (Jackson 기준)
+
+```java
+public MetricInfo findMetricByName(YamlNode root, String targetMetricName) {
+    for (Map.Entry<String, Object> groupEntry : root.get("dde").get("measure").entrySet()) {
+        String group = groupEntry.getKey();
+        Map<String, Object> fields = (Map<String, Object>) ((Map) groupEntry.getValue()).get("fields");
+
+        for (Map.Entry<String, Object> fieldEntry : fields.entrySet()) {
+            String fieldKey = fieldEntry.getKey();
+            Map<String, Object> metricObj = (Map<String, Object>) ((Map) fieldEntry.getValue()).get("metric");
+            for (Map.Entry<String, Object> metricEntry : metricObj.entrySet()) {
+                String metricKey = metricEntry.getKey();
+                Map<String, Object> metricInfo = (Map<String, Object>) metricEntry.getValue();
+                if (targetMetricName.equals(metricInfo.get("name"))) {
+                    MetricInfo info = new MetricInfo();
+                    info.group = group;
+                    info.fieldKey = fieldKey;
+                    info.metricKey = metricKey;
+                    info.metricName = (String) metricInfo.get("name");
+                    info.label = (String) metricInfo.get("label");
+                    info.unit = (String) metricInfo.get("unit");
+                    return info;
+                }
+            }
+        }
+    }
+    return null;
+}
+```
+
+---
+
+### ✅ 예시 결과 (입력: `sum_total_run_time`)
+
+| 항목         | 값                                        |
+| ---------- | ---------------------------------------- |
+| group      | `mv_app_usage`                           |
+| fieldKey   | `totalRunTime`                           |
+| metricKey  | `sum`                                    |
+| metricName | `sum_total_run_time`                     |
+| label      | `Sum` (metric), `Total Run Time` (field) |
+| unit       | `count`                                  |
+
+---
+
+### ✅ 만약 `joins`, `filters`, `operator` 도 필요하다면?
+
+`fieldEntry.getValue()` 안에 포함되어 있는 `joins`, `operator` 등도 같은 방식으로 추출 가능합니다.
+
+---
+
+### ✅ 정리
+
+* `sum_total_run_time`은 **metric name**
+* 이 값을 키로 역으로 `group`, `fieldKey`, `label`, `unit`, `metricKey` 등을 찾으려면
+
+  * measure → field → metric → name 으로 내려가서 역매핑
+* Java, Python, JavaScript 등에서 **YAML 트리 traversal** 로 해결 가능
+
+필요하면 파싱 도구도 같이 정리해 줄게 (예: SnakeYAML for Java).
+
+
+----
+
 좋아, 그럼 지금까지 나눈 모든 유효성 검사를 하나로 모아서 `validateSelectedFields(...)` 함수로 통합해줄게.
 이 함수는 `getJoinRecommendations(...)` 전에 호출되도록 하면 돼.
 
