@@ -1,47 +1,35 @@
-
-좋습니다. 공유해주신 `getOperations` 코드에서는 JPA Criteria API를 사용하여 다양한 비교 연산을 처리하려고 하고 있습니다. 하지만 현재 구조는 **타입 문제**, **제네릭 불일치**, 그리고 **`lessThan` 등 비교 연산자에 `String` 값을 직접 전달하는 부분** 때문에 컴파일 에러 혹은 런타임 에러가 발생합니다.
-
----
-
-## ❌ 문제 요약
-
-1. `criteriaBuilder.lessThan(...)` 등에서 비교 대상 타입은 **`Comparable`** 이어야 함
-2. `Path<? extends Comparable>` 은 괜찮지만, `values[0]` 은 `String`, 즉 타입 불일치
-3. `lessThan(Path<? extends Comparable<T>>, T)` 를 사용하려면 T가 정확해야 함
+아주 좋습니다. 현재 작성하신 `getOperationso` 메서드는 조건에 따라 `queryContext.deviceRoot.get(name)`, `queryContext.appRoot.get(name)`, `queryContext.itemRoot.get(name)` 을 반복적으로 호출하고 있어 중복이 많고, 유지보수성이 떨어집니다.
 
 ---
 
-## ✅ 해결 방향
+## ✅ 목표
 
-### 1. `Path<T>` 의 정확한 타입 추론을 도와야 함
-
-`Path` 객체에서 타입을 추론하고, 그에 맞는 `Comparable` 로 캐스팅하거나 파싱해야 함.
-
-예를 들어 `name` 필드가 `Integer`, `Long`, `LocalDate`, `String` 등 다양할 수 있으므로, **필드 타입을 확인하고 적절히 변환**해야 합니다.
+**중복 제거** + **필드 소속(device/app/item) 추상화**
+→ `Path<?>` 를 공통으로 추출하고, 이후 조건절은 그 `Path` 에 대해만 처리
 
 ---
 
-### ✅ 수정된 `getOperations` 예시
+## ✨ 개선된 코드 (중복 제거 및 확장 가능 구조)
 
 ```java
 @SuppressWarnings("unchecked")
-public Predicate getOperations(PieQueryContext queryContext, CriteriaBuilder cb,
+public Predicate getOperations(PieQueryContext queryContext,
+                               CriteriaBuilder cb,
                                String name, String[] values, String operator) {
 
-    Path<?> path = getRoot(queryContext, name);
-
+    Path<?> path = resolvePath(queryContext, name);
     Class<?> javaType = path.getJavaType();
-    Comparable value = castToComparable(javaType, values[0]);
+    Comparable comparableValue = castToComparable(javaType, values[0]);
 
     switch (operator) {
         case FILTER_OPERATOR_LT:
-            return cb.lessThan((Path<Comparable>) path, value);
+            return cb.lessThan((Path<Comparable>) path, comparableValue);
         case FILTER_OPERATOR_LTE:
-            return cb.lessThanOrEqualTo((Path<Comparable>) path, value);
+            return cb.lessThanOrEqualTo((Path<Comparable>) path, comparableValue);
         case FILTER_OPERATOR_GT:
-            return cb.greaterThan((Path<Comparable>) path, value);
+            return cb.greaterThan((Path<Comparable>) path, comparableValue);
         case FILTER_OPERATOR_GTE:
-            return cb.greaterThanOrEqualTo((Path<Comparable>) path, value);
+            return cb.greaterThanOrEqualTo((Path<Comparable>) path, comparableValue);
         default:
             CriteriaBuilder.In<Object> inClause = cb.in(path);
             for (String v : values) {
@@ -54,10 +42,26 @@ public Predicate getOperations(PieQueryContext queryContext, CriteriaBuilder cb,
 
 ---
 
-### 🔧 `castToComparable` 메서드 구현 예
+## 🔍 공통 Path 추출 메서드
 
 ```java
-private Comparable castToComparable(Class<?> type, String value) {
+private Path<?> resolvePath(PieQueryContext queryContext, String name) {
+    if (deviceFields.contains(name)) {
+        return queryContext.deviceRoot.get(name);
+    } else if (appFields.contains(name)) {
+        return queryContext.appRoot.get(name);
+    } else {
+        return queryContext.itemRoot.get(name);
+    }
+}
+```
+
+---
+
+## 🔧 castToComparable 도 함께
+
+```java
+private Comparable<?> castToComparable(Class<?> type, String value) {
     if (type == Integer.class || type == int.class) {
         return Integer.valueOf(value);
     } else if (type == Long.class || type == long.class) {
@@ -67,26 +71,27 @@ private Comparable castToComparable(Class<?> type, String value) {
     } else if (type == Float.class || type == float.class) {
         return Float.valueOf(value);
     } else if (type == LocalDate.class) {
-        return LocalDate.parse(value); // "2024-08-01"
+        return LocalDate.parse(value);
     } else if (type == LocalDateTime.class) {
-        return LocalDateTime.parse(value); // with ISO format
+        return LocalDateTime.parse(value);
     } else {
-        return value; // String or fallback
+        return value; // fallback to String
     }
 }
 ```
 
 ---
 
-## 📌 주의할 점
+## ✅ 결과적으로 얻는 장점
 
-* `LocalDateTime.parse` 사용 시 문자열이 ISO 포맷 (`yyyy-MM-ddTHH:mm:ss`) 이어야 합니다.
-* `path.getJavaType()` 을 통해 비교 대상 컬럼의 실제 자바 타입을 확인해야 합니다.
-* 위 코드는 `@SuppressWarnings("unchecked")` 를 사용해 컴파일 경고만 억제했지만, 타입 안정성을 원하면 제네릭을 정교하게 구성하는 방식이 더 좋습니다.
+* 조건문에서 `queryContext.deviceRoot.get(name)` 같은 중복 제거
+* `resolvePath()` 메서드로 root selection 로직을 분리
+* 향후 root 구조가 바뀌어도 한 군데만 수정하면 됨
+* `castToComparable()` 로 타입 오류도 방지
 
 ---
 
-필요하면 이 로직을 개선해서 **다중 조건 처리** (`AND`, `OR`), 또는 **Null 체크/Not Null** 도 추가 가능합니다.
+필요하다면, `BETWEEN`, `IS NULL`, `LIKE` 같은 조건도 쉽게 확장 가능합니다. 원하시면 확장 버전도 예시로 드릴게요.
 
 
 ----
