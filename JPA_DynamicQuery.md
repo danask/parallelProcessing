@@ -1,4 +1,91 @@
 
+지금 작성하신 구조를 보면 JPA 매핑에서 **잘못된 연관관계 매핑**이 발생할 수 있습니다. 설명드리겠습니다.
+
+---
+
+### ✅ 현재 클래스 구조 요약:
+
+#### `MvCustomerApps`
+
+```java
+@Id
+@Column(name = "customer_id")
+protected String customerId;
+
+@Id
+@Column(name = "dim_package_id")
+protected Long dimPackageId;
+
+@ManyToOne
+@JoinColumn(name = "customer_id", insertable = false, updatable = false)
+private DimDevice dimDevice;
+
+@ManyToOne
+@JoinColumn(name = "dim_package_id", insertable = false, updatable = false)
+private DimPackage dimPackage;
+```
+
+#### `DimDevice`
+
+```java
+@Id
+@Column(name = "dim_device_id")
+protected Long dimDeviceId;
+
+@Column(name = "customer_id")
+protected String customerId;
+```
+
+#### `DimPackage`
+
+```java
+@Id
+@Column(name = "dim_package_id")
+protected Long dimPackageId;
+```
+
+---
+
+### ❌ 문제점
+
+* `MvCustomerApps.dimDevice` 와 `DimDevice`를 `customer_id` 기준으로 매핑하고 싶으신 것으로 보입니다.
+* 그런데 실제 `@ManyToOne` 매핑은 `@JoinColumn(name = "customer_id")` 라고만 되어 있어서 JPA는 `MvCustomerApps.customer_id = DimDevice.dim_device_id` 처럼 잘못 해석할 가능성이 큽니다.
+* 왜냐하면 `@JoinColumn`은 **외래키가 가리키는 대상 컬럼**이 무엇인지 지정하지 않으면 기본적으로 **연결된 Entity의 PK** (`DimDevice.dim_device_id`)를 사용한다고 간주하기 때문입니다.
+
+즉, `MvCustomerApps.customer_id`가 **`DimDevice.customer_id`** 를 참조하려는 의도라면, 다음처럼 명시해야 합니다:
+
+---
+
+### ✅ 해결 방법 (정확히 어떤 컬럼으로 매핑할지 지정)
+
+```java
+@ManyToOne
+@JoinColumn(name = "customer_id", referencedColumnName = "customer_id", insertable = false, updatable = false)
+private DimDevice dimDevice;
+```
+
+* `name = "customer_id"` → MvCustomerApps 테이블의 FK 컬럼
+* `referencedColumnName = "customer_id"` → DimDevice 테이블의 **customer\_id** 컬럼 (PK가 아님)
+
+이렇게 하면 JPA가 `MvCustomerApps.customer_id = DimDevice.customer_id` 로 조인하도록 정확하게 인식합니다.
+
+---
+
+### 🔎 요약
+
+| 항목                                     | 설명                                  |
+| -------------------------------------- | ----------------------------------- |
+| `JoinColumn(name = "customer_id")`     | FK 컬럼 지정                            |
+| `referencedColumnName = "customer_id"` | 연결된 엔티티에서 어떤 컬럼으로 연결할지 명시 (기본값은 PK) |
+| `@Id`만으로는 조인 기준이 아니라 식별자 역할만 함         | 조인에 쓰려면 `referencedColumnName` 사용   |
+
+---
+
+필요하시면, 이 구조에 맞는 **JPQL 예제**나 **native SQL과의 차이점**도 정리해드릴 수 있어요.
+
+
+----
+
 좋은 질문입니다. `queryContext.fieldNamePath.add(...)` 부분에 넣는 필드를 `countDistinct`로 감싸고 `alias`까지 붙이고 싶다면, `Path<?>` 대신 `Selection<?>` 타입을 만들어야 하고, 이후 `multiselect(...)` 또는 `criteriaQuery.select(...)`에 넣을 수 있게 구성해야 합니다.
 
 ---
