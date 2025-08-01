@@ -1,4 +1,96 @@
 
+좋습니다. 공유해주신 `getOperations` 코드에서는 JPA Criteria API를 사용하여 다양한 비교 연산을 처리하려고 하고 있습니다. 하지만 현재 구조는 **타입 문제**, **제네릭 불일치**, 그리고 **`lessThan` 등 비교 연산자에 `String` 값을 직접 전달하는 부분** 때문에 컴파일 에러 혹은 런타임 에러가 발생합니다.
+
+---
+
+## ❌ 문제 요약
+
+1. `criteriaBuilder.lessThan(...)` 등에서 비교 대상 타입은 **`Comparable`** 이어야 함
+2. `Path<? extends Comparable>` 은 괜찮지만, `values[0]` 은 `String`, 즉 타입 불일치
+3. `lessThan(Path<? extends Comparable<T>>, T)` 를 사용하려면 T가 정확해야 함
+
+---
+
+## ✅ 해결 방향
+
+### 1. `Path<T>` 의 정확한 타입 추론을 도와야 함
+
+`Path` 객체에서 타입을 추론하고, 그에 맞는 `Comparable` 로 캐스팅하거나 파싱해야 함.
+
+예를 들어 `name` 필드가 `Integer`, `Long`, `LocalDate`, `String` 등 다양할 수 있으므로, **필드 타입을 확인하고 적절히 변환**해야 합니다.
+
+---
+
+### ✅ 수정된 `getOperations` 예시
+
+```java
+@SuppressWarnings("unchecked")
+public Predicate getOperations(PieQueryContext queryContext, CriteriaBuilder cb,
+                               String name, String[] values, String operator) {
+
+    Path<?> path = getRoot(queryContext, name);
+
+    Class<?> javaType = path.getJavaType();
+    Comparable value = castToComparable(javaType, values[0]);
+
+    switch (operator) {
+        case FILTER_OPERATOR_LT:
+            return cb.lessThan((Path<Comparable>) path, value);
+        case FILTER_OPERATOR_LTE:
+            return cb.lessThanOrEqualTo((Path<Comparable>) path, value);
+        case FILTER_OPERATOR_GT:
+            return cb.greaterThan((Path<Comparable>) path, value);
+        case FILTER_OPERATOR_GTE:
+            return cb.greaterThanOrEqualTo((Path<Comparable>) path, value);
+        default:
+            CriteriaBuilder.In<Object> inClause = cb.in(path);
+            for (String v : values) {
+                inClause.value(castToComparable(javaType, v));
+            }
+            return inClause;
+    }
+}
+```
+
+---
+
+### 🔧 `castToComparable` 메서드 구현 예
+
+```java
+private Comparable castToComparable(Class<?> type, String value) {
+    if (type == Integer.class || type == int.class) {
+        return Integer.valueOf(value);
+    } else if (type == Long.class || type == long.class) {
+        return Long.valueOf(value);
+    } else if (type == Double.class || type == double.class) {
+        return Double.valueOf(value);
+    } else if (type == Float.class || type == float.class) {
+        return Float.valueOf(value);
+    } else if (type == LocalDate.class) {
+        return LocalDate.parse(value); // "2024-08-01"
+    } else if (type == LocalDateTime.class) {
+        return LocalDateTime.parse(value); // with ISO format
+    } else {
+        return value; // String or fallback
+    }
+}
+```
+
+---
+
+## 📌 주의할 점
+
+* `LocalDateTime.parse` 사용 시 문자열이 ISO 포맷 (`yyyy-MM-ddTHH:mm:ss`) 이어야 합니다.
+* `path.getJavaType()` 을 통해 비교 대상 컬럼의 실제 자바 타입을 확인해야 합니다.
+* 위 코드는 `@SuppressWarnings("unchecked")` 를 사용해 컴파일 경고만 억제했지만, 타입 안정성을 원하면 제네릭을 정교하게 구성하는 방식이 더 좋습니다.
+
+---
+
+필요하면 이 로직을 개선해서 **다중 조건 처리** (`AND`, `OR`), 또는 **Null 체크/Not Null** 도 추가 가능합니다.
+
+
+----
+
 지금 작성하신 구조를 보면 JPA 매핑에서 **잘못된 연관관계 매핑**이 발생할 수 있습니다. 설명드리겠습니다.
 
 ---
