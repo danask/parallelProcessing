@@ -1,3 +1,110 @@
+
+좋습니다! 아래는 당신이 하려는 목적(예: `WHERE device_model IN ('a', 'b')`)을 기준으로 **완전히 리팩토링된 `getOperations()` 메서드**입니다.
+타입 변환, 조인 처리, 중복 제거까지 모두 반영했습니다.
+
+---
+
+## ✅ 최종 리팩토링된 `getOperations()` 예제
+
+```java
+@SuppressWarnings("unchecked")
+public Predicate getOperations(PieQueryContext queryContext,
+                               CriteriaBuilder cb,
+                               String name, String[] values, String operator) {
+
+    Path<?> path = resolvePath(queryContext, name);
+    Class<?> javaType = path.getJavaType();
+    Comparable<?> comparableValue = castToComparable(values[0], javaType);
+
+    switch (operator) {
+        case FILTER_OPERATOR_LT:
+            return cb.lessThan((Path<Comparable>) path, comparableValue);
+        case FILTER_OPERATOR_LTE:
+            return cb.lessThanOrEqualTo((Path<Comparable>) path, comparableValue);
+        case FILTER_OPERATOR_GT:
+            return cb.greaterThan((Path<Comparable>) path, comparableValue);
+        case FILTER_OPERATOR_GTE:
+            return cb.greaterThanOrEqualTo((Path<Comparable>) path, comparableValue);
+        default: {
+            CriteriaBuilder.In<Object> inClause = cb.in(path);
+            for (String v : values) {
+                inClause.value(castToComparable(v, javaType));
+            }
+            return inClause;
+        }
+    }
+}
+```
+
+---
+
+## ✅ `resolvePath()` – 필드 소속에 따른 경로 추출
+
+```java
+private Path<?> resolvePath(PieQueryContext queryContext, String name) {
+    if (deviceFields.contains(name)) {
+        Join<?, DimDevice> deviceJoin = getOrCreateJoin(queryContext.itemRoot, "dimDevice", JoinType.LEFT);
+        return deviceJoin.get(name);
+    } else if (appFields.contains(name)) {
+        Join<?, DimPackage> packageJoin = getOrCreateJoin(queryContext.itemRoot, "dimPackage", JoinType.LEFT);
+        return packageJoin.get(name);
+    } else {
+        return queryContext.itemRoot.get(name);
+    }
+}
+```
+
+---
+
+## ✅ `castToComparable()` – 타입 캐스팅 유틸
+
+```java
+private Comparable<?> castToComparable(String value, Class<?> type) {
+    if (type == String.class) {
+        return value;
+    } else if (type == Integer.class || type == int.class) {
+        return Integer.valueOf(value);
+    } else if (type == Long.class || type == long.class) {
+        return Long.valueOf(value);
+    } else if (type == Double.class || type == double.class) {
+        return Double.valueOf(value);
+    } else if (type == Float.class || type == float.class) {
+        return Float.valueOf(value);
+    } else if (type == Boolean.class || type == boolean.class) {
+        return Boolean.valueOf(value);
+    } else if (type == LocalDate.class) {
+        return LocalDate.parse(value);
+    } else if (type == LocalDateTime.class) {
+        return LocalDateTime.parse(value);
+    } else {
+        throw new IllegalArgumentException("Unsupported type: " + type.getName());
+    }
+}
+```
+
+---
+
+## 📌 이렇게 쓰면 됩니다:
+
+```java
+// 예시 호출
+Predicate p = getOperations(queryContext, cb, "deviceModel", new String[]{"a", "b"}, "in");
+```
+
+→ 결과적으로 SQL:
+
+```sql
+WHERE dim_device.device_model IN ('a', 'b')
+```
+
+이런 식으로 나옵니다 (JPA가 자동으로 조인 처리).
+
+---
+
+필요하시면 이 구조를 기반으로 `BETWEEN`, `IS NULL`, `LIKE`, `NOT IN` 등도 쉽게 확장 가능해요. 원하시면 추가해드릴게요.
+
+
+----
 좋아요, 정리하자면:
 
 당신이 **하려는 원래 목적**은 다음 SQL을 Criteria API로 표현하려는 것입니다:
