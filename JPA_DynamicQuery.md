@@ -72,6 +72,29 @@ for (String v : values) {
     inClause.value(castToType(v, javaType));
 }
 return inClause;
+
+private Object castToType(String value, Class<?> type) {
+    if (type == String.class) {
+        return value;
+    } else if (type == Integer.class || type == int.class) {
+        return Integer.valueOf(value);
+    } else if (type == Long.class || type == long.class) {
+        return Long.valueOf(value);
+    } else if (type == Double.class || type == double.class) {
+        return Double.valueOf(value);
+    } else if (type == Float.class || type == float.class) {
+        return Float.valueOf(value);
+    } else if (type == Boolean.class || type == boolean.class) {
+        return Boolean.valueOf(value);
+    } else if (type == LocalDate.class) {
+        return LocalDate.parse(value);
+    } else if (type == LocalDateTime.class) {
+        return LocalDateTime.parse(value);
+    } else {
+        throw new IllegalArgumentException("Unsupported type: " + type.getName());
+    }
+}
+
 ```
 
 ---
