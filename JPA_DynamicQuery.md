@@ -1,18 +1,82 @@
+좋아요, 정리하자면:
 
-CriteriaQuery<Tuple> query = criteriaBuilder.createTupleQuery();
-Root<MvCustomerApps> root = query.from(MvCustomerApps.class);
+당신이 **하려는 원래 목적**은 다음 SQL을 Criteria API로 표현하려는 것입니다:
 
-// 1. Join 설정
-Join<MvCustomerApps, DimDevice> deviceJoin = root.join("dimDevice", JoinType.LEFT);
-Join<MvCustomerApps, AppEntity> appJoin = root.join("app", JoinType.LEFT);
+```sql
+WHERE device_model IN ('a', 'b')
+```
 
-// 2. QueryContext에 세팅
-queryContext.itemRoot = root;
-queryContext.deviceRoot = deviceJoin;
-queryContext.appRoot = appJoin;
+---
 
-// 3. 필터 조건 생성 (이 시점에 resolvePath 가능)
-Predicate condition = getOperations(queryContext, cb, name, values, operator);
+## ✅ 전제
+
+* `device_model`은 `DimDevice` 엔티티의 필드
+* `MvCustomerApps`와 `DimDevice`는 연관관계가 있고, `deviceJoin.get("deviceModel")` 식으로 접근 가능
+* `values = new String[]{"a", "b"}` 이런 식으로 넘어옴
+
+---
+
+## ✅ 제대로 된 Criteria API 구성
+
+아래 코드가 맞는 방향입니다:
+
+```java
+Join<?, DimDevice> deviceJoin = getOrCreateJoin(queryContext.itemRoot, "dimDevice", JoinType.LEFT);
+Path<String> path = deviceJoin.get("deviceModel");
+
+CriteriaBuilder.In<String> inClause = criteriaBuilder.in(path);
+for (String v : values) {
+    inClause.value(v);
+}
+return inClause;
+```
+
+---
+
+## ❗주의할 점
+
+### ✖ 이건 안 됨:
+
+```java
+criteriaBuilder.in(deviceJoin.get(name)).in(values);
+```
+
+이유:
+
+* `.in(values)` → 배열 자체를 값 하나로 간주해서 `"device_model in (['a', 'b'])"` 식으로 될 수 있음
+* 또는 내부적으로 타입 미스매치
+
+---
+
+## ✅ 정리: 제대로 가고 있는가?
+
+**네, 방향은 맞고**, 아래와 같은 구조로 수정하시면 잘 작동합니다:
+
+### 🔄 통합된 형태로 예시:
+
+```java
+Path<?> path;
+if (deviceFields.contains(name)) {
+    Join<?, DimDevice> deviceJoin = getOrCreateJoin(queryContext.itemRoot, "dimDevice", JoinType.LEFT);
+    path = deviceJoin.get(name);
+} else if (appFields.contains(name)) {
+    Join<?, DimPackage> packageJoin = getOrCreateJoin(queryContext.itemRoot, "dimPackage", JoinType.LEFT);
+    path = packageJoin.get(name);
+} else {
+    path = queryContext.itemRoot.get(name);
+}
+
+CriteriaBuilder.In<Object> inClause = criteriaBuilder.in(path);
+Class<?> javaType = path.getJavaType();
+for (String v : values) {
+    inClause.value(castToType(v, javaType));
+}
+return inClause;
+```
+
+---
+
+필요하시면 전체 `getOperations()` 메서드를 통합 리팩토링된 형태로 정리해드릴게요.
 
 
 ---
