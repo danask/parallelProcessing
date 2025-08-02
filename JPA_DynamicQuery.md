@@ -1,3 +1,21 @@
+
+CriteriaQuery<Tuple> query = criteriaBuilder.createTupleQuery();
+Root<MvCustomerApps> root = query.from(MvCustomerApps.class);
+
+// 1. Join 설정
+Join<MvCustomerApps, DimDevice> deviceJoin = root.join("dimDevice", JoinType.LEFT);
+Join<MvCustomerApps, AppEntity> appJoin = root.join("app", JoinType.LEFT);
+
+// 2. QueryContext에 세팅
+queryContext.itemRoot = root;
+queryContext.deviceRoot = deviceJoin;
+queryContext.appRoot = appJoin;
+
+// 3. 필터 조건 생성 (이 시점에 resolvePath 가능)
+Predicate condition = getOperations(queryContext, cb, name, values, operator);
+
+
+---
 아주 좋습니다. 현재 작성하신 `getOperationso` 메서드는 조건에 따라 `queryContext.deviceRoot.get(name)`, `queryContext.appRoot.get(name)`, `queryContext.itemRoot.get(name)` 을 반복적으로 호출하고 있어 중복이 많고, 유지보수성이 떨어집니다.
 
 ---
