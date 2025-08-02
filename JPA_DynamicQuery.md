@@ -1,3 +1,97 @@
+네, 정확하게 보셨습니다!
+`cb.lessThan((Path<Comparable>) path, comparableValue)` 이 부분에서 **타입 호환 에러가 나는 이유**는 다음과 같습니다:
+
+---
+
+## ⚠️ 문제 원인
+
+```java
+Path<?> path; // 와일드카드 타입 (<?>)
+cb.lessThan((Path<Comparable>) path, comparableValue); 
+```
+
+* `Path<?>`는 **어떤 타입인지 모른다**는 의미
+* 그런데 `CriteriaBuilder.lessThan(Path<T>, T)` 는 `T extends Comparable<T>` 를 요구
+* 그래서 `(Path<Comparable>) path` 라고 강제 캐스팅해도,
+  컴파일러는 여전히 타입 안정성을 보장할 수 없어서 **"타입 불일치" 또는 "unchecked cast" 경고 또는 오류**를 냅니다
+
+---
+
+## ✅ 해결 방법
+
+### 1. `Path<? extends Comparable>` 로 바꾸기
+
+```java
+Path<? extends Comparable> path = (Path<? extends Comparable>) resolvePath(queryContext, name);
+Comparable comparableValue = castToComparable(values[0], path.getJavaType());
+
+switch (operator) {
+    case FILTER_OPERATOR_LT:
+        return cb.lessThan(path, comparableValue);
+```
+
+👉 이 구조는 경고는 날 수 있지만, **컴파일은 통과**하고 대부분의 경우 **실행도 문제 없습니다**.
+
+---
+
+### 2. 또는 `resolvePath()` 의 반환 타입을 처음부터 명확히 해버리기
+
+```java
+private <T extends Comparable<? super T>> Path<T> resolveComparablePath(PieQueryContext ctx, String name) {
+    Path<?> rawPath = resolvePath(ctx, name);
+    return (Path<T>) rawPath; // unchecked cast, 위험하지만 통제 가능
+}
+```
+
+그 후 사용 시:
+
+```java
+Path<Comparable> path = resolveComparablePath(queryContext, name);
+return cb.lessThan(path, comparableValue);
+```
+
+---
+
+### 🔐 안전하고 타입추론까지 가능한 구조 예시
+
+```java
+@SuppressWarnings("unchecked")
+private <T extends Comparable<? super T>> Predicate buildComparisonPredicate(
+        CriteriaBuilder cb, Path<?> path, String operator, String value) {
+
+    Path<T> typedPath = (Path<T>) path;
+    T comparableValue = (T) castToComparable(value, path.getJavaType());
+
+    switch (operator) {
+        case FILTER_OPERATOR_LT:
+            return cb.lessThan(typedPath, comparableValue);
+        case FILTER_OPERATOR_LTE:
+            return cb.lessThanOrEqualTo(typedPath, comparableValue);
+        case FILTER_OPERATOR_GT:
+            return cb.greaterThan(typedPath, comparableValue);
+        case FILTER_OPERATOR_GTE:
+            return cb.greaterThanOrEqualTo(typedPath, comparableValue);
+        default:
+            throw new IllegalArgumentException("Unsupported operator: " + operator);
+    }
+}
+```
+
+---
+
+## ✨ 요약
+
+| 문제                                             | 해결 방법                                                                        |
+| ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `Path<?>` 는 타입 추론이 안 돼서 `cb.lessThan()` 과 안 맞음 | `Path<? extends Comparable>` 로 받거나 제네릭 `Path<T extends Comparable>` 로 강제 캐스팅 |
+| `unchecked cast` 경고 있음                         | 있지만 실무에서는 자주 쓰이며, 통제 가능한 방식이면 괜찮음                                            |
+
+---
+
+필요하시면 이 구조를 완전히 제네릭한 `PredicateBuilder` 클래스로 분리해 드릴 수도 있어요.
+
+
+----
 
 좋습니다! 아래는 당신이 하려는 목적(예: `WHERE device_model IN ('a', 'b')`)을 기준으로 **완전히 리팩토링된 `getOperations()` 메서드**입니다.
 타입 변환, 조인 처리, 중복 제거까지 모두 반영했습니다.
