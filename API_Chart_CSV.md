@@ -1,3 +1,90 @@
+좋은 질문이에요. 만약 `List<Map<String, Object>>` 형태의 flat한 데이터를 받아서 CSV로 출력하려는 경우, **구조화된 `DateEntry`, `DataPoint` 없이도 바로 CSV 생성이 가능**합니다.
+
+---
+
+## ✅ 목표
+
+`List<Map<String, Object>> flatData` → CSV 변환
+(즉, 각 `Map`은 1개의 row를 나타내며 key가 컬럼 이름)
+
+---
+
+## 🔧 처리 방법
+
+```java
+public ResponseEntity<byte[]> downloadCsvFromFlatData(List<Map<String, Object>> flatData) throws IOException {
+    // 1. 헤더 추출 (모든 key 집합)
+    Set<String> headersSet = new TreeSet<>();
+    for (Map<String, Object> row : flatData) {
+        headersSet.addAll(row.keySet());
+    }
+    List<String> headers = new ArrayList<>(headersSet);
+
+    // 2. ByteArrayOutputStream + UTF-8 BOM
+    ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+    byteOut.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+
+    try (PrintWriter writer = new PrintWriter(new OutputStreamWriter(byteOut, StandardCharsets.UTF_8))) {
+        // 3. 헤더 출력
+        writer.println(String.join(",", headers));
+
+        // 4. row 출력
+        for (Map<String, Object> row : flatData) {
+            List<String> values = new ArrayList<>();
+            for (String header : headers) {
+                Object val = row.getOrDefault(header, "");
+                values.add(escapeCsv(String.valueOf(val != null ? val : "")));
+            }
+            writer.println(String.join(",", values));
+        }
+
+        writer.flush();
+    }
+
+    // 5. ResponseEntity 생성
+    byte[] csvBytes = byteOut.toByteArray();
+    String fileName = URLEncoder.encode("차트_데이터.csv", StandardCharsets.UTF_8).replace("+", "%20");
+
+    HttpHeaders headersHttp = new HttpHeaders();
+    headersHttp.setContentType(MediaType.parseMediaType("text/csv; charset=UTF-8"));
+    headersHttp.setContentLength(csvBytes.length);
+    headersHttp.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fileName);
+
+    return new ResponseEntity<>(csvBytes, headersHttp, HttpStatus.OK);
+}
+```
+
+---
+
+## 🔧 CSV Escape 유틸
+
+```java
+private String escapeCsv(String value) {
+    if (value == null) return "";
+    String escaped = value.replace("\"", "\"\"");
+    if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+        return "\"" + escaped + "\"";
+    }
+    return escaped;
+}
+```
+
+---
+
+## 📌 정리
+
+| 입력 타입                       | 처리 방식                   |
+| --------------------------- | ----------------------- |
+| `List<DateEntry>`           | 구조화된 JSON → CSV (기존 방식) |
+| `List<Map<String, Object>>` | flat 구조 → CSV (위 방식)    |
+
+이 로직을 공통화해서 `generateCsvFromFlatData(List<Map<String, Object>> data)`로 service에 넣는 것도 가능해요.
+
+필요하면 같이 분리해줄게요.
+
+
+-----
+
 완벽해! `ResponseEntity<byte[]>`로 처리하면 CSV도 **세련되고 선언적인 방식**으로 응답 가능하고,
 테스트, Swagger 문서화, 프록시 환경 등에서도 더 안정적이야.
 
