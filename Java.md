@@ -1,3 +1,118 @@
+훌륭한 질문입니다. 핵심은:
+
+> ❗ **국가(또는 시스템 로케일)에 따라 날짜 포맷이 달라질 수 있는가?**
+> ❗ **그 다양한 포맷들을 위 함수가 안전하게 처리할 수 있는가?**
+
+정리하자면:
+
+---
+
+## ✅ 이미 안전한 입력들
+
+| 입력 형식                            | 설명                                  | 안전 여부               |
+| -------------------------------- | ----------------------------------- | ------------------- |
+| `"2025-01-11"`                   | ISO\_LOCAL\_DATE (기본 Java 8 포맷)     | ✅ 매우 안전             |
+| `"2025-01-11T00:00:00Z"`         | ISO\_INSTANT (Mongo ISODate string) | ✅ 매우 안전             |
+| `Date`, `Instant`, `LocalDate`   | 자바 내장 타입들                           | ✅ 매우 안전             |
+| `"Mon Apr 28 00:00:00 PDT 2025"` | Java `Date.toString()` 형식 (고정 포맷)   | ✅ **고정 포맷 사용 시 안전** |
+
+---
+
+## ⚠️ 불안정한 경우: 국가별/로케일별 포맷 문자열
+
+* 예: `"28/04/2025"`, `"04-28-2025"`, `"2025년 4월 28일"`
+* 이런 포맷은 로케일 또는 사용자 설정에 따라 달라지고
+* **SimpleDateFormat으로 직접 파싱 규칙을 지정해줘야 함**
+
+---
+
+## ✅ 해결 전략
+
+1. **우선순위 기준 포맷들을 순서대로 파싱 시도**
+   (ISO → Instant → Java default → 사용자 지정 포맷)
+
+2. **Custom format 목록 추가로 확장성 확보**
+
+---
+
+## 🔧 개선된 코드 예시 (다양한 국가 포맷 대응)
+
+```java
+private static final List<DateTimeFormatter> SUPPORTED_FORMATTERS = List.of(
+    DateTimeFormatter.ISO_LOCAL_DATE,                          // 2025-01-11
+    DateTimeFormatter.ISO_INSTANT,                             // 2025-01-11T00:00:00Z
+    DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss zzz yyyy", Locale.ENGLISH), // Mon Apr 28 00:00:00 PDT 2025
+    DateTimeFormatter.ofPattern("dd/MM/yyyy"),                 // 28/04/2025
+    DateTimeFormatter.ofPattern("MM-dd-yyyy"),                 // 04-28-2025
+    DateTimeFormatter.ofPattern("yyyy.MM.dd"),                 // 2025.04.28
+    DateTimeFormatter.ofPattern("yyyy년 M월 d일", Locale.KOREAN) // 2025년 4월 28일
+);
+```
+
+### 변경된 `parseToLocalDate()` 메서드:
+
+```java
+private static LocalDate parseToLocalDate(Object input) {
+    if (input instanceof LocalDate) {
+        return (LocalDate) input;
+    } else if (input instanceof Date) {
+        return ((Date) input).toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+    } else if (input instanceof Instant) {
+        return ((Instant) input).atZone(ZoneId.systemDefault()).toLocalDate();
+    } else if (input instanceof String) {
+        String str = ((String) input).trim();
+        for (DateTimeFormatter formatter : SUPPORTED_FORMATTERS) {
+            try {
+                TemporalAccessor parsed = formatter.parse(str);
+                return LocalDate.from(parsed);
+            } catch (Exception ignored) {}
+        }
+
+        // fallback: try parsing as java.util.Date (legacy)
+        try {
+            Date date = new SimpleDateFormat("EEE MMM dd HH:mm:ss zzz yyyy", Locale.ENGLISH).parse(str);
+            return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        } catch (Exception ignored) {}
+    }
+    return null;
+}
+```
+
+---
+
+## ✳️ 예시 입력 (모두 지원됨)
+
+```java
+"2025-01-11"
+"2025-01-11T00:00:00Z"
+"Mon Apr 28 00:00:00 PDT 2025"
+"28/04/2025"
+"04-28-2025"
+"2025.04.28"
+"2025년 4월 28일"
+```
+
+---
+
+## ✅ 결론
+
+| 상황                   | 지원 여부                      |
+| -------------------- | -------------------------- |
+| Mongo의 ISODate       | ✅ 완벽 지원                    |
+| 자바 `Date.toString()` | ✅ 완벽 지원                    |
+| 다양한 국가별 포맷           | ✅ 커스텀 formatter로 확장 가능     |
+| 완벽 자동 판별             | ⚠️ 제한적 (애매한 포맷은 ambiguous) |
+
+---
+
+**원하신다면**
+
+* `ZoneId`를 UTC 고정
+* 주차 기준을 미국 (`Locale.US`)이나 ISO 기준 (`WeekFields.ISO`)로 강제
+  같은 것도 추가 가능해요. 필요하신가요?
+
+
+----
 좋은 포인트입니다!
 MongoDB에서 Java로 데이터를 읽을 때 `"Mon Apr 28 00:00:00 PDT 2025"` 같은 형식은 보통 **`java.util.Date` 객체의 `toString()` 결과**입니다. 즉:
 
