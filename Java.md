@@ -1,3 +1,89 @@
+MongoDB에서 저장되는 `ISODate("2025-01-11T00:00:00Z")` 또는 `"2025-01-11"` 같은 날짜 문자열을 받아서 **"W18"** (연도 기준 주차) 형태로 변환하는 함수를 Java로 만들려면 다음을 고려해야 합니다:
+
+---
+
+## ✅ 목표
+
+* 입력:
+
+  * `"2025-01-11"` (일반 문자열)
+  * `"2025-01-11T00:00:00Z"` (ISO 형식)
+  * `Date`, `Instant`, `LocalDate` 등도 허용 가능
+* 출력:
+
+  * `"W02"` 같은 문자열 (해당 날짜가 속한 연도의 주차)
+
+---
+
+## ✅ Java 함수 예제 (Java 8 이상)
+
+```java
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.WeekFields;
+import java.util.Date;
+import java.util.Locale;
+
+public class WeekUtil {
+
+    public static String getWeekCode(Object dateInput) {
+        LocalDate localDate = parseToLocalDate(dateInput);
+        if (localDate == null) {
+            throw new IllegalArgumentException("Invalid date input: " + dateInput);
+        }
+
+        WeekFields weekFields = WeekFields.of(Locale.getDefault()); // or Locale.US
+        int weekNumber = localDate.get(weekFields.weekOfWeekBasedYear());
+
+        return String.format("W%02d", weekNumber);
+    }
+
+    private static LocalDate parseToLocalDate(Object input) {
+        if (input instanceof LocalDate) {
+            return (LocalDate) input;
+        } else if (input instanceof Date) {
+            return ((Date) input).toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        } else if (input instanceof Instant) {
+            return ((Instant) input).atZone(ZoneId.systemDefault()).toLocalDate();
+        } else if (input instanceof String) {
+            String str = (String) input;
+            try {
+                return LocalDate.parse(str); // e.g., "2025-01-11"
+            } catch (DateTimeParseException e1) {
+                try {
+                    Instant iso = Instant.parse(str); // e.g., "2025-01-11T00:00:00Z"
+                    return iso.atZone(ZoneId.systemDefault()).toLocalDate();
+                } catch (DateTimeParseException e2) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+}
+```
+
+---
+
+## ✅ 사용 예
+
+```java
+System.out.println(WeekUtil.getWeekCode("2025-01-11"));               // "W02"
+System.out.println(WeekUtil.getWeekCode("2025-01-11T00:00:00Z"));     // "W02"
+System.out.println(WeekUtil.getWeekCode(new Date()));                // e.g., "W31"
+```
+
+---
+
+## ✅ 보너스: 연도도 붙이고 싶다면?
+
+```java
+return String.format("Y%dW%02d", localDate.getYear(), weekNumber); // e.g., Y2025W02
+```
+
+---
+
+필요하면 MongoTemplate aggregation stage에서 이 주차 기준으로 group by 하는 것도 같이 도와드릴 수 있어요.
 
 
 
