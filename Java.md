@@ -1,3 +1,163 @@
+
+`(appName, packageName) IN (...)` 형태는 SQL에서 **composite key**에 대해 `IN` 조건을 줄 수 있는 유일한 표준 방식이지만, RDBMS에 따라 지원 여부가 다릅니다.
+PostgreSQL, Oracle 등은 지원하지만, MySQL 5.x, Redshift 등 일부는 완전한 지원을 안 할 수도 있습니다.
+
+### 대안들 (SQL에서 `IN ((a,b), (c,d))`을 대체하는 방법들):
+
+---
+
+### ✅ 1. `OR` 조건으로 나열하기 (가장 호환성 높음)
+
+```sql
+WHERE (appName = 'Facebook' AND packageName = 'com.facebook.katana')
+   OR (appName = 'Instagram' AND packageName = 'com.instagram.android')
+```
+
+* 장점: **모든 DB에서 동작**함
+* 단점: pair 수가 많으면 **쿼리가 길어짐**
+
+---
+
+### ✅ 2. `JOIN`을 이용한 방식 (데이터를 테이블처럼 넘기는 경우)
+
+**(a, b) 쌍 목록을 테이블로 넘길 수 있으면 효율적**
+
+예를 들어 PostgreSQL/Redshift에서는:
+
+```sql
+SELECT ...
+FROM your_table t
+JOIN (VALUES 
+    ('Facebook', 'com.facebook.katana'),
+    ('Instagram', 'com.instagram.android')
+) AS pairs(appName, packageName)
+ON t.appName = pairs.appName AND t.packageName = pairs.packageName
+```
+
+* 장점: **깔끔**하고 성능도 괜찮음
+* 단점: 일부 DB에서 `JOIN (VALUES...)` 문법 미지원
+
+---
+
+### ✅ 3. 파라미터로 넘기기 위한 JSON → 파싱
+
+만약 쌍 목록을 **JSON 배열** 등으로 받아야 한다면:
+
+```sql
+-- 예: JSON 배열 [{"appName": "...", "packageName": "..."}, ...] 를 파싱
+```
+
+* PostgreSQL: `jsonb_array_elements()`
+* Redshift: `json_parse()` + `json_extract_path_text()`
+
+---
+
+### ✅ 4. 임시 테이블 혹은 CTE 사용
+
+```sql
+WITH app_pairs(appName, packageName) AS (
+    SELECT 'Facebook', 'com.facebook.katana'
+    UNION ALL
+    SELECT 'Instagram', 'com.instagram.android'
+)
+SELECT ...
+FROM your_table t
+JOIN app_pairs p ON t.appName = p.appName AND t.packageName = p.packageName
+```
+
+* 장점: 가독성 좋음
+* 단점: 쿼리 복잡도 증가
+
+---
+
+### ✅ 5. 문자열 Concatenation (비추)
+
+```sql
+WHERE CONCAT(appName, '|', packageName) IN ('Facebook|com.facebook.katana', 'Instagram|com.instagram.android')
+```
+
+* 단점: **인덱스 안 타고**, 성능 떨어짐
+* 단순 테스트나 프로토타입 용도로만 추천
+
+---
+
+### 정리
+
+| 방식                  | 호환성 | 성능 | 가독성 | 추천       |
+| ------------------- | --- | -- | --- | -------- |
+| `IN ((a,b), (c,d))` | 일부만 | 좋음 | 좋음  | ✅ (가능하면) |
+| `OR` 조건 나열          | 모두  | 중간 | 나쁨  | ✅        |
+| `JOIN (VALUES ...)` | 일부  | 좋음 | 좋음  | ✅        |
+| `CTE` 또는 임시 테이블     | 모두  | 좋음 | 좋음  | ✅        |
+| 문자열 조합 IN           | 모두  | 나쁨 | 나쁨  | ❌        |
+
+---
+
+필요하면 Java / Spring 쪽에서 pair 리스트를 넘기는 방법도 같이 알려드릴게요.
+
+
+----
+
+물론입니다. 해당 코드는 다음과 같은 흐름입니다:
+
+1. `dimensions`에서 `MANAGED_APP` 카테고리를 가진 dimension을 찾아 `position`을 결정하고,
+2. 그 위치의 dimension 이름이 `MANAGED_APP_MANAGED`이면 `managed=true`인 앱들을,
+   아니면 `managed=false`인 앱들을 가져옵니다.
+3. 그 결과 리스트에서 `appName`과 `packageName`을 각각 추출하여 `filters`에 추가합니다.
+
+이를 리팩토링하면 **가독성, 중복 제거, 의미 명확화** 측면에서 아래와 같이 줄일 수 있습니다:
+
+---
+
+### ✅ 리팩토링된 코드:
+
+```java
+if (dimensions.contains(MANAGED_APP)) {
+    // 1. MANAGED_APP dimension 찾기
+    Dimension managedAppDim = request.getDimension().stream()
+        .filter(dim -> MANAGED_APP.equals(dim.getCategory()))
+        .findFirst()
+        .orElse(null);
+
+    if (managedAppDim != null) {
+        boolean isManaged = MANAGED_APP_MANAGED.equals(managedAppDim.getName());
+
+        // 2. ManagedApp 리스트 가져오기
+        List<ManagedApp> appPackageList = isManaged
+            ? managedAppRepository.findManagedAppsByCustomerIdAndManagedIsTrue(customerId)
+            : managedAppRepository.findManagedAppsByCustomerIdAndManagedIsFalse(customerId);
+
+        // 3. 필터 추가 (appName, packageName)
+        filters.add(createFilter(
+            APP_NAME, FILTER_OPERATOR_EQ,
+            appPackageList.stream().map(ManagedApp::getAppName).toArray(String[]::new)
+        ));
+        filters.add(createFilter(
+            PACKAGE_NAME, FILTER_OPERATOR_EQ,
+            appPackageList.stream().map(ManagedApp::getPackageName).toArray(String[]::new)
+        ));
+    }
+}
+```
+
+---
+
+### ✅ 변경 사항 요약:
+
+| 변경 전                     | 변경 후                               |
+| ------------------------ | ---------------------------------- |
+| `for` 루프 + `position` 추출 | `stream().filter().findFirst()` 사용 |
+| 중복된 `stream().map()` 호출  | 명확하게 추출 후 바로 사용                    |
+| `if-else`로 리스트 선택        | 삼항 연산자 사용하여 간결하게                   |
+
+---
+
+필요하다면 필터 키(`APP_NAME`, `PACKAGE_NAME`)도 루프를 돌리거나 `Map<String, Function<ManagedApp, String>>`으로 추출해 더 줄일 수도 있어요.
+이 정도 간결화로 충분할까요?
+
+
+-----
+
 훌륭한 질문입니다. 핵심은:
 
 > ❗ **국가(또는 시스템 로케일)에 따라 날짜 포맷이 달라질 수 있는가?**
