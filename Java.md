@@ -1,4 +1,79 @@
 
+좋은 관찰이에요. 말씀하신 쿼리처럼 `RIGHT JOIN`을 쓰고, `WHERE (dim_package.app_name, dim_package.package_name) IN (...)` 조건을 주었을 때 `YouTube`가 잘 나오는 경우라면, 핵심은 **JOIN 순서 + WHERE 조건이 결과에 어떤 영향을 주는지**에 있습니다.
+
+---
+
+## 🔍 왜 YouTube가 나오나?
+
+쿼리를 분석해보면 다음과 같은 특징이 있습니다:
+
+### ✅ `RIGHT JOIN` 사용
+
+```sql
+FROM mv_anr_fc_count_daily 
+RIGHT JOIN dim_device ON ...
+RIGHT JOIN dim_package ON ...
+```
+
+이렇게 `RIGHT JOIN`을 쓰면 **dim\_device / dim\_package** 기준으로 **해당되지 않는 mv\_anr\_fc\_count\_daily 데이터가 NULL이어도 결과에 포함됩니다.** 즉, `dim_device`, `dim_package` 쪽이 기준이 되는 구조입니다.
+
+---
+
+### ✅ `WHERE (dim_package.app_name, dim_package.package_name) IN (...)`
+
+이 조건은 `dim_package`의 app\_name, package\_name이 정확히 지정된 것일 때만 해당 행을 남깁니다.
+
+즉:
+
+* `dim_package` 기준으로 조인을 하니, package/app 정보가 존재하는 패키지(`YouTube`)는 나오고
+* `mv_anr_fc_count_daily`에 매칭이 안 되면 거기에 해당하는 값이 `null`로 채워져도 나오는 구조이기 때문입니다.
+
+---
+
+## 📌 반면, `INNER JOIN`을 썼다면?
+
+만약 다음처럼 `INNER JOIN`을 썼다면:
+
+```sql
+FROM mv_anr_fc_count_daily
+JOIN dim_device ON ...
+JOIN dim_package ON ...
+```
+
+이 경우는 **`mv_anr_fc_count_daily`에 데이터가 있어야만** `YouTube`가 나옵니다. 즉, `mv_anr_fc_count_daily`에 `dim_package_id`가 있는 row만 조인되니까, YouTube 관련 데이터가 그 테이블에 없으면 결과도 안 나옵니다.
+
+---
+
+## 📘 결론
+
+| JOIN 종류      | 기준 테이블                      | `mv_anr_fc_count_daily`에 매칭 없어도 YouTube 나올 수 있나? |
+| ------------ | --------------------------- | ------------------------------------------------ |
+| `INNER JOIN` | `mv_anr_fc_count_daily`     | ❌ 안 나옴 (매칭 row 필요)                               |
+| `RIGHT JOIN` | `dim_package`, `dim_device` | ✅ 나옴 (매칭 없어도 패키지에 있으면 결과 포함)                     |
+| `LEFT JOIN`  | `mv_anr_fc_count_daily` 기준  | ❌ 기본적으로 안 나옴 (dim\_package에 YouTube 없어도 포함)      |
+
+---
+
+## ✅ 다음 행동 추천
+
+* 원래 궁금했던 건 \*\*"왜 YouTube가 mv\_anr\_fc\_count\_daily에 없다고 판단됐는가?"\*\*이므로, 다음 쿼리로 직접 확인해보세요:
+
+```sql
+SELECT * FROM kai_dwh.mv_anr_fc_count_daily d
+JOIN kai_dwh.dim_package p ON p.dim_package_id = d.dim_package_id
+WHERE p.package_name = 'com.google.android.youtube';
+```
+
+결과가 없다면 실제로 YouTube 관련 데이터가 없는 것입니다.
+
+---
+
+필요하시면 `LEFT JOIN`과 `RIGHT JOIN`을 각각 바꿔가면서 비교 쿼리도 드릴 수 있어요.
+
+
+----
+
+
 물론입니다. SQL에서 `(appName, packageName)` 쌍이 특정한 여러 `(appName, packageName)` 조합 중 하나와 일치하는 레코드만 필터링하려면, `IN`을 튜플 형태로 사용하는 방법이 대표적입니다. 이를 대체할 수 있는 방식도 있지만, 먼저 **가장 간단하고 직관적인 방식**부터 보여드릴게요.
 
 ---
