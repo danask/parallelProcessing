@@ -1,4 +1,75 @@
 
+물론입니다. SQL에서 `(appName, packageName)` 쌍이 특정한 여러 `(appName, packageName)` 조합 중 하나와 일치하는 레코드만 필터링하려면, `IN`을 튜플 형태로 사용하는 방법이 대표적입니다. 이를 대체할 수 있는 방식도 있지만, 먼저 **가장 간단하고 직관적인 방식**부터 보여드릴게요.
+
+---
+
+### ✅ 1. `(appName, packageName)` 튜플 IN 방식 (PostgreSQL, Oracle 등에서 지원)
+
+```sql
+SELECT *
+FROM app_usage
+WHERE (app_name, package_name) IN (
+    ('KakaoTalk', 'com.kakao.talk'),
+    ('YouTube', 'com.google.android.youtube'),
+    ('Instagram', 'com.instagram.android')
+);
+```
+
+> 이 방식은 **PostgreSQL, Oracle**에서는 잘 작동하지만, **MySQL에서는 버전 또는 설정에 따라 제한적**일 수 있습니다.
+
+---
+
+### ✅ 2. JOIN으로 우회하는 방식 (모든 RDBMS 호환)
+
+```sql
+-- 예: 필터용 쌍을 임시 테이블처럼 사용하는 방식
+WITH filters(app_name, package_name) AS (
+    VALUES 
+        ('KakaoTalk', 'com.kakao.talk'),
+        ('YouTube', 'com.google.android.youtube'),
+        ('Instagram', 'com.instagram.android')
+)
+SELECT au.*
+FROM app_usage au
+JOIN filters f
+  ON au.app_name = f.app_name AND au.package_name = f.package_name;
+```
+
+> `VALUES` 구문은 PostgreSQL, SQL Server 등에서 지원되며,
+> MySQL에서는 아래처럼 임시 테이블을 `UNION ALL`로 흉내 낼 수 있습니다.
+
+```sql
+SELECT au.*
+FROM app_usage au
+JOIN (
+    SELECT 'KakaoTalk' AS app_name, 'com.kakao.talk' AS package_name
+    UNION ALL
+    SELECT 'YouTube', 'com.google.android.youtube'
+    UNION ALL
+    SELECT 'Instagram', 'com.instagram.android'
+) AS filters
+ON au.app_name = filters.app_name AND au.package_name = filters.package_name;
+```
+
+---
+
+### 🔍 어떤 방식이 가장 좋은가요?
+
+| 방식                       | 장점               | 단점                 |
+| ------------------------ | ---------------- | ------------------ |
+| 튜플 IN                    | 간결하고 가독성 높음      | MySQL 등 일부 DB에서 제한 |
+| JOIN 방식                  | 범용성, 유연성         | 약간 복잡하고 길어짐        |
+| `EXISTS` 또는 `INNER JOIN` | 쿼리 최적화에 유리할 수 있음 | 구조가 더 복잡해짐         |
+
+---
+
+### 🔁 참고: JPA나 QueryDSL로 구현하고 싶은 경우에도 이 구조를 흉내 낼 수 있습니다. 원하시면 그 방식도 알려드릴게요.
+
+필요한 DB 종류에 맞게 예제를 더 구체화해드릴 수도 있어요.
+
+
+----
+
 `(appName, packageName) IN (...)` 형태는 SQL에서 **composite key**에 대해 `IN` 조건을 줄 수 있는 유일한 표준 방식이지만, RDBMS에 따라 지원 여부가 다릅니다.
 PostgreSQL, Oracle 등은 지원하지만, MySQL 5.x, Redshift 등 일부는 완전한 지원을 안 할 수도 있습니다.
 
