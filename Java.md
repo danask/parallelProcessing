@@ -1,4 +1,84 @@
 
+`@JsonCreator`는 Jackson이 **역직렬화(deserialization)** 과정에서 해당 메서드(또는 생성자)를 **자동으로 호출**하게 만드는 어노테이션입니다. 즉, `@RequestBody`로 들어오는 JSON 바디 안에 `IntervalType`이 포함되어 있다면, `@JsonCreator`가 붙은 메서드가 자동으로 사용됩니다. 별도로 `from()`을 직접 호출할 필요는 없습니다.
+
+---
+
+### ✅ 정리:
+
+예를 들어 다음과 같은 Enum이 있다면:
+
+```java
+public enum IntervalType {
+    DAILY, WEEKLY;
+
+    @JsonCreator
+    public static IntervalType from(String value) {
+        try {
+            return IntervalType.valueOf(value.toUpperCase());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid IntervalType: " + value);
+        }
+    }
+}
+```
+
+그리고 이걸 포함한 DTO가 다음과 같다고 하면:
+
+```java
+public class MyRequestDto {
+    private IntervalType intervalType;
+
+    // getter/setter 생략
+}
+```
+
+그리고 Controller는:
+
+```java
+@PostMapping("/test")
+public ResponseEntity<?> test(@RequestBody MyRequestDto request) {
+    return ResponseEntity.ok().build();
+}
+```
+
+### ✅ 아래와 같은 JSON 요청 바디도 잘 동작합니다:
+
+```json
+{
+  "intervalType": "daily"
+}
+```
+
+즉, **소문자로 입력돼도 자동으로 대문자로 변환**되어 매핑됩니다.
+
+---
+
+### ⚠️ 주의할 점:
+
+* `@JsonCreator`는 **정확히 하나의 파라미터를 가진 static method** 혹은 **생성자**에만 동작합니다.
+* `@JsonValue`가 Enum에 동시에 선언되어 있다면 `@JsonCreator`와 충돌할 수 있습니다.
+* DTO 필드에 `@JsonDeserialize(using = ...)` 등의 커스텀 디시리얼라이저가 붙어 있다면 그것이 우선합니다.
+
+---
+
+필요하다면 해당 Enum에 `@JsonValue`도 함께 지정해서 직렬화(응답) 시 소문자로 내려주게 설정할 수도 있습니다:
+
+```java
+@JsonValue
+public String toValue() {
+    return this.name().toLowerCase();
+}
+```
+
+---
+
+### ✅ 결론
+
+> `@JsonCreator`만 잘 선언돼 있으면 `RequestBody`를 통해 들어오는 JSON이 자동으로 해당 static method를 통해 처리됩니다. 별도로 호출할 필요는 없습니다.
+
+
+-----
+
 좋은 관찰이에요. 말씀하신 쿼리처럼 `RIGHT JOIN`을 쓰고, `WHERE (dim_package.app_name, dim_package.package_name) IN (...)` 조건을 주었을 때 `YouTube`가 잘 나오는 경우라면, 핵심은 **JOIN 순서 + WHERE 조건이 결과에 어떤 영향을 주는지**에 있습니다.
 
 ---
