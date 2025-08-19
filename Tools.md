@@ -1,4 +1,65 @@
+Studio 3T에서 일정 시간이 지나면 자동 로그인이 차단되는 현상은 주로 **MongoDB의 인증 세션 타임아웃** 또는 **Studio 3T 자체 설정**과 관련이 있습니다. 해결하려면 아래 두 가지 원인을 확인하세요.
 
+---
+
+### ✅ 1. **MongoDB 세션 타임아웃 설정 확인**
+
+MongoDB는 SCRAM 인증 방식에서 **default로 세션 타임아웃**이 있습니다. 특히 **MongoDB Enterprise**나 **Atlas** 환경에서 `authMechanismProperties`에 따라 세션이 만료될 수 있습니다.
+
+* **해결 방법**:
+
+  * **`authMechanismProperties`에 `SERVICE_REALM` 또는 `SASL_PLAIN` 사용 시 Kerberos 등에서 세션 만료가 생김.**
+  * **Atlas나 클라우드 환경**에서는 `Idle Session Timeout` 설정이 기본 적용 → UI에서 해제 불가.
+  * **온프레미스 MongoDB**는 `--setParameter authenticationMechanisms=SCRAM-SHA-1,SCRAM-SHA-256` 옵션 사용 시 타임아웃 영향.
+  * 이 경우 DB 쪽에서 세션 제한을 늘리거나 없애야 함.
+    `mongod.conf` 예시:
+
+    ```yaml
+    setParameter:
+      authenticationMechanisms: SCRAM-SHA-1,SCRAM-SHA-256
+      saslauthdIdleTimeout: 86400  # 초 단위 (24시간)
+    ```
+
+---
+
+### ✅ 2. **Studio 3T 자동 로그인 유지 설정**
+
+Studio 3T는 기본적으로 **Connection Manager**에서 `Save Password`를 체크하지 않으면 로그인 유지가 안 됩니다.
+추가로, **비밀번호를 암호화하여 로컬에 저장**할지 여부는 Preferences에서 관리합니다.
+
+* **방법**:
+
+  1. **Connection Manager** 열기 (`Ctrl` + `Shift` + `C`)
+  2. 사용하는 Connection 선택 → `Edit`
+  3. **Authentication** 탭 → `Save Password` 체크
+  4. **SSL** / **SSH** 터널 사용 시 → Key Passphrase 저장도 체크
+  5. **Preferences → Security → Auto-lock application after X minutes** 설정 해제
+
+     * `Auto-lock application`이 활성화되어 있으면 일정 시간 후 세션이 만료됩니다.
+  6. 비밀번호 저장 시 Studio 3T가 로컬에 AES 암호화로 저장합니다.
+
+---
+
+### ✅ 3. **OS 정책 (윈도우, 맥) 영향**
+
+* 회사 정책으로 **Windows Credential Manager**나 **macOS Keychain**이 일정 시간 후 세션을 끊을 수도 있음.
+* 이 경우 Studio 3T는 비밀번호를 저장했더라도 인증 토큰이 만료될 수 있음 → OS 보안 정책 확인 필요.
+
+---
+
+### ✅ 핵심 해결 포인트
+
+* Studio 3T에서 `Save Password` + `Preferences → Security → Auto-lock` 끄기
+* MongoDB 서버 세션 타임아웃 → `saslauthdIdleTimeout` 등 파라미터 조정
+* 회사 보안 정책에서 Keychain/Credential 제한이 있는지 확인
+
+---
+
+필요하면 **Studio 3T에서 완전 자동 로그인 (비밀번호 입력 없이)** 되는 설정법과
+**Atlas 환경에서 Timeout 안 걸리게 유지하는 방법**도 상세히 정리해줄까요?  (Atlas는 특히 `Idle Session Timeout` 강제 정책이 있어서 우회 방법이 따로 있습니다.)
+
+
+----
 
 IntelliJ IDEA에서 **"Search for class"**에 해당 클래스가 나타나지만, 의존성을 추가해도 프로젝트에서 사용되지 않는 경우에는 몇 가지 원인과 해결 방법이 있을 수 있습니다. 다음 해결책들을 순서대로 시도해 보세요.
 
