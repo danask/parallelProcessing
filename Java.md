@@ -1,5 +1,157 @@
 
-네 코드는 동작은 하겠지만, 반복문 중첩과 불필요한 상태 플래그(`updateOnce`, `updateOnce2`) 때문에 가독성이 떨어지고 유지보수가 어렵습니다. 큰 리팩토링 없이, **불필요한 중복 제거**와 **명확한 책임 분리** 중심으로 최적화해볼게요.
+
+
+이 코드는 기능적으로는 괜찮지만, 중복되는 로직이 많고, 가독성·유지보수성 측면에서 개선할 여지가 커요.
+특히 **`isDeviceCount` 블록**과 **그룹핑 이후 블록**이 거의 동일한 구조라 **공통화**가 가능하고,
+또한 **불필요한 중첩 for문 및 중복 조건문**을 줄이면 훨씬 깔끔해져요.
+
+---
+
+### ✅ 문제점 요약
+
+1. **중복 로직**
+
+   * `Map<String,Object>` → `dimensions` & `measures` 변환 코드가 두 번 반복됨.
+2. **날짜 처리 중복**
+
+   * `CHART_DATE`와 `IntervalType.WEEKLY` 조건이 각 loop 안에 있음.
+3. **조건 분기 복잡도**
+
+   * `isDeviceCount` 때문에 큰 if-else로 코드가 나뉘는데, 내부는 거의 동일.
+4. **Stream API 활용 미흡**
+
+   * grouping은 했지만 이후 처리에서 Java 8 스타일 장점이 살지 않음.
+5. **안정성**
+
+   * `chartData.get(0)` 접근 시 비어있으면 `IndexOutOfBoundsException` 가능성.
+
+---
+
+### ✅ **리팩토링 버전 (최적화 & 구조 단순화)**
+
+```java
+public List<LineChartRecord> getChartData(List<Map<String, Object>> results, IntervalType interval, boolean isDeviceCount) {
+    Set<String> dimensionKeys = metadataService.getAllDimensionDBKeys();
+    Set<String> measureKeys = metadataService.getAllMetricNames();
+
+    dimensionKeys.addAll(Arrays.asList(
+            DDE_DEVICE_MEI_FIELD,
+            toDbField(DDE_DEVICE_PRIMARY_MEI_FIELD),
+            toDbField(DDE_DEVICE_SECONDARY_MEI_FIELD),
+            DDE_DEVICE_SERIAL_FIELD
+    ));
+
+    if (isDeviceCount) {
+        return buildLineChartRecord(results, interval, new SimpleDateFormat("yyyy-MM-dd").format(new Date()), dimensionKeys, measureKeys);
+    }
+
+    Map<String, List<Map<String, Object>>> groupedByDate = results.stream()
+            .collect(Collectors.groupingBy(
+                    record -> String.valueOf(record.get(CHART_DATE)),
+                    TreeMap::new,
+                    Collectors.toList()
+            ));
+
+    List<LineChartRecord> result = new ArrayList<>();
+    for (Map.Entry<String, List<Map<String, Object>>> entry : groupedByDate.entrySet()) {
+        String date = (IntervalType.WEEKLY == interval && !entry.getKey().startsWith("W"))
+                ? getWeekCode(entry.getKey())
+                : entry.getKey();
+
+        result.addAll(buildLineChartRecord(entry.getValue(), interval, date, dimensionKeys, measureKeys));
+    }
+
+    return result;
+}
+
+private List<LineChartRecord> buildLineChartRecord(List<Map<String, Object>> records,
+                                                   IntervalType interval,
+                                                   String date,
+                                                   Set<String> dimensionKeys,
+                                                   Set<String> measureKeys) {
+    List<MeasuresDimensions> chartData = records.stream()
+            .map(record -> {
+                Map<String, Object> dimensions = new LinkedHashMap<>();
+                Map<String, Object> measures = new LinkedHashMap<>();
+
+                record.forEach((key, value) -> {
+                    if (dimensionKeys.contains(key)) {
+                        dimensions.put(key, value);
+                    } else if (measureKeys.contains(key)) {
+                        measures.put(key, value);
+                    }
+                });
+
+                return new MeasuresDimensions(measures, dimensions);
+            })
+            .toList();
+
+    if (chartData.isEmpty()) {
+        return Collections.emptyList();
+    }
+
+    return List.of(new LineChartRecord(
+            date,
+            chartData,
+            chartData.get(0).getDimensions().size(),
+            chartData.get(0).getMeasures().size()
+    ));
+}
+```
+
+---
+
+### ✅ **변경점**
+
+✔ `buildLineChartRecord`로 **공통화** → 중복 코드 제거
+✔ Stream + 람다로 변환 → 가독성 상승
+✔ `chartData.isEmpty()` 체크 → 안전성 확보
+✔ **날짜 처리**는 한 곳에서만 → 중복 제거
+✔ `isDeviceCount`는 그냥 오늘 날짜로 호출 → 깔끔
+
+---
+
+### ✅ **실행 예제**
+
+#### 입력
+
+```json
+[
+  {"CHART_DATE": "2025-01-11", "device": "Galaxy S24", "region": "KR", "count": 100, "average": 4.5},
+  {"CHART_DATE": "2025-01-11", "device": "Galaxy S23", "region": "US", "count": 80, "average": 4.7},
+  {"CHART_DATE": "2025-01-12", "device": "Galaxy Z Fold5", "region": "KR", "count": 60, "average": 4.8}
+]
+```
+
+#### 결과
+
+```json
+[
+  {
+    "date": "2025-01-11",
+    "chartData": [
+      {"measures": {"count": 100, "average": 4.5}, "dimensions": {"device": "Galaxy S24", "region": "KR"}},
+      {"measures": {"count": 80, "average": 4.7}, "dimensions": {"device": "Galaxy S23", "region": "US"}}
+    ],
+    "dimensionCount": 2,
+    "measureCount": 2
+  },
+  {
+    "date": "2025-01-12",
+    "chartData": [
+      {"measures": {"count": 60, "average": 4.8}, "dimensions": {"device": "Galaxy Z Fold5", "region": "KR"}}
+    ],
+    "dimensionCount": 2,
+    "measureCount": 2
+  }
+]
+```
+
+---
+
+👉 **질문**:
+최적화 버전에서 더 나아가서, **`LineChartRecord`를 Builder 패턴으로 바꾸고, MeasuresDimensions도 Immutable 클래스로 만들까?**
+아니면 **지금 이 수준에서 리팩토링 완료**로 정리할까?
 
 ---
 
