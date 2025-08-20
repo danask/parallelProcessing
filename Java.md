@@ -1,4 +1,77 @@
 
+네 코드는 동작은 하겠지만, 반복문 중첩과 불필요한 상태 플래그(`updateOnce`, `updateOnce2`) 때문에 가독성이 떨어지고 유지보수가 어렵습니다. 큰 리팩토링 없이, **불필요한 중복 제거**와 **명확한 책임 분리** 중심으로 최적화해볼게요.
+
+---
+
+### ✅ 개선 포인트
+
+1. **`updateOnce` 플래그 제거** → 반복문 내부에서 한 번만 실행되는 부분은 `for` 바깥으로 뺄 수 있음.
+2. **`lineChartRecord` 생성 위치 명확화** → 날짜별 1회 생성이면 내부에서 중복 체크할 필요 없음.
+3. **차트 데이터 추가 로직 단순화** → `chartData`와 `MeasuresDimensions` 생성 타이밍을 명확히.
+4. `date` 갱신 로직을 `if-else`에서 분리 → 읽기 쉽게.
+
+---
+
+### 🔍 최적화된 코드
+
+```java
+for (Map.Entry<String, List<Map<String, Object>>> entry : groupedByDate.entrySet()) {
+    String date = entry.getKey();
+    List<Map<String, Object>> entryValue = entry.getValue();
+    List<MeasuresDimensions> chartData = new ArrayList<>();
+
+    for (Map<String, Object> element : entryValue) {
+        Map<String, Object> dimensions = new LinkedHashMap<>();
+        Map<String, Object> measures = new LinkedHashMap<>();
+
+        for (Map.Entry<String, Object> field : element.entrySet()) {
+            String key = field.getKey();
+            String value = String.valueOf(field.getValue());
+
+            if (CHART_DATE.equalsIgnoreCase(key)) {
+                date = (interval == IntervalType.WEEKLY && !value.startsWith("W"))
+                        ? getWeekCode(value)
+                        : value;
+            } else if (dimensionKeys.contains(key)) {
+                dimensions.put(key, field.getValue());
+            } else if (measureKeys.contains(key)) {
+                measures.put(key, field.getValue());
+            }
+        }
+
+        chartData.add(new MeasuresDimensions(measures, dimensions));
+    }
+
+    if (!chartData.isEmpty()) {
+        LineChartRecord lineChartRecord = new LineChartRecord(date, chartData,
+                chartData.get(0).getDimensions().size(),
+                chartData.get(0).getMeasures().size());
+        result.add(lineChartRecord);
+    }
+}
+return result;
+```
+
+---
+
+### ✅ 주요 변화
+
+✔ `updateOnce` & `updateOnce2` 제거 → 불필요한 중복 로직 삭제.
+✔ `LineChartRecord` 생성은 날짜별 1회만 하도록 `chartData` 처리 후.
+✔ 차트 데이터 추가 (`chartData.add(...)`)는 `element` 루프 내에서 바로 실행.
+✔ `date` 갱신 로직은 조건문에서 간결하게.
+
+---
+
+이렇게 하면 **코드 길이는 줄면서도 가독성**이 좋아지고, 유지보수 시에도 더 직관적입니다.
+
+---
+
+🔥 **질문**: 이 메서드의 결과가 `date → chartData` 매핑 기반이면, 혹시 `Map<String, LineChartRecord>`로 바꿔야 하는 요구사항도 있어? 아니면 `List<LineChartRecord>` 형태로 유지?
+(만약 `Map` 형태가 좋으면 추가 리팩터링으로 바꿔줄 수 있음.)
+
+
+------------------
 `@JsonCreator`는 Jackson이 **역직렬화(deserialization)** 과정에서 해당 메서드(또는 생성자)를 **자동으로 호출**하게 만드는 어노테이션입니다. 즉, `@RequestBody`로 들어오는 JSON 바디 안에 `IntervalType`이 포함되어 있다면, `@JsonCreator`가 붙은 메서드가 자동으로 사용됩니다. 별도로 `from()`을 직접 호출할 필요는 없습니다.
 
 ---
