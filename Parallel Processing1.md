@@ -1,3 +1,365 @@
+
+
+좋습니다 👍 지금 Daniel 님 코드에서 하고 싶은 건
+
+1. **DB에 먼저 draft 저장** (`status = INPROGRESS`)
+2. **Async 하게 긴 쿼리 실행 → 후처리 → 최종 결과 DB 업데이트**
+
+인데, 이 정도는 **`@Async` + `CompletableFuture`** 를 쓰면 아주 간단하게 구현할 수 있습니다.
+
+---
+
+### 간단 구현 예시
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ReportService {
+
+    private final ReportRepository reportRepository;
+
+    @Async
+    public CompletableFuture<Void> processPieChartAsync(ReportRequest request, String customerId, ReportResponse response) {
+        try {
+            // 2. 쿼리 실행
+            ReportResponse chartResponse = getResponseForPieChart(customerId, request.getReportQueryRequest());
+            List<Tuple> resultList = chartResponse.getResults();
+
+            // 3. 변환/후처리
+            List<Map<String, Object>> mappedResultList = convertTuplesToMapList(resultList);
+            convertFirstNumericToBigDecimal(mappedResultList);
+            postProcessingImei(request, mappedResultList);
+
+            // 4. 최종 DB 업데이트
+            updateReportResultToDB(
+                mappedResultList,
+                chartResponse.getGeneratedQuery(),
+                customerId,
+                request,
+                null,
+                chartResponse.getTraceId()
+            );
+
+            log.info("[DDE] ReportDetailRequest Pie Chart finished: {}", request);
+
+        } catch (Exception ex) {
+            log.error("Pie chart async processing failed", ex);
+            // 실패 시 DB에 status = FAILED 같은 처리도 가능
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    // 기존 동기 처리 메소드 그대로 활용
+    private ReportResponse getResponseForPieChart(String customerId, ReportQueryRequest queryRequest) {
+        // 실제 쿼리 실행 로직
+        return null;
+    }
+
+    // updateReportResultToDB, convertTuplesToMapList 등은 기존 코드 활용
+}
+```
+
+---
+
+### Controller / Service 진입부
+
+```java
+public ReportDetails handleRequest(ChartType chartType, ReportRequest request, String customerId) {
+    if (ChartType.PIE == chartType) {
+        // 1. draft 저장 (status = INPROGRESS)
+        updateReportResultToDB(
+            new ArrayList<>(),
+            null,
+            customerId,
+            request,
+            null,
+            UUID.randomUUID().toString()
+        );
+
+        // 비동기 실행 시작
+        reportService.processPieChartAsync(request, customerId, null);
+
+        // 클라이언트에는 즉시 리턴
+        return ReportDetails.builder()
+                .status("INPROGRESS")
+                .build();
+    }
+
+    return null;
+}
+```
+
+---
+
+✅ 이 구조의 장점
+
+* **코드 최소 변경**: 기존 동기 메소드를 거의 그대로 쓰고, `@Async` 메소드로 감싸기만 함.
+* **에러 처리/재시도**도 `processPieChartAsync` 내부에서만 잡으면 됨.
+* 추후 필요하면 **스레드풀 크기 조정**은 `TaskExecutor` 빈 등록으로 해결 가능.
+
+---
+
+👉 Daniel 님, 이 시나리오에서 나중에 **여러 요청이 동시에 들어와도 안정적으로 처리**해야 할까요?
+그렇다면 `@Async` 디폴트 풀 말고, 커스텀 `ThreadPoolTaskExecutor` 등록을 권장드릴 수 있습니다.
+필요 없다면 위처럼 바로 적용해도 충분히 간단합니다.
+
+원하시면 제가 `ThreadPoolTaskExecutor`까지 붙여서 전체 wiring 예시도 드릴까요?
+
+
+
+----------
+
+좋은 포인트 짚으셨어요 👍
+지금 로직을 **Reactor `Mono`** 로 풀면, "draft 저장 → 비동기 쿼리 실행 → 후처리 → 최종 저장" 흐름을 **논블로킹 파이프라인**으로 만들 수 있습니다.
+
+---
+
+## 🔹 Mono 기반 구현 예시
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ReportServiceReactive {
+
+    private final ReactiveMongoTemplate mongoTemplate;
+
+    public Mono<ReportDetails> handlePieChartReactive(ReportRequest request, String customerId) {
+        String traceId = UUID.randomUUID().toString();
+
+        // 1. draft 저장 (inprogress)
+        Mono<ReportDetails> draftMono = saveDraft(customerId, request, traceId);
+
+        // 2. 비동기 쿼리 실행 후 최종 저장
+        Mono<Void> processingMono = getResponseForPieChartReactive(customerId, request.getReportQueryRequest())
+            .flatMap(response -> {
+                List<Map<String, Object>> mappedResultList = convertTuplesToMapList(response.getResults());
+                convertFirstNumericToBigDecimal(mappedResultList);
+                postProcessingImei(request, mappedResultList);
+
+                return updateReportResultToDBReactive(
+                    mappedResultList,
+                    response.getGeneratedQuery(),
+                    customerId,
+                    request,
+                    null,
+                    traceId
+                );
+            })
+            .onErrorResume(ex -> {
+                log.error("Pie chart processing failed", ex);
+                return updateReportResultToDBReactive(
+                    List.of(),
+                    null,
+                    customerId,
+                    request,
+                    Map.of("error", ex.getMessage()),
+                    traceId
+                );
+            });
+
+        // draft 는 즉시 리턴 + 최종 작업은 비동기로 실행
+        return draftMono.doOnSuccess(d -> processingMono.subscribe());
+    }
+
+    private Mono<ReportDetails> saveDraft(String customerId, ReportRequest request, String traceId) {
+        ReportDetails draft = ReportDetails.builder()
+                .status("INPROGRESS")
+                .traceId(traceId)
+                .build();
+        return mongoTemplate.insert(draft);
+    }
+
+    private Mono<Void> updateReportResultToDBReactive(
+            List<Map<String, Object>> results,
+            String query,
+            String customerId,
+            ReportRequest request,
+            Map<String, Object> extra,
+            String traceId) {
+
+        Query q = Query.query(Criteria.where("traceId").is(traceId));
+        Update u = new Update()
+                .set("status", "SUCCESS")
+                .set("results", results)
+                .set("query", query)
+                .set("extra", extra);
+
+        return mongoTemplate.updateFirst(q, u, ReportDetails.class).then();
+    }
+
+    private Mono<ReportResponse> getResponseForPieChartReactive(String customerId, ReportQueryRequest req) {
+        // 예시: 블로킹 쿼리를 Mono.fromCallable 로 감싸 비동기로 실행
+        return Mono.fromCallable(() -> getResponseForPieChart(customerId, req))
+                   .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    // 기존 블로킹 버전 메소드 재사용
+    private ReportResponse getResponseForPieChart(String customerId, ReportQueryRequest req) {
+        return null; // DB/외부 API 호출
+    }
+
+    // 기존 유틸 메소드도 그대로 사용 가능
+    private List<Map<String, Object>> convertTuplesToMapList(List<Tuple> tuples) { return null; }
+    private void convertFirstNumericToBigDecimal(List<Map<String, Object>> results) {}
+    private void postProcessingImei(ReportRequest request, List<Map<String, Object>> results) {}
+}
+```
+
+---
+
+## 🔹 흐름 정리
+
+1. `saveDraft()` → MongoDB 에 `status = INPROGRESS` 저장 → 이 `Mono<ReportDetails>` 즉시 리턴
+2. `getResponseForPieChartReactive()` → 별도 쓰레드 풀(`boundedElastic`)에서 긴 쿼리 실행
+3. 결과 변환 + 후처리 → `updateReportResultToDBReactive()` 로 최종 저장
+4. 실패 시 `.onErrorResume` 으로 MongoDB에 `FAILED` 상태 업데이트
+
+---
+
+## ✅ 언제 Mono 방식이 유리한가?
+
+* 전체 앱을 **WebFlux 기반**으로 운영할 때 (논블로킹 end-to-end).
+* 쿼리 실행도 **Reactive DB 드라이버**(ex. R2DBC, reactive MongoDB)로 할 수 있을 때 → 진짜 논블로킹 효과.
+* 체이닝/에러 핸들링을 함수형 스타일로 깔끔하게 쓰고 싶을 때.
+
+Daniel 님 상황처럼 **JPA/Redshift 같은 블로킹 쿼리**가 껴 있다면,
+→ `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())` 로 감싸는 방식이 가장 현실적인 접근이에요.
+
+---
+
+👉 여기서 선택 포인트는:
+
+* 앱이 **Spring MVC 기반**이면 `@Async + CompletableFuture`
+* 앱이 **Spring WebFlux 기반**이면 `Mono`
+
+Daniel, 지금 쓰고 있는 서비스가 **Spring MVC + JPA** 기반인가요, 아니면 **WebFlux** 기반인가요?
+
+
+-------
+
+좋은 질문이에요 👍
+Daniel 님이 지금처럼 **Spring API + JPA** 환경이라면 `TaskExecutor` 를 직접 정의해서 비동기 작업을 제어할 수도 있습니다.
+
+---
+
+## 🔹 `TaskExecutor` 를 사용할 때 장점
+
+* `@Async` 내부적으로도 결국 `TaskExecutor` 를 사용합니다.
+* 하지만 직접 정의하면 **스레드풀 크기, 큐 용량, 거부 정책** 등을 세밀하게 제어할 수 있음.
+* 동시 실행되는 쿼리 수가 많거나, 긴 쿼리가 섞여 있을 때 안정적인 처리 가능.
+
+---
+
+## 🔹 구현 방법
+
+### 1. Executor 설정
+
+```java
+@Configuration
+public class AsyncConfig {
+
+    @Bean("reportTaskExecutor")
+    public ThreadPoolTaskExecutor reportTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);     // 항상 유지되는 스레드
+        executor.setMaxPoolSize(20);     // 최대 스레드 수
+        executor.setQueueCapacity(50);   // 큐 용량
+        executor.setThreadNamePrefix("ReportExecutor-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy()); // 큐가 꽉 차면 호출 스레드가 실행
+        executor.initialize();
+        return executor;
+    }
+}
+```
+
+---
+
+### 2. 서비스에서 TaskExecutor 사용
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ReportService {
+
+    private final MongoTemplate mongoTemplate;
+    private final ThreadPoolTaskExecutor reportTaskExecutor;
+
+    public ReportDetails handlePieChart(ReportRequest request, String customerId) {
+        String traceId = UUID.randomUUID().toString();
+
+        // 1. draft 저장
+        updateReportResultToDB(new ArrayList<>(), null, customerId, request, null, traceId);
+
+        // 2. 비동기 실행
+        reportTaskExecutor.execute(() -> {
+            try {
+                ReportResponse response = getResponseForPieChart(customerId, request.getReportQueryRequest());
+                List<Map<String, Object>> mappedResultList = convertTuplesToMapList(response.getResults());
+                convertFirstNumericToBigDecimal(mappedResultList);
+                postProcessingImei(request, mappedResultList);
+
+                updateReportResultToDB(mappedResultList, response.getGeneratedQuery(), customerId, request, null, traceId);
+                log.info("[DDE] ReportDetailRequest Pie Chart finished: {}", request);
+
+            } catch (Exception ex) {
+                log.error("Pie chart async task failed", ex);
+                updateReportResultToDB(List.of(), null, customerId, request, Map.of("error", ex.getMessage()), traceId);
+            }
+        });
+
+        // 클라이언트에는 즉시 리턴
+        return ReportDetails.builder()
+                .status("INPROGRESS")
+                .traceId(traceId)
+                .build();
+    }
+
+    private void updateReportResultToDB(List<Map<String, Object>> results,
+                                        String query,
+                                        String customerId,
+                                        ReportRequest request,
+                                        Map<String, Object> extra,
+                                        String traceId) {
+        // MongoDB update 로직
+    }
+
+    // getResponseForPieChart, convertTuplesToMapList, convertFirstNumericToBigDecimal, postProcessingImei 그대로 재사용
+}
+```
+
+---
+
+## 🔹 어떤 경우에 TaskExecutor가 더 적합한가?
+
+* **스레드풀을 직접 관리하고 싶을 때**
+  (예: corePoolSize, maxPoolSize, queueCapacity를 튜닝)
+* **요청이 몰릴 때 안정적으로 처리해야 할 때**
+  (큐에 쌓고, 거부 정책 지정)
+* `@Async` 의 자동 TaskExecutor 대신, 서비스 목적에 맞는 전용 풀을 쓰고 싶을 때.
+
+---
+
+## ✅ 비교
+
+* **간단히 비동기만 필요** → `@Async + CompletableFuture` (Spring이 TaskExecutor 자동 주입)
+* **스레드풀 세밀 제어 필요** → `TaskExecutor` 직접 정의
+* **대규모 분산 처리** → Kafka / Queue 기반으로 전환
+
+---
+
+👉 Daniel 님 상황에서,
+
+* 단순히 "쿼리 오래 걸리니 비동기로 돌리자" → `@Async`
+* "요청 몰릴 수 있고, 스레드풀 튜닝 필요" → `TaskExecutor` 직접 주입
+
+이렇게 선택하시면 돼요.
+
+Daniel, 지금 예상되는 **동시 실행 쿼리 개수**가 수십 개 수준인가요, 아니면 수백\~수천 단위인가요? 그거에 따라 `@Async` 로 충분한지, `TaskExecutor` 튜닝이 필요한지 갈릴 것 같아요.
+
+
+
+----------------------
 예외 처리 부분을 함수로 분리하고 `CompletableFuture`의 `get()` 메서드를 더 간단하게 표현할 수 있습니다. `Optional`을 이용한 방법은 함수형 스타일을 유지하면서도 예외 처리를 함수로 분리하여 코드의 가독성을 높일 수 있습니다.
 
 ### 1. 예외 처리 부분을 함수로 분리하기
