@@ -1,4 +1,99 @@
 
+네, 가능합니다 👍
+`@Async` 없이도 **순수 JDK의 `CompletableFuture`** 만으로 비동기 실행을 할 수 있습니다.
+
+---
+
+## 🔹 방법 1: `CompletableFuture.runAsync`
+
+```java
+public ReportDetails handlePieChart(ReportRequest request, String customerId) {
+    String traceId = UUID.randomUUID().toString();
+
+    // 1. draft 저장
+    updateReportResultToDB(new ArrayList<>(), null, customerId, request, null, traceId);
+
+    // 2. 비동기 실행
+    CompletableFuture.runAsync(() -> {
+        try {
+            ReportResponse response = getResponseForPieChart(customerId, request.getReportQueryRequest());
+            List<Map<String, Object>> mappedResultList = convertTuplesToMapList(response.getResults());
+            convertFirstNumericToBigDecimal(mappedResultList);
+            postProcessingImei(request, mappedResultList);
+
+            updateReportResultToDB(mappedResultList, response.getGeneratedQuery(), customerId, request, null, traceId);
+            log.info("[DDE] ReportDetailRequest Pie Chart finished: {}", request);
+
+        } catch (Exception ex) {
+            log.error("Pie chart async task failed", ex);
+            updateReportResultToDB(List.of(), null, customerId, request, Map.of("error", ex.getMessage()), traceId);
+        }
+    });
+
+    // 3. 클라이언트에는 즉시 응답
+    return ReportDetails.builder()
+            .status("INPROGRESS")
+            .traceId(traceId)
+            .build();
+}
+```
+
+이 경우에는 **JDK 기본 ForkJoinPool.commonPool()** 이 실행 스레드를 관리합니다.
+→ 그냥 `@Async` 와 동일한 효과지만, Spring 의 TaskExecutor 설정과는 무관하게 동작합니다.
+
+---
+
+## 🔹 방법 2: 직접 Executor 지정
+
+서비스 특성상 **스레드풀을 직접 제어**하고 싶으면 `runAsync(..., executor)` 사용하면 됩니다.
+
+```java
+private final Executor reportExecutor = Executors.newFixedThreadPool(10);
+
+public ReportDetails handlePieChart(ReportRequest request, String customerId) {
+    String traceId = UUID.randomUUID().toString();
+
+    updateReportResultToDB(new ArrayList<>(), null, customerId, request, null, traceId);
+
+    CompletableFuture.runAsync(() -> {
+        // 동일한 로직
+    }, reportExecutor);
+
+    return ReportDetails.builder()
+            .status("INPROGRESS")
+            .traceId(traceId)
+            .build();
+}
+```
+
+---
+
+## 🔹 비교
+
+* `@Async`
+
+  * Spring 이 제공하는 TaskExecutor 사용 → 설정(`@EnableAsync`, 스레드풀 설정) 필요
+  * AOP 프록시 기반 → 같은 클래스 내 호출 시 주의 필요
+
+* **CompletableFuture.runAsync**
+
+  * Spring 프레임워크에 의존하지 않음
+  * 그냥 JDK 표준 → 테스트하기도 쉽고 가볍다
+  * 기본적으로 `ForkJoinPool.commonPool()` 사용 → 커스터마이징 원하면 Executor 전달
+
+---
+
+✅ 정리
+Daniel 님이 원하신 "즉시 리턴 + 백그라운드 처리"는 `CompletableFuture.runAsync` 만으로 충분히 구현 가능합니다.
+굳이 `@Async` 안 써도 돼요.
+
+---
+
+👉 제가 보기엔 Daniel 님 케이스는 그냥 `CompletableFuture.runAsync(..., customExecutor)` 방식이 가장 깔끔할 것 같은데요.
+혹시 운영 환경에서 **비동기 쿼리 요청이 많이 몰릴 가능성**이 있나요? 많으면 Executor 튜닝을 같이 고민해야 하고, 적으면 그냥 `runAsync` 기본 풀로도 충분합니다.
+
+
+-----
 
 좋습니다 👍 지금 Daniel 님 코드에서 하고 싶은 건
 
