@@ -1,5 +1,87 @@
 
 좋은 질문이에요 👍
+CompletableFuture.runAsync() 를 그냥 쓰면 ForkJoinPool.commonPool 위에서 실행돼요.
+
+1. 기본 동작
+
+CompletableFuture.runAsync(...); → ForkJoinPool.commonPool 사용
+
+이 풀의 쓰레드 개수: CPU 코어 수 - 1 (최소 1개)
+
+예: 8코어 서버 → 기본적으로 7개 쓰레드
+
+
+따라서 동시에 실행할 수 있는 태스크 개수는 제한적이고, DB 작업이나 IO 바운드 작업에는 병목이 생김
+
+
+
+---
+
+2. 원하는 만큼 쓰레드를 늘리려면?
+
+직접 ThreadPoolExecutor 나 Spring TaskExecutor 를 만들어서 넘겨줘야 해요.
+
+// Config
+@Bean
+public Executor reportTaskExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(10);   // 항상 유지되는 스레드
+    executor.setMaxPoolSize(50);    // 최대 스레드 개수
+    executor.setQueueCapacity(100); // 큐 대기 가능 태스크
+    executor.setThreadNamePrefix("ReportTask-");
+    executor.initialize();
+    return executor;
+}
+
+그리고 사용할 때:
+
+@Autowired
+private Executor reportTaskExecutor;
+
+CompletableFuture.runAsync(() -> {
+    // 비동기 작업
+}, reportTaskExecutor);
+
+
+---
+
+3. 병렬성 계산
+
+CPU 바운드 작업 (계산, 변환 등): 코어 수 정도면 충분
+
+IO 바운드 작업 (DB 쿼리, 네트워크 호출): 보통 코어 수의 2~4배 이상 풀을 줘도 OK
+→ DB connection pool 크기도 같이 고려해야 함 (DB connection pool이 20이면 쓰레드를 100으로 잡아도 의미 없음)
+
+
+
+---
+
+4. 모니터링 필요
+
+너무 크게 잡으면 context switching 때문에 성능 오히려 저하
+
+보통은
+
+corePoolSize = CPU 코어 수 * 2
+
+maxPoolSize = corePoolSize * 2 ~ 4
+
+queueCapacity = 처리 지연 허용되는 수준
+정도로 맞추고, 실제 모니터링하면서 튜닝하는 게 일반적이에요.
+
+
+
+
+---
+
+👉 Daniel, 지금 쓰시는 비동기 작업은 DB 쿼리 + Mongo 업데이트 위주인가요, 아니면 CPU 계산도 꽤 들어가나요?
+이거에 따라 풀 사이즈를 IO 친화적으로 크게 잡을지, CPU 친화적으로 제한할지 방향이 달라집니다.
+
+
+
+----
+
+좋은 질문이에요 👍
 타임아웃 후 재시도(retry) 를 하고 싶다면 CompletableFuture 만으로는 조금 불편합니다. 하지만 패턴을 잘 잡으면 깔끔하게 구현할 수 있습니다.
 
 
