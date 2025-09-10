@@ -1,3 +1,129 @@
+네 👍 Daniel 같은 케이스 (Redshift 쿼리 최대 2시간, 동시에 50개까지 가능)는 큐 기반 비동기 처리가 정석입니다.
+지금처럼 CompletableFuture 로 JVM 내에서 붙잡고 있으면 서버 리소스/스레드가 다 잠겨버리거든요.
+
+
+---
+
+🚀 큐 기반 처리 아키텍처
+
+1. API 서버 (Spring Boot)
+
+클라이언트 요청을 받음
+
+MongoDB 에 status = IN_PROGRESS 로 draft 저장
+
+쿼리 실행 job 을 큐(Kafka, SQS, RabbitMQ 등) 에 publish
+
+즉시 응답 (requestId, status = IN_PROGRESS)
+
+
+@PostMapping("/report")
+public ResponseEntity<?> createReport(@RequestBody ReportRequest request) {
+    String draftId = saveDraftReport(request, "IN_PROGRESS");
+
+    // 메시지 큐에 job 전달
+    ReportJob job = new ReportJob(draftId, request);
+    kafkaTemplate.send("report-jobs", job); // 예: Kafka
+
+    return ResponseEntity.ok(Map.of(
+        "reportId", draftId,
+        "status", "IN_PROGRESS"
+    ));
+}
+
+
+---
+
+2. Worker (Consumer)
+
+큐에서 메시지를 소비
+
+Redshift 쿼리 실행
+
+성공 → MongoDB status = SUCCESS + 결과 저장
+
+실패/타임아웃 → status = FAILED
+
+
+@KafkaListener(topics = "report-jobs")
+public void handleReportJob(ReportJob job) {
+    try {
+        Response response = getResponseForPieChart(job.getCustomerId(), job.getRequest());
+        List<Map<String, Object>> results = convertResults(response);
+
+        updateReportResultToDB(results,
+                response.getGeneratedQuery(),
+                job.getCustomerId(),
+                job.getRequest(),
+                "SUCCESS",
+                response.getTraceId());
+
+    } catch (Exception ex) {
+        updateReportResultToDB(Collections.emptyList(),
+                null,
+                job.getCustomerId(),
+                job.getRequest(),
+                "FAILED",
+                UUID.randomUUID().toString());
+    }
+}
+
+
+---
+
+3. 클라이언트 조회 방식
+
+클라이언트는 /report/{id} 로 상태 조회 API 호출
+
+응답 예시:
+
+
+{
+  "reportId": "12345",
+  "status": "IN_PROGRESS"
+}
+
+성공 시:
+
+{
+  "reportId": "12345",
+  "status": "SUCCESS",
+  "results": [...]
+}
+
+
+---
+
+🔑 장점
+
+API 서버는 요청을 빨리 처리하고 즉시 리턴 → 스레드 낭비 없음
+
+Worker 개수를 늘려서 서버별 DB pool 크기(50) * 서버 수 만큼 확장 가능
+
+실패/타임아웃 시 재시도 로직 (Kafka DLQ, SQS Dead Letter Queue 등) 도 자동 지원
+
+
+
+---
+
+✅ 선택지
+
+AWS 사용 중 → SQS + Lambda(또는 ECS Worker) 조합 추천
+
+자체 인프라 → Kafka + Spring Kafka Consumer
+
+단순 → RabbitMQ + Spring AMQP
+
+
+
+---
+
+👉 Daniel, 지금 인프라가 AWS 기반인가요? 아니면 온프레미스/자체 서버 환경인가요?
+이걸 알아야 Kafka / SQS / RabbitMQ 중에 뭐가 가장 맞는지 방향을 딱 잡을 수 있을 것 같아요.
+
+
+
+----
 
 좋은 질문이에요 👍
 CompletableFuture.runAsync() 를 그냥 쓰면 ForkJoinPool.commonPool 위에서 실행돼요.
