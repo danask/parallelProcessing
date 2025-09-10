@@ -1,4 +1,167 @@
 
+좋은 질문이에요 👍
+타임아웃 후 재시도(retry) 를 하고 싶다면 CompletableFuture 만으로는 조금 불편합니다. 하지만 패턴을 잘 잡으면 깔끔하게 구현할 수 있습니다.
+
+
+---
+
+✅ 방법 1: 단순 재귀 재시도
+
+실패했을 때 정해진 횟수까지 다시 실행:
+
+private void runWithRetry(int maxRetries, int timeoutSeconds,
+                          String customerId, ReportRequest request) {
+    CompletableFuture
+        .supplyAsync(() -> {
+            // 실제 작업
+            return getResponseForPieChart(customerId, request.getReportQueryRequest());
+        }, executor)
+        .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
+        .thenAccept(response -> {
+            // 성공 시 DB 업데이트
+            List<Tuple> resultList = response.getResults();
+            List<Map<String, Object>> mappedResultList = convertTuplesToMapList(resultList);
+            convertFirstNumericToBigDecimal(mappedResultList);
+            postProcessingImei(request, mappedResultList);
+            updateReportResultToDB(mappedResultList,
+                    response.getGeneratedQuery(),
+                    customerId,
+                    request,
+                    "SUCCESS",
+                    response.getTraceId());
+        })
+        .exceptionally(ex -> {
+            if (maxRetries > 0) {
+                log.warn("Task failed, retrying... remaining={}", maxRetries, ex);
+                runWithRetry(maxRetries - 1, timeoutSeconds, customerId, request);
+            } else {
+                log.error("Task failed after retries", ex);
+                updateReportResultToDB(
+                        Collections.emptyList(),
+                        null,
+                        customerId,
+                        request,
+                        "FAILED",
+                        UUID.randomUUID().toString());
+            }
+            return null;
+        });
+}
+
+컨트롤러에서는 이렇게 호출하면 됩니다:
+
+// draft 저장 후 즉시 리턴
+String draftId = saveDraftReport(customerId, request);
+runWithRetry(3, 10, customerId, request); // 최대 3번까지, 타임아웃 10초
+return ResponseEntity.ok(draftId);
+
+
+---
+
+✅ 방법 2: 라이브러리 이용 (Resilience4j Retry)
+
+Spring Boot + JPA 환경이라면 resilience4j-retry 를 붙이는 게 깔끔합니다.
+
+@Retry(name = "reportTask", fallbackMethod = "handleFailure")
+public Response getResponseForPieChartWithRetry(String customerId, ReportQueryRequest query) {
+    return getResponseForPieChart(customerId, query);
+}
+
+public Response handleFailure(String customerId, ReportQueryRequest query, Throwable ex) {
+    log.error("Retries exhausted for {}", customerId, ex);
+    updateReportResultToDB(Collections.emptyList(), null, customerId, query,
+            "FAILED", UUID.randomUUID().toString());
+    return null;
+}
+
+→ 타임아웃까지 합치려면 resilience4j-timeout 과 같이 조합해서 Retry + Timeout 정책을 설정할 수 있습니다.
+
+
+---
+
+✅ 정리
+
+간단히: CompletableFuture 안에서 재귀적으로 runWithRetry 구현 → 최대 횟수까지 재시도.
+
+확장성: Resilience4j 의 @Retry, @TimeLimiter 조합 → 정책 기반으로 재시도 및 타임아웃 관리.
+
+
+
+---
+
+👉 Daniel, 지금 구상하신 구조는 단순 retry (예: 최대 3번) 만 필요하신 건가요? 아니면 지수 백오프(점점 간격 늘리기) 같은 고급 retry 전략도 고려 중이세요?
+
+
+----
+
+좋은 포인트예요 👍
+CompletableFuture 자체는 비동기 실행만 처리하고 타임아웃은 기본적으로 없어요. 하지만 자바 9+ 부터는 orTimeout / completeOnTimeout 이 추가되어서 깔끔하게 구현할 수 있습니다.
+
+예를 들어, 지금 시나리오에서 DB 에 status=FAILED 로 업데이트까지 하려면 아래처럼 하면 됩니다:
+
+CompletableFuture.runAsync(() -> {
+    try {
+        // 1. 실제 작업 실행
+        Response response = getResponseForPieChart(customerId, request.getReportQueryRequest());
+        List<Tuple> resultList = response.getResults();
+        List<Map<String, Object>> mappedResultList = convertTuplesToMapList(resultList);
+        convertFirstNumericToBigDecimal(mappedResultList);
+        postProcessingImei(request, mappedResultList);
+
+        // 2. 성공 시 DB 업데이트
+        updateReportResultToDB(mappedResultList,
+                response.getGeneratedQuery(),
+                customerId,
+                request,
+                "SUCCESS",
+                response.getTraceId());
+
+    } catch (Exception e) {
+        // 3. 예외 처리 시 실패로 저장
+        updateReportResultToDB(
+                Collections.emptyList(),
+                null,
+                customerId,
+                request,
+                "FAILED",
+                UUID.randomUUID().toString());
+    }
+}, executor) // executor = ThreadPoolTaskExecutor 등
+.orTimeout(10, TimeUnit.SECONDS) // 4. 타임아웃 설정
+.exceptionally(ex -> {
+    // 5. 타임아웃이나 다른 예외 발생 시 처리
+    updateReportResultToDB(
+            Collections.emptyList(),
+            null,
+            customerId,
+            request,
+            "FAILED",
+            UUID.randomUUID().toString());
+    return null;
+});
+
+핵심 정리
+
+1. runAsync + executor → 즉시 리턴 가능 (컨트롤러에서는 return ResponseEntity.ok(draftId) 같은 걸 반환하면 끝).
+
+
+2. .orTimeout(…) → 지정된 시간 안에 완료 안 되면 TimeoutException 발생.
+
+
+3. .exceptionally(…) → 타임아웃 포함 모든 예외 처리 후 DB 상태를 FAILED 로 업데이트.
+
+
+
+
+---
+
+👉 질문:
+Daniel, 여기서 timeout 후에 자동 retry 로직도 필요하세요, 아니면 단순히 FAILED 저장까지만 원하시나요?
+
+
+-----
+
+
 네, 가능합니다 👍
 `@Async` 없이도 **순수 JDK의 `CompletableFuture`** 만으로 비동기 실행을 할 수 있습니다.
 
