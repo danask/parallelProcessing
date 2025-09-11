@@ -1,4 +1,148 @@
 
+
+좋습니다 👍 그러면 `getAllFieldKeys(String group, String permission)` 메소드 하나로 **measure + dimension 모두 처리**하는 방식으로 정리해 드릴게요.
+
+즉,
+
+* 입력: `group` (예: `"measure:mv_app_usage"` or `"dimension:device"`), `permission` (예: `"ManageDashboard"`)
+* 출력: 해당 group 아래의 모든 fieldKey\:metricKey (권한 필터링된)
+
+---
+
+### 구현 예시
+
+```java
+public Set<String> getAllFieldKeys(String group, String permission) {
+    Set<String> result = new HashSet<>();
+
+    // group 기준 탐색
+    fieldConfigMap.forEach((fullKey, fieldConfig) -> {
+        // fullKey = "measure:mv_app_usage:totalRunTime"
+        if (fullKey.startsWith(group)) {
+            // 권한 필터링
+            if (permission == null 
+                || (fieldConfig.getPermissions() != null 
+                    && fieldConfig.getPermissions().contains(permission))) {
+                
+                // metric 이 있으면 metric 단위까지 붙여서 key 생성
+                if (fieldConfig.getMetric() != null && !fieldConfig.getMetric().isEmpty()) {
+                    for (String metricKey : fieldConfig.getMetric().keySet()) {
+                        String key = fullKey + ":" + metricKey;
+                        result.add(key);
+                    }
+                } else {
+                    // metric 없는 경우 fieldKey 까지만 추가
+                    result.add(fullKey);
+                }
+            }
+        }
+    });
+
+    return result;
+}
+```
+
+---
+
+### 예시 동작
+
+```java
+Set<String> keys = getAllFieldKeys("measure:mv_abnormal_count_daily", "ManageDashboard");
+```
+
+→ 결과:
+
+```
+[
+  "measure:mv_abnormal_count_daily:abnormalEvents:sum",
+  "measure:mv_abnormal_count_daily:abnormalEvents:avg"
+]
+```
+
+---
+
+👉 이렇게 하면 `measure`/`dimension`을 따로 나눌 필요 없이 **group 단위 + permission 조건**으로 한 번에 조회할 수 있습니다.
+
+Daniel, 여기서 `fieldConfigMap` 의 key 를
+
+* `"measure:mv_app_usage:totalRunTime"` 같은 **field 단위까지만** 저장하고,
+* metric 은 `FieldConfig.metric` 안쪽에 들어있다고 이해하면 맞을까요?
+
+
+-----
+
+좋은 포인트예요 👍 지금 방식은 `fullKey` 문자열을 파싱하는 데 많이 의존하고 있는데, 사실 `fieldConfigMap` 을 만들 때부터 **그룹·카테고리·필드 단위**로 계층형 구조를 유지하면 fullKey 문자열에 덜 의존할 수 있습니다.
+
+예를 들어:
+
+```java
+// 계층형 구조: group -> category -> fieldKey -> FieldConfig
+Map<String, Map<String, Map<String, FieldConfig>>> allGroups;
+```
+
+이렇게 되어 있으면 `getAllFieldKeys(String group, String permission)` 은 문자열 파싱 없이 순회하면 됩니다.
+
+---
+
+### 대안 구현 (fullKey 사용 X)
+
+```java
+public Set<String> getAllFieldKeys(
+    Map<String, Map<String, Map<String, FieldConfig>>> allGroups,
+    String group, 
+    String permission
+) {
+    Set<String> result = new HashSet<>();
+
+    Map<String, Map<String, FieldConfig>> categories = allGroups.get(group);
+    if (categories == null) return result;
+
+    for (Map.Entry<String, Map<String, FieldConfig>> categoryEntry : categories.entrySet()) {
+        String category = categoryEntry.getKey();
+        Map<String, FieldConfig> fields = categoryEntry.getValue();
+
+        for (Map.Entry<String, FieldConfig> fieldEntry : fields.entrySet()) {
+            String fieldKey = fieldEntry.getKey();
+            FieldConfig fieldConfig = fieldEntry.getValue();
+
+            // 권한 체크
+            if (permission == null 
+                || (fieldConfig.getPermissions() != null 
+                    && fieldConfig.getPermissions().contains(permission))) {
+
+                // metric 별로 key 생성
+                if (fieldConfig.getMetric() != null && !fieldConfig.getMetric().isEmpty()) {
+                    for (String metricKey : fieldConfig.getMetric().keySet()) {
+                        // 문자열로 묶어주되, fullKey가 아니라 구조적 key
+                        result.add(String.format("%s:%s:%s:%s", group, category, fieldKey, metricKey));
+                    }
+                } else {
+                    result.add(String.format("%s:%s:%s", group, category, fieldKey));
+                }
+            }
+        }
+    }
+
+    return result;
+}
+```
+
+---
+
+### 장점
+
+* 문자열 기반 파싱(`fullKey.split(":")`) 안 해도 됨
+* 그룹/카테고리/필드 단위로 구조가 유지되므로 유지보수 용이
+* 권한 필터링을 자연스럽게 통합
+
+---
+
+👉 Daniel, 현재 `fieldConfigMap` 을 `fullKey → FieldConfig` (flat) 으로 유지할 계획인가요, 아니면 제가 제안한 `allGroups` (계층형) 형태로 바꾸는 것도 괜찮으세요?
+만약 flat 유지라면 fullKey 기반 접근이 깔끔하고, 계층형 유지라면 위 방식이 더 명확합니다.
+
+
+-----
+
 아래는 주어진 YAML 기반 설정(`dde.measure`)에서 `sum_total_run_time`과 같은 metric name을 가지고 관련된 `group`, `category`, `fieldKey`, `label` 등을 역으로 찾아오는 전체 로직입니다. 이미 파싱된 구조에서 `Map<String, FieldConfig>` 형식을 사용하는 것을 전제로 구성되어 있으며, `group`(예: `dde`), `category`(예: `mv_app_usage`), `fieldKey`(예: `totalRunTime`), `label`(예: `Total Run Time`), `metricLabel`(예: `Sum`), `metricName`(예: `sum_total_run_time`) 등을 찾아냅니다.
 
 ### ✅ 전제 구조
