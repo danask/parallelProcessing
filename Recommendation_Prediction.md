@@ -1,3 +1,169 @@
+
+
+좋아요. 그럼 **Spring Boot + Java에서 MV 레코드 수, join 수, filter 수를 기반으로 α, β를 단순 선형회귀로 추정하는 예제**를 보여드릴게요.
+
+---
+
+## 1️⃣ 가정
+
+* `mv_customer_records`에서 각 MV record 수를 가져온다.
+* 쿼리 실행 로그에서 join 수, filter 수, 실제 실행 시간(ms)을 가져온다.
+* 단순화: 선형회귀 라이브러리는 **Apache Commons Math** 사용.
+
+---
+
+## 2️⃣ Maven 의존성
+
+```xml
+<dependency>
+    <groupId>org.apache.commons</groupId>
+    <artifactId>commons-math3</artifactId>
+    <version>3.6.1</version>
+</dependency>
+```
+
+---
+
+## 3️⃣ Java 예제 코드
+
+```java
+import org.apache.commons.math3.stat.regression.OLSMultipleLinearRegression;
+import java.util.*;
+
+public class JoinScoreRegression {
+
+    public static void main(String[] args) {
+        // 1. 데이터 준비
+        List<QueryStats> stats = List.of(
+            new QueryStats(2, 1000, 1, 150),
+            new QueryStats(3, 10000, 2, 800),
+            new QueryStats(1, 500, 0, 50),
+            new QueryStats(4, 100000, 3, 2000)
+        );
+
+        // 2. 회귀용 배열 변환
+        double[][] x = new double[stats.size()][2]; // joinCount^2, log(recordCount+1)
+        double[] y = new double[stats.size()];      // 실제 실행시간(ms)
+
+        for (int i = 0; i < stats.size(); i++) {
+            QueryStats s = stats.get(i);
+            x[i][0] = Math.pow(s.getJoinCount(), 2);              // joinCount^2
+            x[i][1] = Math.log(s.getRecordCount() + 1);          // log(recordCount+1)
+            y[i] = s.getExecutionTimeMs();
+        }
+
+        // 3. OLS 선형회귀
+        OLSMultipleLinearRegression regression = new OLSMultipleLinearRegression();
+        regression.newSampleData(y, x);
+
+        double[] beta = regression.estimateRegressionParameters(); 
+        System.out.println("Intercept: " + beta[0]);
+        System.out.println("α (joinCount^2 coefficient): " + beta[1]);
+        System.out.println("β (log(recordCount) coefficient): " + beta[2]);
+    }
+
+    public static class QueryStats {
+        private final int joinCount;
+        private final long recordCount;
+        private final int filterCount;
+        private final long executionTimeMs;
+
+        public QueryStats(int joinCount, long recordCount, int filterCount, long executionTimeMs) {
+            this.joinCount = joinCount;
+            this.recordCount = recordCount;
+            this.filterCount = filterCount;
+            this.executionTimeMs = executionTimeMs;
+        }
+
+        public int getJoinCount() { return joinCount; }
+        public long getRecordCount() { return recordCount; }
+        public int getFilterCount() { return filterCount; }
+        public long getExecutionTimeMs() { return executionTimeMs; }
+    }
+}
+```
+
+---
+
+## 4️⃣ 설명
+
+1. `x[i][0]` → joinCount², `x[i][1]` → log(recordCount+1)
+2. `y[i]` → 실제 쿼리 실행 시간(ms)
+3. `OLSMultipleLinearRegression`로 회귀 수행 → α, β를 추정
+4. 추정된 α, β를 기존 **TotalScore 계산** 공식에 적용 가능
+
+---
+
+이렇게 하면 **실제 데이터 기반으로 조인 수와 테이블 크기가 TotalScore에 미치는 영향**을 정량적으로 계산할 수 있습니다.
+
+원하면 제가 **이 회귀 결과를 기존 Spring Boot ScoreCalculator와 통합해서, 실행 전 M/D join 허용 여부를 동적으로 판단하는 전체 구조 예제**까지 만들어 보여드릴 수도 있어요.
+
+Daniel, 그거 원하시나요?
+
+
+----
+
+좋아요, Daniel. 선형회귀(Linear Regression)를 쉽게 설명해볼게요.
+
+---
+
+### 1️⃣ 기본 개념
+
+* **목적:** 독립 변수(X)가 종속 변수(Y)에 어떤 영향을 미치는지 알아내는 것
+* 예:
+
+  * X = 쿼리 조인 수, 테이블 레코드 수
+  * Y = 쿼리 실행 시간(ms)
+* 선형회귀는 **Y가 X에 대해 직선 형태(linear)로 변한다고 가정**하고, 가장 잘 맞는 직선을 찾는 방법입니다.
+
+---
+
+### 2️⃣ 수식으로 표현
+
+1개의 독립 변수일 때:
+[
+Y = \alpha X + \beta
+]
+
+여러 개 독립 변수일 때:
+[
+Y = \alpha_1 X_1 + \alpha_2 X_2 + \cdots + \alpha_n X_n + \beta
+]
+
+* α₁, α₂, … → 각 변수의 영향력(계수, coefficient)
+* β → 상수항(intercept)
+* 우리가 말한 TotalScore 공식과 비슷한 형태:
+  [
+  TotalScore = \alpha \cdot (joinCount^2) + \beta \cdot \log(recordCount+1) + \text{filterAdjustment}
+  ]
+  여기서 α, β, filterAdjustment가 회귀 계수와 유사합니다.
+
+---
+
+### 3️⃣ 직관적 이해
+
+* 데이터를 산점도로 찍어보면, 선형회귀는 **데이터에 가장 “잘 맞는 직선”**을 찾아서 Y를 예측합니다.
+* 예를 들어:
+
+  * joinCount²가 늘어나면 TotalScore가 얼마나 늘어나는지 α로 알 수 있음
+  * recordCount(log)가 늘어나면 TotalScore에 β만큼 반영됨
+
+---
+
+### 4️⃣ 왜 쓰는가
+
+* 과거 쿼리 수행 기록(조인 수, 레코드 수, 필터 수)을 기반으로 **TotalScore와 실제 성능 관계**를 데이터 기반으로 정할 수 있음
+* 경험적으로 α, β를 정하는 대신, 실제 로그를 보고 ML(회귀)으로 추정 가능
+
+---
+
+원하면 내가 **Java/Spring Boot에서 실제 MV record 수, join 수, filter 수를 기반으로 α, β를 회귀로 계산하는 예제 코드**까지 보여줄 수 있어요.
+
+보고 싶나요?
+
+
+-----
+
 좋아요. 이 공식의 근거를 정리하면 크게 세 가지 층위에서 이해할 수 있습니다.
 
 ---
