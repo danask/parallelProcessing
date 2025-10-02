@@ -1,4 +1,158 @@
 
+Got it, Daniel 👍
+I’ll prepare a **Wiki-style technical document in English** that covers:
+
+1. **The heuristic formula approach** (the one with α, β, log, squared joins, filter adjustment).
+2. **The ML-based approach using Linear Regression** (with ONNX export).
+3. **Step-by-step derivation process** (formulas, methods, and reasoning).
+4. **Example table with sample data and results**.
+
+Here’s a structured draft you could directly use as a wiki page:
+
+---
+
+# Query Scoring: Heuristic Formula vs. Machine Learning Approach
+
+## 1. Overview
+
+When building a query recommendation or execution scoring system, there are two main approaches:
+
+* **Heuristic formula-based scoring**: A manually defined mathematical formula that estimates query cost/complexity.
+* **Machine Learning (ML)-based scoring**: A regression model (e.g., Linear Regression) trained on historical query performance data.
+
+This document explains both approaches, provides derivation steps, and includes example calculations.
+
+---
+
+## 2. Heuristic Formula Approach
+
+### Formula
+
+[
+\text{TotalScore} = \alpha \times (\text{joinCount}^2) + \beta \times \log(\text{recordCount}+1) + \text{filterAdjustment}
+]
+
+* **α (alpha)**: weight factor for join cost.
+* **β (beta)**: weight factor for record volume.
+* **joinCount²**: squared term to emphasize non-linear growth in join cost.
+* **log(recordCount+1)**: logarithmic scaling to dampen the effect of very large record counts.
+* **filterAdjustment**: penalty or reward based on number and type of filters applied.
+
+### Derivation Steps
+
+1. **Join Cost (non-linear)**
+
+   * As the number of joins increases, query complexity grows faster than linearly.
+   * A squared term ((\text{joinCount}^2)) reflects this exponential increase.
+
+2. **Record Volume (log scaling)**
+
+   * Raw record counts can vary drastically (e.g., thousands vs. billions).
+   * Using (\log(\text{recordCount}+1)) normalizes the growth, reducing skew.
+
+3. **Filter Effect (adjustment)**
+
+   * Filters reduce data scanned, but increase predicate evaluation.
+   * Applied as an additive correction factor ((+/-)).
+
+---
+
+## 3. ML-Based Approach (Linear Regression + ONNX)
+
+### Formula
+
+[
+\hat{y} = w_0 + w_1 \times \text{joinCount} + w_2 \times \log(\text{recordCount}+1) + w_3 \times \text{filterCount} + \dots
+]
+
+* **(\hat{y})**: predicted query cost/score.
+* **(w_0, w_1, w_2, \dots)**: learned weights from regression.
+* Derived automatically from historical data.
+
+### Derivation Steps
+
+1. **Feature Selection**
+
+   * Identify features: joinCount, recordCount (log), filterCount, etc.
+
+2. **Model Training**
+
+   * Train a Linear Regression model with query performance data:
+     [
+     y \approx Xw
+     ]
+   * where (X) = feature matrix, (y) = observed execution cost.
+
+3. **ONNX Export & Runtime Integration**
+
+   * Convert trained model to ONNX for cross-platform use.
+   * Load ONNX model in Java/Spring using ONNX Runtime.
+
+---
+
+## 4. Method Outline (Java Example)
+
+### Heuristic Calculation
+
+```java
+public double calculateHeuristicScore(int joinCount, long recordCount, int filterCount) {
+    double alpha = 1.5;
+    double beta = 0.7;
+    double filterPenalty = filterCount * 0.5;
+
+    return alpha * Math.pow(joinCount, 2)
+         + beta * Math.log(recordCount + 1)
+         + filterPenalty;
+}
+```
+
+### ML Prediction (ONNX)
+
+```java
+public double predictScoreONNX(float[] features) throws OrtException {
+    try (OrtEnvironment env = OrtEnvironment.getEnvironment();
+         OrtSession session = env.createSession("join_score.onnx", new OrtSession.SessionOptions())) {
+         
+        OnnxTensor inputTensor = OnnxTensor.createTensor(env, features);
+        OrtSession.Result result = session.run(Collections.singletonMap("input", inputTensor));
+        return ((float[][]) result.get(0).getValue())[0][0];
+    }
+}
+```
+
+---
+
+## 5. Example Table
+
+| joinCount | recordCount | filterCount | Heuristic Score (α=1.5, β=0.7)                 | ML Predicted Score |
+| --------- | ----------- | ----------- | ---------------------------------------------- | ------------------ |
+| 1         | 10,000      | 1           | 1.5×1² + 0.7×log(10,001) + 0.5 = **9.9**       | 10.2               |
+| 3         | 1,000,000   | 2           | 1.5×9 + 0.7×log(1,000,001) + 1.0 = **29.7**    | 31.5               |
+| 5         | 100,000,000 | 4           | 1.5×25 + 0.7×log(100,000,001) + 2.0 = **62.1** | 60.8               |
+
+---
+
+## 6. Summary
+
+* **Heuristic approach**:
+
+  * Pros: Simple, interpretable, no training needed.
+  * Cons: Manually tuned, may not reflect real-world performance.
+
+* **ML approach**:
+
+  * Pros: Data-driven, adapts to real query workloads.
+  * Cons: Requires training data, model management overhead.
+
+Both methods can co-exist: start with heuristics, then evolve into ML-based scoring once enough performance data is collected.
+
+---
+
+👉 Daniel, would you like me to **add diagrams (formula flow + ML pipeline)** to this wiki draft, or keep it text-only?
+
+
+----
+
 좋습니다 🙆 Daniel, 그러면 제가 아까 정리한 **TotalScore 계산식**을 기준으로 해서, 시나리오별 점수 변화를 **표**로 정리해드릴게요.
 
 공식은 그대로 적용합니다:
