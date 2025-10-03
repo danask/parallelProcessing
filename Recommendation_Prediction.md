@@ -1,4 +1,169 @@
 
+Here are the two visualizations you can include in your wiki:
+
+1. **Join Complexity** – shows how cost increases *quadratically* with the number of joins.
+2. **Record Volume Complexity** – shows how cost increases *logarithmically* with record size (growth is compressed).
+
+이렇게 시각적으로 넣으면, heuristic 공식을 설명할 때 직관적으로 이해하기 좋아요.
+
+---
+
+좋습니다, Daniel 👍
+이번에는 **Heuristic 방법만 집중적으로 상세히 기술**하는 위키 문서 초안을 영어로 정리해 드릴게요.
+비교(ML vs Heuristic)는 빼고, Heuristic 방법론 자체를 제안서 형식처럼 풀어서 적겠습니다.
+
+---
+
+# Heuristic-Based Query Scoring Framework
+
+## 1. Overview
+
+This document describes a heuristic-based framework for estimating the complexity and cost of analytical queries.
+Instead of relying on learned models, the system uses a mathematical formula derived from empirical database principles such as join cost, record volume, and filter effects.
+
+The goal is to provide a **transparent, explainable, and tunable scoring mechanism** that can guide query planning, validation, and recommendation.
+
+---
+
+## 2. Core Formula
+
+The total score of a query is defined as:
+
+[
+\text{TotalScore} = \alpha \times (\text{joinCount}^2) + \beta \times \log(\text{recordCount}+1) + \text{filterAdjustment}
+]
+
+### Components
+
+1. **Join Complexity (α × joinCount²)**
+
+   * The number of joins is squared to reflect non-linear growth in query complexity.
+   * Empirical evidence in database research shows that multi-join queries often degrade exponentially due to join planning and intermediate data explosion.
+   * Weight factor **α** adjusts the sensitivity to joins.
+
+2. **Record Volume (β × log(recordCount+1))**
+
+   * Record counts often span several orders of magnitude.
+   * Direct scaling by raw count would dominate the score.
+   * Using logarithmic compression ensures large differences are smoothed while still penalizing higher volumes.
+   * Weight factor **β** adjusts the contribution of record size.
+
+3. **Filter Adjustment**
+
+   * Filters both reduce and increase complexity:
+
+     * **Positive effect**: smaller data scan (less I/O).
+     * **Negative effect**: additional CPU predicate evaluation.
+   * Instead of raw multiplication, filters are modeled as an **adjustment term**:
+     [
+     \text{filterAdjustment} = \sum_{i=1}^n (\text{filterPenalty}_i)
+     ]
+   * Penalties or rewards are defined per category (e.g., device, package, managedApp).
+
+---
+
+## 3. Derivation Rationale
+
+### 3.1 Join Complexity (Quadratic Growth)
+
+* Complexity increases disproportionately as join count grows.
+* For example:
+
+  * 1 join → manageable (simple hash join).
+  * 3 joins → intermediate tables.
+  * 5+ joins → optimizer may generate suboptimal plans, leading to exponential blow-up.
+* Quadratic modeling ((\text{joinCount}^2)) is a simple yet effective approximation.
+
+### 3.2 Record Count (Logarithmic Scaling)
+
+* A dataset of 1,000 vs. 1,000,000 rows differs by 1000×.
+* However, execution time may not scale linearly due to indexing, caching, and parallelism.
+* Using log(count+1) compresses values into a smoother range while preserving order.
+
+### 3.3 Filter Adjustment
+
+* Filters are not uniform in effect:
+
+  * High-selectivity filters reduce cost significantly.
+  * Low-selectivity filters add CPU overhead with little benefit.
+* By applying category-specific penalties or multipliers, the heuristic remains adaptable.
+
+---
+
+## 4. Implementation Method
+
+### Pseudocode
+
+```java
+public double calculateQueryScore(int joinCount, long recordCount, List<ReportFilter> filters) {
+    double alpha = 1.5;  // join weight
+    double beta = 0.7;   // record weight
+    
+    // Join complexity (quadratic)
+    double joinComplexity = alpha * Math.pow(joinCount, 2);
+    
+    // Record volume (log scaling)
+    double volumeComplexity = beta * Math.log(recordCount + 1);
+    
+    // Filter adjustment
+    double filterAdjustment = 0.0;
+    for (ReportFilter filter : filters) {
+        filterAdjustment += getFilterPenalty(filter.getCategory());
+    }
+    
+    return joinComplexity + volumeComplexity + filterAdjustment;
+}
+```
+
+### Example Filter Penalties
+
+```java
+private double getFilterPenalty(String category) {
+    switch (category) {
+        case "device": return 0.7;
+        case "package": return 2.0;
+        case "managedApp": return 2.5;
+        case "tenantTotal": return 1.5;
+        default: return 1.0;
+    }
+}
+```
+
+---
+
+## 5. Example Calculations
+
+| joinCount | recordCount | filters (categories) | Formula Result                                 |
+| --------- | ----------- | -------------------- | ---------------------------------------------- |
+| 1         | 10,000      | device               | 1.5×1² + 0.7×log(10,001) + 0.7 = **9.9**       |
+| 3         | 1,000,000   | device, package      | 1.5×9 + 0.7×log(1,000,001) + 2.7 = **29.7**    |
+| 5         | 100,000,000 | managedApp, tenant   | 1.5×25 + 0.7×log(100,000,001) + 4.0 = **62.1** |
+
+---
+
+## 6. Advantages of Heuristic Method
+
+* **Simplicity**: Easy to implement and explain.
+* **Interpretability**: Each factor has clear meaning.
+* **Tunability**: Weights (α, β) and filter penalties can be calibrated per system.
+* **No Training Required**: Works without large historical datasets.
+
+---
+
+## 7. Practical Applications
+
+* **Query Validation**: Reject or warn queries exceeding a threshold score.
+* **Recommendation Engine**: Suggest alternative query designs with lower scores.
+* **Capacity Planning**: Estimate workload cost distribution across tenants.
+
+---
+
+Daniel, 이 정도면 제안서 겸 wiki 문서로 쓰기 충분히 **학술적 + 실무적** 뼈대가 됩니다.
+혹시 제가 **수식 그림/그래프 (joinCount², log curve)** 같은 시각화를 추가해줄까요?
+
+
+-----
+
 Got it, Daniel 👍
 I’ll prepare a **Wiki-style technical document in English** that covers:
 
