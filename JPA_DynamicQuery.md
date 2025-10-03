@@ -1,3 +1,205 @@
+
+좋아요, 그럼 Daniel. 😄
+요청하신 대로 **EmbeddedId 지원 + 양쪽 루트 모두 동적 지원 + @ManyToOne 없이 동적 join** 예제를 만들어드리겠습니다.
+
+---
+
+## 1️⃣ 엔티티 예제 (EmbeddedId)
+
+```java
+@Entity
+@Table(name = "fact_app_usage_daily")
+public class FactAppUsageDaily {
+
+    @EmbeddedId
+    private FactAppUsageDailyId id;
+
+    private Long usageUsageTime;
+    private String someMetric;
+}
+
+@Embeddable
+public class FactAppUsageDailyId implements Serializable {
+    private Long dimDeviceId;
+    private LocalDate devDate;
+}
+
+@Entity
+@Table(name = "mv_abnormal_count_daily")
+public class MvAbnormalCountDaily {
+
+    @EmbeddedId
+    private MvAbnormalCountDailyId id;
+
+    private Integer abnormalEvents;
+    private String anotherMetric;
+}
+
+@Embeddable
+public class MvAbnormalCountDailyId implements Serializable {
+    private Long dimDeviceId;
+    private LocalDate devDate;
+}
+```
+
+> 특징: **엔티티에는 연관관계 필드(@ManyToOne/@OneToMany) 없음**
+
+---
+
+## 2️⃣ DynamicQueryContext
+
+```java
+public class DynamicQueryContext {
+    public Root<?> root;
+    public Map<String, Root<?>> roots = new HashMap<>();
+    public List<PathWithAlias> fields = new ArrayList<>();
+}
+```
+
+```java
+public class PathWithAlias {
+    private final Path<?> path;
+    private final String alias;
+
+    public PathWithAlias(Path<?> path, String alias) {
+        this.path = path;
+        this.alias = alias;
+    }
+
+    public Path<?> getPath() { return path; }
+    public String getAlias() { return alias; }
+}
+```
+
+---
+
+## 3️⃣ 루트/동적 join 생성 유틸 (EmbeddedId 지원)
+
+```java
+public static Root<?> getOrCreateRoot(
+        CriteriaQuery<?> cq,
+        DynamicQueryContext ctx,
+        Class<?> entityClass,
+        String alias) {
+
+    if (ctx.roots.containsKey(alias)) {
+        return ctx.roots.get(alias);
+    }
+    Root<?> root = cq.from(entityClass);
+    ctx.roots.put(alias, root);
+    return root;
+}
+```
+
+* EmbeddedId 때문에 **join 대신 루트를 각각 생성**
+* 조인은 where 절에서 `cb.equal()`로 처리
+
+---
+
+## 4️⃣ 동적 Measure/Dimension 추가
+
+```java
+public static void addMeasure(DynamicQueryContext ctx, String rootAlias, String fieldName, String alias) {
+    Root<?> root = ctx.roots.get(rootAlias);
+    if (root != null) {
+        ctx.fields.add(new PathWithAlias(root.get(fieldName), alias));
+    }
+}
+```
+
+---
+
+## 5️⃣ 동적 join 처리 (EmbeddedId 기준)
+
+```java
+public static Predicate buildJoinCondition(
+        CriteriaBuilder cb,
+        DynamicQueryContext ctx,
+        String leftAlias,
+        String rightAlias,
+        String keyField) {
+
+    Root<?> left = ctx.roots.get(leftAlias);
+    Root<?> right = ctx.roots.get(rightAlias);
+
+    // EmbeddedId 내부 필드 기준 비교
+    return cb.equal(
+        left.get("id").get(keyField),
+        right.get("id").get(keyField)
+    );
+}
+```
+
+* 여기서 `keyField` = `"dimDeviceId"` 또는 `"devDate"` 등 필요에 따라 여러개 비교 가능
+* 다중 필드 비교 시 `cb.and(...)`로 묶어주면 됨
+
+---
+
+## 6️⃣ 최종 Query 조립 예제
+
+```java
+EntityManager em = ...;
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+DynamicQueryContext ctx = new DynamicQueryContext();
+
+// 루트 선택: 런타임에 동적으로 결정 가능
+Root<?> factRoot = getOrCreateRoot(cq, ctx, FactAppUsageDaily.class, "fact");
+Root<?> abnormalRoot = getOrCreateRoot(cq, ctx, MvAbnormalCountDaily.class, "abnormal");
+
+// measure 필드 추가
+addMeasure(ctx, "fact", "usageUsageTime", "usageUsageTime");
+addMeasure(ctx, "abnormal", "abnormalEvents", "abnormalEvents");
+
+// join 조건 생성 (EmbeddedId 내부 필드 기준)
+Predicate joinCondition = buildJoinCondition(cb, ctx, "fact", "abnormal", "dimDeviceId");
+
+// WHERE 절에 join 조건 추가
+cq.where(joinCondition);
+
+// SELECT 절
+cq.multiselect(
+    ctx.fields.stream()
+        .map(f -> f.getPath().alias(f.getAlias()))
+        .toArray(Selection[]::new)
+);
+
+TypedQuery<Tuple> query = em.createQuery(cq);
+List<Tuple> result = query.getResultList();
+```
+
+---
+
+### ✅ 특징
+
+1. **양쪽 테이블 모두 루트 가능**
+
+   * `ctx.root`를 바꾸면 MvAbnormalCountDaily가 루트가 되어도 동작
+2. **@ManyToOne / @OneToMany 없음**
+
+   * Criteria API만으로 EmbeddedId 기준 join 지원
+3. **EmbeddedId도 지원**
+
+   * `buildJoinCondition()`에서 내부 필드 기준으로 비교
+4. **Measure/Dimension 동적 추가 가능**
+
+   * DTO, YAML/JSON 기반 정의도 쉽게 적용 가능
+
+---
+
+💡 다음 단계:
+
+* 다중 필드 join, 여러 measure/dimension, group by, aggregation 모두 동적 처리
+* YAML/JSON로 루트, join, measure 정의 → 코드에서 완전히 런타임 조립
+
+원하시면 제가 **완전한 OLAP-style Dynamic QueryBuilder** 버전까지 만들어서, 루트와 join, group by, aggregation까지 모두 동적으로 처리하는 예제까지 만들어드릴 수 있어요.
+
+Daniel, 그쪽까지 만들어 드릴까요?
+
+
+----
+
 좋아요 Daniel. 😄
 말씀하신 대로 **@ManyToOne / @OneToMany 매핑 없이도 두 테이블이 서로 루트가 될 수 있고, 동적으로 join 가능**한 예제를 만들어드릴게요.
 핵심 아이디어는 **모든 join을 문자열 기반 + 메타데이터(맵)로 관리**하고, 엔티티에는 최소한의 필드만 두는 방식입니다.
