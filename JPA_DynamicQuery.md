@@ -1,4 +1,97 @@
 
+좋습니다 👍
+그럼 상황이 이렇게 정리되네요:
+
+* **조인 기준은 항상 `dimDeviceId` 하나**
+* **Root 엔티티는 매번 다를 수 있음** (`FactAppUsageDaily`, `MvAbnormalCountDaily`, …)
+* **조인 대상 테이블은 10개 이상 늘어날 수 있음**
+
+이 경우에는 **매번 하드코딩**으로 `joinOnDimDeviceId`를 부를 수도 있지만, 테이블이 많아지면 중복이 많아지니까 → **동적 루프 기반 조인 빌더**를 만들어두는 게 깔끔합니다.
+
+---
+
+### 📌 유틸리티 설계 아이디어
+
+```java
+public class DynamicJoinHelper {
+
+    /**
+     * 여러 대상 엔티티를 dimDeviceId 기준으로 root와 join
+     */
+    public static <R> Map<Class<?>, Root<?>> joinMultipleOnDimDeviceId(
+            CriteriaBuilder cb,
+            CriteriaQuery<?> query,
+            Root<R> root,
+            List<Class<?>> targetClasses,
+            JoinType joinType
+    ) {
+        Map<Class<?>, Root<?>> joinRoots = new HashMap<>();
+
+        for (Class<?> targetClass : targetClasses) {
+            Root<?> targetRoot = query.from(targetClass);
+
+            // dimDeviceId ON 조건 추가
+            query.where(
+                cb.equal(root.get("dimDeviceId"), targetRoot.get("dimDeviceId"))
+            );
+
+            joinRoots.put(targetClass, targetRoot);
+        }
+
+        return joinRoots;
+    }
+}
+```
+
+---
+
+### 📌 사용 예시 — root 하나 + 여러 테이블 조인
+
+```java
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> query = cb.createTupleQuery();
+
+Root<FactAppUsageDaily> root = query.from(FactAppUsageDaily.class);
+
+// 10개까지 늘어날 수 있는 조인 대상 목록
+List<Class<?>> joinTargets = Arrays.asList(
+    MvAbnormalCountDaily.class,
+    SomeOtherDaily.class,
+    AnotherTable.class
+    // ...
+);
+
+Map<Class<?>, Root<?>> joined = DynamicJoinHelper.joinMultipleOnDimDeviceId(
+    cb, query, root, joinTargets, JoinType.LEFT
+);
+
+// projection
+query.multiselect(
+    root,
+    joined.get(MvAbnormalCountDaily.class),
+    joined.get(SomeOtherDaily.class)
+);
+
+List<Tuple> result = em.createQuery(query).getResultList();
+```
+
+---
+
+### 📌 정리
+
+* 매핑(`@ManyToOne`, `@OneToMany`) 안 해도 됨 ✅
+* root가 뭘로 오든 상관 없음 ✅
+* join 대상이 1개든 10개든 리스트로 처리 가능 ✅
+* `dimDeviceId` 하나로만 조인 조건 관리 ✅
+
+---
+
+👉 Daniel, 여기서 조인된 테이블들(`10개까지`)은 **projection에 다 select** 해서 쓰실 건가요?
+아니면 일부만 동적으로 뽑아서 `WHERE` 조건이나 `GROUP BY` 등에만 쓸 건가요?
+
+
+----
+
 좋아요, 그럼 Daniel. 😄
 요청하신 대로 **EmbeddedId 지원 + 양쪽 루트 모두 동적 지원 + @ManyToOne 없이 동적 join** 예제를 만들어드리겠습니다.
 
