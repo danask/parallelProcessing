@@ -21,6 +21,13 @@ public class DynamicQueryContext {
     public Map<String, Join<?, ?>> joins = new HashMap<>();
     public List<PathWithAlias> fieldNamePathWithAlias = new ArrayList<>();
 }
+
+public class FactAppUsageDaily {
+    @OneToMany(mappedBy = "factAppUsageDaily")
+    private List<MvAbnormalCountDaily> abnormalEventsList; 
+}
+
+
 ```
 
 ```java
