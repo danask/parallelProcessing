@@ -1,4 +1,141 @@
 
+좋은 포인트 집으셨어요 Daniel 👍
+지금 상황을 다시 정리하면:
+
+* `FactAppUsageDaily` ↔ `MvAbnormalCountDaily` 는 **공통키(dimDeviceId + devDate)** 로 조인됨
+* 그런데 경우에 따라 `FactAppUsageDaily` 가 루트가 되기도 하고, 반대로 `MvAbnormalCountDaily` 가 루트가 되기도 함
+
+즉, **양쪽 다 루트가 될 수 있는 구조**를 원하시는 거죠.
+
+---
+
+## ✅ 해결 전략
+
+이럴 때는 **양방향 연관관계 매핑**을 걸어두는 게 가장 안전합니다.
+
+* `FactAppUsageDaily` → `abnormalEventsList` (@OneToMany)
+* `MvAbnormalCountDaily` → `factAppUsageDaily` (@ManyToOne)
+
+그럼 어떤 엔티티를 루트로 삼더라도 `join()` 이 가능합니다.
+
+---
+
+## 예제 코드
+
+### 1) `FactAppUsageDaily`
+
+```java
+@Entity
+@Table(name = "fact_app_usage_daily")
+public class FactAppUsageDaily {
+
+    @EmbeddedId
+    private FactAppUsageDailyId id;
+
+    private Long usageUsageTime;
+
+    // 양방향 관계 (MvAbnormalCountDaily -> factAppUsageDaily 매핑됨)
+    @OneToMany(mappedBy = "factAppUsageDaily", fetch = FetchType.LAZY)
+    private List<MvAbnormalCountDaily> abnormalEventsList = new ArrayList<>();
+}
+
+@Embeddable
+public class FactAppUsageDailyId implements Serializable {
+    private Long dimDeviceId;
+    private LocalDate devDate;
+}
+```
+
+---
+
+### 2) `MvAbnormalCountDaily`
+
+```java
+@Entity
+@Table(name = "mv_abnormal_count_daily")
+public class MvAbnormalCountDaily {
+
+    @EmbeddedId
+    private MvAbnormalCountDailyId id;
+
+    private Integer abnormalEvents;
+
+    // FactAppUsageDaily 와의 양방향 ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumns({
+        @JoinColumn(name = "dim_device_id", referencedColumnName = "dimDeviceId", insertable = false, updatable = false),
+        @JoinColumn(name = "dev_date", referencedColumnName = "devDate", insertable = false, updatable = false)
+    })
+    private FactAppUsageDaily factAppUsageDaily;
+}
+
+@Embeddable
+public class MvAbnormalCountDailyId implements Serializable {
+    private Long dimDeviceId;
+    private LocalDate devDate;
+}
+```
+
+---
+
+## 3) CriteriaQuery 활용
+
+### ✅ 루트가 `FactAppUsageDaily` 인 경우
+
+```java
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+Root<FactAppUsageDaily> factRoot = cq.from(FactAppUsageDaily.class);
+
+Join<FactAppUsageDaily, MvAbnormalCountDaily> abnormalJoin =
+        factRoot.join("abnormalEventsList", JoinType.LEFT);
+
+cq.multiselect(
+    factRoot.get("usageUsageTime").alias("usageUsageTime"),
+    abnormalJoin.get("abnormalEvents").alias("abnormalEvents")
+);
+```
+
+---
+
+### ✅ 루트가 `MvAbnormalCountDaily` 인 경우
+
+```java
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+Root<MvAbnormalCountDaily> abnormalRoot = cq.from(MvAbnormalCountDaily.class);
+
+Join<MvAbnormalCountDaily, FactAppUsageDaily> factJoin =
+        abnormalRoot.join("factAppUsageDaily", JoinType.LEFT);
+
+cq.multiselect(
+    factJoin.get("usageUsageTime").alias("usageUsageTime"),
+    abnormalRoot.get("abnormalEvents").alias("abnormalEvents")
+);
+```
+
+---
+
+## ⚠️ 주의할 점
+
+* 양쪽 다 루트가 될 수 있으므로, **양방향 매핑이 반드시 필요**합니다.
+* 다중 조인 조건(`dimDeviceId` + `devDate`) 때문에 `@JoinColumns` 을 사용해야 합니다.
+* 만약 조인 조건이 테이블마다 달라지는 구조라면 (예: 어떤 경우엔 `dimDeviceId` 만, 어떤 경우엔 `dimDeviceId + devDate`), JPA 매핑만으로는 부족하고 **QueryDSL** 이 더 유연합니다.
+
+---
+
+👉 Daniel, 여기서 제가 궁금한 건:
+❓ `MvAbnormalCountDaily` ↔ `FactAppUsageDaily` 의 조인 조건은 항상 **dimDeviceId + devDate** 인가요?
+아니면 상황에 따라 조건이 달라질 수 있나요?
+
+조건이 항상 고정이라면 지금 보여드린 **양방향 매핑**이 답이고,
+조건이 변할 수 있다면 → Criteria API 보다는 **QueryDSL 기반 동적 조인**을 추천드려야 합니다.
+
+
+---
+
 좋습니다 👍
 그럼 상황이 이렇게 정리되네요:
 
