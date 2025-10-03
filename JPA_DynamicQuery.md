@@ -167,6 +167,33 @@ cq.multiselect(
 
 TypedQuery<Tuple> query = em.createQuery(cq);
 List<Tuple> result = query.getResultList();
+
+
+---
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+Root<FactAppUsageDaily> factRoot = cq.from(FactAppUsageDaily.class);
+Root<MvAbnormalCountDaily> abnormalRoot = cq.from(MvAbnormalCountDaily.class);
+
+// join 대신 root 로 받아도 되고, 조인으로 명시적으로 해도 됨
+Join<FactAppUsageDaily, MvAbnormalCountDaily> join = factRoot.join("dummy", JoinType.LEFT);
+
+// ON 절 조건 추가 (EmbeddedId 내부 접근)
+join.on(
+    cb.equal(factRoot.get("id").get("dimDeviceId"), join.get("id").get("dimDeviceId")),
+    cb.equal(factRoot.get("id").get("devDate"), join.get("id").get("devDate"))
+);
+
+// SELECT
+cq.multiselect(
+    factRoot.get("usageUsageTime").alias("usageUsageTime"),
+    join.get("abnormalEvents").alias("abnormalEvents")
+);
+
+List<Tuple> result = em.createQuery(cq).getResultList();
+
+
 ```
 
 ---
