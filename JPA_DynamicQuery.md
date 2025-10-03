@@ -1,4 +1,23 @@
 
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> query = cb.createTupleQuery();
+
+Root<FactAppUsageDaily> root = query.from(FactAppUsageDaily.class);
+
+// 여기서 조인 선언 (연관 매핑 없어도 가능)
+Join<FactAppUsageDaily, MvAbnormalCountDaily> abnormal =
+        root.join(MvAbnormalCountDaily.class.getSimpleName(), JoinType.INNER);
+
+// ON 조건 추가
+abnormal.on(cb.equal(root.get("dimDeviceId"), abnormal.get("dimDeviceId")));
+
+query.multiselect(root, abnormal);
+
+List<Tuple> results = em.createQuery(query).getResultList();
+
+
+---
+
 좋은 포인트 집으셨어요 Daniel 👍
 지금 상황을 다시 정리하면:
 
