@@ -14,6 +14,92 @@ Here are the two visualizations you can include in your wiki:
 
 ---
 
+Got it 👍
+I’ll rewrite the wiki draft in **clear and simple English** (no heavy math or ML jargon). It will sound more like a proposal or internal guideline than an academic paper.
+
+---
+
+# Wiki: Heuristic Scoring Method for Query Complexity
+
+## 1. Goal
+
+We need a simple way to **check query complexity** before running it.
+If a query becomes too heavy (too many joins, too many records, or too many filters), the system may slow down or fail.
+Our scoring method will give each query a **complexity score**.
+
+* If the score is low → allow the query.
+* If the score is high → block or warn.
+
+---
+
+## 2. Scoring Formula
+
+We use three main parts:
+
+**TotalScore = α × (joinCount²) + β × log(recordCount + 1) + filterAdjustment**
+
+* **Join Cost (α × joinCount²)**
+
+  * More joins = more expensive.
+  * We use *squared value* because the cost grows much faster when joins increase.
+  * Example: 2 joins → 4 cost, 4 joins → 16 cost.
+
+* **Record Cost (β × log(recordCount + 1))**
+
+  * More rows = more expensive.
+  * We use *logarithm* so that 10M rows is not 1000× worse than 10k rows.
+  * Example:
+
+    * 10k rows → log(10,000) ≈ 9.2
+    * 10M rows → log(10,000,000) ≈ 16.
+
+* **Filter Adjustment**
+
+  * Some filters make queries *lighter* (e.g., filter by `deviceId`).
+  * Some filters make queries *heavier* (e.g., complex `managedApp` filter).
+  * Each filter has a multiplier or penalty.
+  * Example: `device` filter = ×0.7 (lighter), `managedApp` filter = ×2.5 (heavier).
+
+---
+
+## 3. Heuristic Rules (Simple Guide)
+
+* Start from **joins**: penalize heavily if too many tables are joined.
+* Add **record count**: higher rows increase cost, but use log scale to soften growth.
+* Apply **filter effect**: adjust score up or down depending on filter type.
+* Final score compared against a **limit (e.g., 100)**.
+
+---
+
+## 4. Example Table
+
+| Joins | Records | Filters Applied | Score (example) |
+| ----- | ------- | --------------- | --------------- |
+| 2     | 100k    | device          | 4 + 11×β ×0.7   |
+| 4     | 10M     | managedApp      | 16 + 16×β ×2.5  |
+| 1     | 1k      | none            | 1 + 7×β         |
+
+---
+
+## 5. Visualization
+
+* **Join Complexity** → grows like a curve (square growth).
+* **Record Complexity** → grows slowly (log curve).
+* **Filters** → shift score up or down depending on type.
+
+---
+
+✅ This way, everyone can understand the rule without needing ML or statistics background.
+✅ It’s easy to implement in code and tune α, β, and filter penalties later.
+
+---
+
+Daniel, do you want me to also **include the Java code** (your last version with normalization) inside this wiki so it’s directly usable by developers?
+
+
+
+
+
 # Heuristic-Based Query Scoring Framework
 
 ## 1. Overview
