@@ -19,9 +19,9 @@ I’ll rewrite the wiki draft in **clear and simple English** (no heavy math or 
 
 ---
 
-# Wiki: Heuristic Scoring Method for Query Complexity
+Heuristic Scoring Method for Query Complexity
 
-## 1. Goal
+Goal
 
 We need a simple way to **check query complexity** before running it.
 If a query becomes too heavy (too many joins, too many records, or too many filters), the system may slow down or fail.
@@ -30,9 +30,9 @@ Our scoring method will give each query a **complexity score**.
 * If the score is low → allow the query.
 * If the score is high → block or warn.
 
----
 
-## 2. Scoring Formula
+
+Scoring Formula
 
 We use three main parts:
 
@@ -60,18 +60,18 @@ We use three main parts:
   * Each filter has a multiplier or penalty.
   * Example: `device` filter = ×0.7 (lighter), `managedApp` filter = ×2.5 (heavier).
 
----
 
-## 3. Heuristic Rules (Simple Guide)
+
+Heuristic Rules (Simple Guide)
 
 * Start from **joins**: penalize heavily if too many tables are joined.
 * Add **record count**: higher rows increase cost, but use log scale to soften growth.
 * Apply **filter effect**: adjust score up or down depending on filter type.
 * Final score compared against a **limit (e.g., 100)**.
 
----
 
-## 4. Example Table
+
+Example Table
 
 | Joins | Records | Filters Applied | Score (example) |
 | ----- | ------- | --------------- | --------------- |
@@ -79,9 +79,9 @@ We use three main parts:
 | 4     | 10M     | managedApp      | 16 + 16×β ×2.5  |
 | 1     | 1k      | none            | 1 + 7×β         |
 
----
 
-## 5. Visualization
+
+Visualization
 
 * **Join Complexity** → grows like a curve (square growth).
 * **Record Complexity** → grows slowly (log curve).
