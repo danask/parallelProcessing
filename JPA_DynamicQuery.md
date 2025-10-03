@@ -1,3 +1,185 @@
+좋아요 Daniel. 😄
+말씀하신 대로 **@ManyToOne / @OneToMany 매핑 없이도 두 테이블이 서로 루트가 될 수 있고, 동적으로 join 가능**한 예제를 만들어드릴게요.
+핵심 아이디어는 **모든 join을 문자열 기반 + 메타데이터(맵)로 관리**하고, 엔티티에는 최소한의 필드만 두는 방식입니다.
+
+---
+
+## 1️⃣ 엔티티 최소화
+
+```java
+@Entity
+@Table(name = "fact_app_usage_daily")
+public class FactAppUsageDaily {
+    @Id
+    private Long id;
+
+    private Long dimDeviceId;
+
+    // measure/dimension 필드만 선언, join 필드는 없음
+    private Long usageUsageTime;
+    private String someMetric;
+}
+
+@Entity
+@Table(name = "mv_abnormal_count_daily")
+public class MvAbnormalCountDaily {
+    @Id
+    private Long id;
+
+    private Long dimDeviceId;
+
+    // join 필드 없음
+    private Integer abnormalEvents;
+    private String anotherMetric;
+}
+```
+
+* 핵심: **@ManyToOne, @OneToMany 전혀 없음**
+* join은 코드 레벨에서 관리
+
+---
+
+## 2️⃣ DynamicQueryContext
+
+```java
+public class DynamicQueryContext {
+    public Root<?> root;
+    public Map<String, Join<?, ?>> joins = new HashMap<>();
+    public List<PathWithAlias> fields = new ArrayList<>();
+}
+```
+
+```java
+public class PathWithAlias {
+    private final Path<?> path;
+    private final String alias;
+
+    public PathWithAlias(Path<?> path, String alias) {
+        this.path = path;
+        this.alias = alias;
+    }
+
+    public Path<?> getPath() { return path; }
+    public String getAlias() { return alias; }
+}
+```
+
+---
+
+## 3️⃣ 동적 Join 유틸
+
+```java
+@SuppressWarnings("unchecked")
+public static Join<?, ?> getOrCreateJoin(
+        From<?, ?> from,
+        String relationName, // join 대상 엔티티 이름 또는 임의 문자열
+        JoinType type,
+        Map<String, Join<?, ?>> joins,
+        EntityManager em) {
+
+    if (joins.containsKey(relationName)) {
+        return joins.get(relationName);
+    }
+
+    // 하드코딩 예제: relationName에 따라 join Path 생성
+    Join<?, ?> join;
+    switch (relationName) {
+        case "MvAbnormalCountDaily":
+            // dimDeviceId 기준으로 join
+            join = from.join("dimDeviceId", type); // 문자열 기반 join
+            break;
+        case "FactAppUsageDaily":
+            join = from.join("dimDeviceId", type);
+            break;
+        default:
+            throw new IllegalArgumentException("Unknown relation: " + relationName);
+    }
+
+    joins.put(relationName, join);
+    return join;
+}
+```
+
+* 여기서 **실제 FK 컬럼**(`dimDeviceId`) 기준으로 join
+* 엔티티 필드가 연관관계 필드로 선언되지 않아도 join 가능
+* `relationName`은 런타임에 바뀔 수 있음
+
+---
+
+## 4️⃣ 동적 Measure/Dimension 필드 추가
+
+```java
+public static void addMeasure(DynamicQueryContext ctx, String entityName, String fieldName, String alias) {
+    Join<?, ?> join = ctx.joins.get(entityName);
+    if (join != null) {
+        ctx.fields.add(new PathWithAlias(join.get(fieldName), alias));
+    } else {
+        ctx.fields.add(new PathWithAlias(ctx.root.get(fieldName), alias));
+    }
+}
+```
+
+---
+
+## 5️⃣ 예제 실행
+
+```java
+EntityManager em = ...;
+
+CriteriaBuilder cb = em.getCriteriaBuilder();
+CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+DynamicQueryContext ctx = new DynamicQueryContext();
+
+// 루트 선택: 런타임에 결정
+ctx.root = cq.from(FactAppUsageDaily.class);
+
+// join 생성
+getOrCreateJoin(ctx.root, "MvAbnormalCountDaily", JoinType.LEFT, ctx.joins, em);
+
+// measure 필드 추가
+addMeasure(ctx, "FactAppUsageDaily", "usageUsageTime", "usageUsageTime");
+addMeasure(ctx, "MvAbnormalCountDaily", "abnormalEvents", "abnormalEvents");
+
+// 최종 multiselect
+cq.multiselect(ctx.fields.stream().map(f -> f.getPath().alias(f.getAlias())).toArray(Selection[]::new));
+
+TypedQuery<Tuple> query = em.createQuery(cq);
+List<Tuple> result = query.getResultList();
+```
+
+---
+
+### ✅ 특징
+
+1. **양쪽 테이블 모두 루트 가능**
+
+   * `ctx.root = cq.from(MvAbnormalCountDaily.class)` 로 바꾸면 MvAbnormalCountDaily가 루트가 됨
+2. **엔티티 매핑 최소화**
+
+   * `@ManyToOne / @OneToMany` 필요 없음
+3. **동적 join**
+
+   * `relationName` + FK 컬럼 기준으로 런타임 생성
+4. **Measure/Dimension 필드 동적 추가 가능**
+
+   * `addMeasure()` 호출만으로 SELECT 절 조립
+
+---
+
+💡 다음 단계로 하면 더 유연하게 만들 수 있어요:
+
+* `relationName → join 컬럼/타입`을 YAML/JSON으로 정의
+* 루트, join, measure, dimension 모두 메타데이터 기반으로 동적 처리
+
+---
+
+원하시면 제가 **메타데이터 기반 완전 동적 OLAP-style QueryBuilder 예제**까지 만들어서, 루트가 뭐든 양쪽 다 지원하도록 확장해 드릴 수 있어요.
+혹시 그 버전까지 보여드릴까요?
+
+
+----
+
 좋습니다 👍 그러면 지금 상황을 정리해서 **동적 measure/dimension 조립 쿼리 빌더**에 맞는 구조를 예제로 짜드릴게요.
 
 Daniel이 올려주신 코드도 보면 이미 `getOrCreateJoin` 같은 유틸을 쓰고 계신데, 이걸 조금 확장하면 **모든 엔티티에 @ManyToOne, @OneToMany 선언 안 해도** 충분히 유연하게 동작합니다.
