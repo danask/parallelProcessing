@@ -1,3 +1,152 @@
+좋습니다 👍 그러면 지금 상황을 정리해서 **동적 measure/dimension 조립 쿼리 빌더**에 맞는 구조를 예제로 짜드릴게요.
+
+Daniel이 올려주신 코드도 보면 이미 `getOrCreateJoin` 같은 유틸을 쓰고 계신데, 이걸 조금 확장하면 **모든 엔티티에 @ManyToOne, @OneToMany 선언 안 해도** 충분히 유연하게 동작합니다.
+
+---
+
+## 핵심 아이디어
+
+1. **Root 엔티티만 JPA 매핑** (`FactAppUsageDaily` 같은 Fact 테이블).
+2. **Join 관계는 코드 레벨에서 관리** (`getOrCreateJoin` 유틸).
+3. **measure/dimension 필드는 PathWithAlias 구조로 관리**해서 SELECT 절을 동적으로 조립.
+4. 최종적으로 CriteriaQuery에 `multiselect()`를 넣어줌.
+
+---
+
+## 예시 구조
+
+```java
+public class DynamicQueryContext {
+    public Root<?> itemRoot;
+    public Map<String, Join<?, ?>> joins = new HashMap<>();
+    public List<PathWithAlias> fieldNamePathWithAlias = new ArrayList<>();
+}
+```
+
+```java
+public class PathWithAlias {
+    private final Path<?> path;
+    private final String alias;
+
+    public PathWithAlias(Path<?> path, String alias) {
+        this.path = path;
+        this.alias = alias;
+    }
+
+    public Path<?> getPath() { return path; }
+    public String getAlias() { return alias; }
+}
+```
+
+---
+
+## Join 관리 유틸
+
+```java
+@SuppressWarnings("unchecked")
+public static <X, Y> Join<X, Y> getOrCreateJoin(
+        From<?, ?> from, 
+        String attribute, 
+        JoinType joinType, 
+        Map<String, Join<?, ?>> joins) {
+
+    if (joins.containsKey(attribute)) {
+        return (Join<X, Y>) joins.get(attribute);
+    } else {
+        Join<X, Y> join = from.join(attribute, joinType);
+        joins.put(attribute, join);
+        return join;
+    }
+}
+```
+
+---
+
+## 동적 measure 필드 추가
+
+```java
+private void addMeasureFields(DynamicQueryContext queryContext,
+                              CriteriaQuery<Tuple> criteriaQuery,
+                              String category,
+                              List<ReportMeasure> measures) {
+
+    // Fact 테이블 root
+    queryContext.itemRoot = criteriaQuery.from(FactAppUsageDaily.class);
+
+    // 예: usageUsageTime 필드 추가
+    queryContext.fieldNamePathWithAlias.add(
+        new PathWithAlias(queryContext.itemRoot.get("usageUsageTime"), "usageUsageTime")
+    );
+
+    // 예: abnormalEventsList JOIN (매핑 없어도 가능)
+    Join<?, MvAbnormalCountDaily> mJoin = getOrCreateJoin(
+        queryContext.itemRoot,
+        "abnormalEventsList",
+        JoinType.RIGHT,
+        queryContext.joins
+    );
+
+    queryContext.fieldNamePathWithAlias.add(
+        new PathWithAlias(mJoin.get("abnormalEvents"), "abnormalEvents")
+    );
+
+    // ReportMeasure 목록을 순회하며 SELECT 필드 자동 매핑
+    for (ReportMeasure measure : measures) {
+        String field = measure.getFieldName();
+        String alias = measure.getAlias();
+
+        Path<?> path;
+        if (field.contains(".")) {
+            // join 경로 포함 (ex: "abnormalEventsList.abnormalEvents")
+            String[] parts = field.split("\\.");
+            Join<?, ?> join = getOrCreateJoin(queryContext.itemRoot, parts[0], JoinType.LEFT, queryContext.joins);
+            path = join.get(parts[1]);
+        } else {
+            path = queryContext.itemRoot.get(field);
+        }
+
+        queryContext.fieldNamePathWithAlias.add(new PathWithAlias(path, alias));
+    }
+}
+```
+
+---
+
+## 최종 SELECT 조립
+
+```java
+public TypedQuery<Tuple> buildQuery(EntityManager em, DynamicQueryContext ctx) {
+    CriteriaBuilder cb = em.getCriteriaBuilder();
+    CriteriaQuery<Tuple> cq = cb.createTupleQuery();
+
+    Root<?> root = cq.from(FactAppUsageDaily.class);
+
+    cq.multiselect(
+        ctx.fieldNamePathWithAlias.stream()
+            .map(p -> p.getPath().alias(p.getAlias()))
+            .toArray(Selection[]::new)
+    );
+
+    return em.createQuery(cq);
+}
+```
+
+---
+
+✅ 이렇게 하면:
+
+* `@ManyToOne` 같은 매핑 최소화 (루트 엔티티 정도만 필요).
+* `ReportMeasure` 정의만 바꾸면 **동적으로 SELECT와 JOIN 자동 반영**.
+* 새로운 measure/dimension 추가도 DTO나 YAML/JSON 설정만 바꾸면 됨.
+
+---
+
+👉 Daniel, 제가 예제에선 **measure 중심**으로 작성했는데, dimension 필드도 같은 방식으로 확장하면 돼요.
+원하시면 dimension까지 포함된 **OLAP 스타일 쿼리 빌더 (GROUP BY 포함)** 버전도 작성해드릴까요?
+
+
+-----
+
 네, 정확하게 보셨습니다!
 `cb.lessThan((Path<Comparable>) path, comparableValue)` 이 부분에서 **타입 호환 에러가 나는 이유**는 다음과 같습니다:
 
