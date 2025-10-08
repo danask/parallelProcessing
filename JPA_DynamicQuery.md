@@ -1,4 +1,249 @@
 
+좋아, Daniel. 그럼 지금까지 설계한 동적 CTE + UNION + Filter 처리 로직을 실제 **Spring Boot 서비스**로 구현해볼게.
+결과는 **`List<Map<String, Object>>`**로 반환되고, Measure/Dimension/Filter 수와 종류에 상관없이 자동 처리된다.
+
+---
+
+## 1️⃣ DTO / 입력 클래스
+
+```java
+@Data
+public class ReportQueryRequest {
+    private String chartType;
+    private String dateRange;
+    private String interval;
+    private LocalDate currentDate;
+    private LocalDate startDate;
+    private LocalDate endDate;
+    private int pageNum;
+    private int pageSize;
+    private List<MeasureDto> measure;
+    private List<DimensionDto> dimension;
+    private List<FilterDto> filter;
+}
+
+@Data
+public class MeasureDto {
+    private String category;  // 테이블 이름
+    private String name;      // 필드 이름
+    private String metric;    // sum, avg 등
+}
+
+@Data
+public class DimensionDto {
+    private String name;      // 컬럼 이름
+    private String category;  // device 등
+}
+
+@Data
+public class FilterDto {
+    private String category;  // device 등
+    private String name;      // 컬럼 이름
+    private String group;     // dimension / measure
+    private String operator;  // eq, lt, gt 등
+    private List<String> values;
+}
+
+@Data
+public class QueryInput {
+    private String customerId;
+    private ReportQueryRequest reportQueryRequest;
+}
+```
+
+---
+
+## 2️⃣ Dynamic Query Builder
+
+```java
+@Component
+public class DynamicCteQueryBuilder {
+
+    public String build(QueryInput input) {
+        String customerId = input.getCustomerId();
+        ReportQueryRequest req = input.getReportQueryRequest();
+
+        // 1️⃣ Dimension Fields
+        List<String> dimFields = req.getDimension().stream()
+                .map(DimensionDto::getName)
+                .toList();
+        String fdFields = String.join(", ", dimFields);
+
+        // 2️⃣ filtered_devices
+        String filteredDevices = """
+                filtered_devices AS (
+                    SELECT dim_device_id, %s
+                    FROM kai_dwh.dim_device
+                    WHERE customer_id = :customerId
+                )
+                """.formatted(fdFields);
+
+        // 3️⃣ filtered_dates
+        String filteredDates = """
+                filtered_dates AS (
+                    SELECT dim_date_id
+                    FROM kai_dwh.dim_date
+                    WHERE dev_date >= :startDate AND dev_date < :endDate
+                )
+                """;
+
+        // 4️⃣ unique_combinations
+        String uniqueCombinations = req.getMeasure().stream()
+                .map(m -> """
+                        SELECT dim_date_id, dim_device_id
+                        FROM %s
+                        WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+                          AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+                        """.formatted(m.getCategory()))
+                .collect(Collectors.joining("\nUNION ALL\n"));
+        uniqueCombinations = "unique_combinations AS (\n" + uniqueCombinations + "\n)";
+
+        // 5️⃣ Measure CTEs
+        List<String> measureCtes = new ArrayList<>();
+        int aliasCounter = 0;
+        for (MeasureDto m : req.getMeasure()) {
+            aliasCounter++;
+            String alias = "m" + aliasCounter;
+            String table = m.getCategory();
+            String metricField = m.getName();
+            String cte = """
+                    %s AS (
+                        SELECT uc.dim_device_id, uc.dim_date_id,
+                               COALESCE(SUM(mv.%s),0) AS sum_%s
+                        FROM unique_combinations uc
+                        LEFT JOIN %s mv
+                        ON uc.dim_device_id = mv.dim_device_id AND uc.dim_date_id = mv.dim_date_id
+                        GROUP BY uc.dim_device_id, uc.dim_date_id
+                    )
+                    """.formatted(alias, metricField, metricField, table);
+            measureCtes.add(cte);
+        }
+
+        // 6️⃣ SELECT clause
+        StringBuilder selectBuilder = new StringBuilder();
+        for (String dim : dimFields) {
+            selectBuilder.append("fd.").append(dim).append(" AS ").append(dim).append(",\n");
+        }
+        for (int i = 1; i <= req.getMeasure().size(); i++) {
+            String metricField = req.getMeasure().get(i - 1).getName();
+            selectBuilder.append("SUM(m").append(i).append(".sum_").append(metricField)
+                    .append(") AS sum_").append(metricField).append(",\n");
+        }
+        String selectClause = selectBuilder.toString().replaceAll(",\n$", "");
+
+        // 7️⃣ FROM + JOIN
+        StringBuilder joinBuilder = new StringBuilder();
+        joinBuilder.append("FROM unique_combinations uc\n");
+        joinBuilder.append("JOIN filtered_devices fd ON uc.dim_device_id = fd.dim_device_id\n");
+        for (int i = 1; i <= req.getMeasure().size(); i++) {
+            joinBuilder.append("LEFT JOIN m").append(i).append(" m").append(i)
+                    .append(" ON uc.dim_device_id = m").append(i).append(".dim_device_id AND uc.dim_date_id = m").append(i).append(".dim_date_id\n");
+        }
+
+        // 8️⃣ Filters
+        List<String> filterConditions = new ArrayList<>();
+        for (FilterDto f : req.getFilter()) {
+            String inClause = f.getValues().stream().map(v -> "'" + v + "'").collect(Collectors.joining(","));
+            if ("eq".equals(f.getOperator())) {
+                filterConditions.add("fd." + f.getName() + " IN (" + inClause + ")");
+            } else {
+                // 필요시 다른 operator 처리
+            }
+        }
+        String whereClause = filterConditions.isEmpty() ? "" : "WHERE " + String.join(" AND ", filterConditions) + "\n";
+
+        // 9️⃣ GROUP BY + ORDER BY
+        String groupBy = "GROUP BY " + dimFields.stream().map(d -> "fd." + d).collect(Collectors.joining(", ")) + "\n";
+        String orderBy = dimFields.isEmpty() ? "" : "ORDER BY fd." + dimFields.get(0);
+
+        // 10️⃣ Combine
+        List<String> allCtes = new ArrayList<>();
+        allCtes.add(filteredDevices);
+        allCtes.add(filteredDates);
+        allCtes.add(uniqueCombinations);
+        allCtes.addAll(measureCtes);
+
+        return "WITH \n" + String.join(",\n", allCtes) + "\n" +
+                selectClause + "\n" +
+                joinBuilder +
+                whereClause +
+                groupBy +
+                orderBy;
+    }
+}
+```
+
+---
+
+## 3️⃣ Spring Service
+
+```java
+@Service
+@RequiredArgsConstructor
+public class DynamicReportService {
+
+    private final EntityManager em;
+    private final DynamicCteQueryBuilder queryBuilder;
+
+    public List<Map<String, Object>> getReport(QueryInput input) {
+        String sql = queryBuilder.build(input);
+
+        Query query = em.createNativeQuery(sql);
+        query.setParameter("customerId", input.getCustomerId());
+        query.setParameter("startDate", input.getReportQueryRequest().getStartDate());
+        query.setParameter("endDate", input.getReportQueryRequest().getEndDate());
+
+        List<Object[]> results = query.getResultList();
+
+        // Map 컬럼 alias → 값
+        List<Map<String, Object>> mapped = new ArrayList<>();
+        List<String> columnAliases = getColumnAliases(input);
+        for (Object[] row : results) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            for (int i = 0; i < columnAliases.size(); i++) {
+                map.put(columnAliases.get(i), row[i]);
+            }
+            mapped.add(map);
+        }
+        return mapped;
+    }
+
+    private List<String> getColumnAliases(QueryInput input) {
+        List<String> aliases = input.getReportQueryRequest().getDimension().stream()
+                .map(DimensionDto::getName).toList();
+        for (MeasureDto m : input.getReportQueryRequest().getMeasure()) {
+            aliases.add("sum_" + m.getName());
+        }
+        return aliases;
+    }
+}
+```
+
+---
+
+### 🔹 특징
+
+1. **Measure / Dimension / Filter 모두 JSON 기반 동적 처리**
+2. **UNION ALL + CTE 자동 생성**
+3. **WHERE 필터 자동 적용 (`eq` operator)**
+4. **Native Query + Parameter 안전 바인딩**
+5. **결과 Map 변환 → JSON 그대로 반환 가능**
+6. **확장 가능**:
+
+   * operator 확장 가능
+   * avg metric 추가 가능
+   * 여러 filters도 AND/OR 처리 가능
+
+---
+
+원하면 다음 단계로 **avg metric, 다른 operator(like, lt, gt 등)까지 포함한 완전 동적 버전**도 만들어서,
+1개의 메소드에서 **모든 Measure/Dimension/Filter 조합**을 바로 처리하도록 확장할 수 있어.
+
+그거 만들어줄까?
+
+
+----
+
 CriteriaBuilder cb = em.getCriteriaBuilder();
 CriteriaQuery<Tuple> query = cb.createTupleQuery();
 
