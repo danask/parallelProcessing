@@ -1,4 +1,33 @@
 
+```json
+{
+  "customerId": "3508168036",
+  "reportQueryRequest": {
+    "chartType": "DYNAMICDATA",
+    "startDate": "2025-09-21",
+    "endDate": "2025-09-22",
+    "measure": [
+      { "category": "mv_apps_data_usage_sum_daily", "name": "mobileUsage", "metric": "sum" },
+      { "category": "mv_apps_usage_sum_daily", "name": "usageUsageTime", "metric": "sum" },
+      { "category": "mv_abnormal_count_daily", "name": "abnormalEvents", "metric": "sum" }
+    ],
+    "dimension": [
+      { "name": "deviceModel", "category": "device" }
+    ],
+    "filter": [
+      {
+        "category": "device",
+        "name": "deviceFirmwareVersion",
+        "group": "dimension",
+        "operator": "eq",
+        "values": ["1.1.1.1"]
+      }
+    ]
+  }
+}
+
+```
+
 좋아, Daniel. 그럼 지금까지 설계한 동적 CTE + UNION + Filter 처리 로직을 실제 **Spring Boot 서비스**로 구현해볼게.
 결과는 **`List<Map<String, Object>>`**로 반환되고, Measure/Dimension/Filter 수와 종류에 상관없이 자동 처리된다.
 
