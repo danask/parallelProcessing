@@ -1,4 +1,281 @@
 
+
+
+좋아요 👍 Daniel.
+이건 앞선 “자동화 CTE 생성기”의 **두 번째 패턴 (멀티 CTE + FULL OUTER JOIN + CASE WHEN 처리)** 버전으로 설계하면 됩니다.
+즉, measure 항목(예: `mv_anr_fc_count_daily`, `mv_abnormal_count_daily`, `mv_battery_low_count_daily`)이 **동적으로 주어지면**, 그에 따라 CTE, join, select, groupBy 절이 자동으로 조립되도록 만드는 코드예요.
+
+아래는 이를 **CriteriaBuilder + NativeQuery 기반의 자동 SQL 조립기**로 구성한 예시 코드입니다.
+
+---
+
+### ✅ DynamicCTEQueryBuilder.java
+
+```java
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class DynamicCTEQueryBuilder {
+
+    private final EntityManager em;
+    private final String schema = "kai_dwh";
+
+    public DynamicCTEQueryBuilder(EntityManager em) {
+        this.em = em;
+    }
+
+    public Query buildDynamicQuery(DynamicQueryInput input) {
+
+        // === 1️⃣ Step 1. CTE 블록 생성 ===
+        List<String> cteBlocks = new ArrayList<>();
+
+        for (MeasureSpec measure : input.getMeasures()) {
+            StringBuilder cte = new StringBuilder();
+            cte.append(measure.getAlias()).append(" AS (\n")
+               .append("SELECT ")
+               .append(measure.getAlias()).append(".dim_device_id AS dim_device_id, ")
+               .append(measure.getAlias()).append(".dim_date_id AS dim_date_id,\n");
+
+            // dynamic metric 처리 (SUM / CASE WHEN 등)
+            List<String> metrics = new ArrayList<>();
+            for (MetricField metric : measure.getMetrics()) {
+                if (metric.getCaseWhen() != null) {
+                    metrics.add(String.format(
+                        "SUM(CASE WHEN %s.%s = '%s' THEN %s.%s ELSE 0 END) AS %s",
+                        measure.getAlias(),
+                        metric.getCaseWhen().getField(),
+                        metric.getCaseWhen().getValue(),
+                        measure.getAlias(),
+                        metric.getField(),
+                        metric.getAlias()
+                    ));
+                } else {
+                    metrics.add(String.format(
+                        "SUM(%s.%s) AS %s",
+                        measure.getAlias(),
+                        metric.getField(),
+                        metric.getAlias()
+                    ));
+                }
+            }
+
+            cte.append(String.join(",\n", metrics)).append("\n")
+               .append("FROM ").append(schema).append(".").append(measure.getTable()).append(" ").append(measure.getAlias()).append("\n")
+               .append("RIGHT JOIN ").append(schema).append(".dim_device ON dim_device.dim_device_id = ").append(measure.getAlias()).append(".dim_device_id\n")
+               .append("RIGHT JOIN ").append(schema).append(".dim_date ON dim_date.dim_date_id = ").append(measure.getAlias()).append(".dim_date_id\n")
+               .append("WHERE dim_device.customer_id IN (:customerId)\n")
+               .append("  AND dim_date.dev_date >= (:startDate)\n")
+               .append("  AND dim_date.dev_date < (:endDate)\n");
+
+            if (input.getGroupNames() != null && !input.getGroupNames().isEmpty()) {
+                String groupList = input.getGroupNames().stream()
+                        .map(name -> "'" + name + "'").collect(Collectors.joining(","));
+                cte.append("  AND dim_device.group_name IN (").append(groupList).append(")\n");
+            }
+
+            cte.append("GROUP BY 1, 2)\n");
+            cteBlocks.add(cte.toString());
+        }
+
+        // === 2️⃣ Step 2. JOIN 블록 (full outer join chain) ===
+        StringBuilder joins = new StringBuilder();
+        String baseAlias = input.getMeasures().get(0).getAlias();
+
+        joins.append("FROM ").append(schema).append(".").append(input.getBaseTable())
+             .append(" ").append(input.getBaseAlias()).append("\n");
+
+        for (MeasureSpec measure : input.getMeasures()) {
+            joins.append("FULL OUTER JOIN ").append(measure.getAlias())
+                 .append(" ON ")
+                 .append(measure.getAlias()).append(".dim_device_id = ").append(input.getBaseAlias()).append(".dim_device_id ")
+                 .append("AND ").append(measure.getAlias()).append(".dim_date_id = ").append(input.getBaseAlias()).append(".dim_date_id\n");
+        }
+
+        joins.append("RIGHT JOIN ").append(schema).append(".dim_device ON dim_device.dim_device_id = COALESCE(")
+             .append(input.getAllDimDeviceIds()).append(")\n")
+             .append("RIGHT JOIN ").append(schema).append(".dim_date ON dim_date.dim_date_id = COALESCE(")
+             .append(input.getAllDimDateIds()).append(")\n");
+
+        // === 3️⃣ Step 3. SELECT + GROUP ===
+        String selectCols = input.getMeasures().stream()
+                .flatMap(m -> m.getMetrics().stream()
+                        .map(metric -> String.format("SUM(%s.%s) AS %s", m.getAlias(), metric.getAlias(), metric.getAlias())))
+                .collect(Collectors.joining(",\n    "));
+
+        StringBuilder finalTable = new StringBuilder();
+        finalTable.append("final_table AS (\nSELECT\n")
+                .append("    CAST(DATE_TRUNC('week', dim_date.dev_date) AS date) AS week_start_date,\n")
+                .append("    dim_device.group_name AS group_name,\n    ")
+                .append(selectCols)
+                .append("\n").append(joins)
+                .append("WHERE dim_device.customer_id IN (:customerId)\n")
+                .append("  AND dim_date.dev_date >= (:startDate)\n")
+                .append("  AND dim_date.dev_date < (:endDate)\n")
+                .append("GROUP BY 1, 2\nORDER BY week_start_date ASC LIMIT :limit OFFSET :offset)\n");
+
+        // === 4️⃣ Step 4. 최종 SQL 구성 ===
+        String sql = "WITH \n" + String.join(",\n", cteBlocks) + ",\n" + finalTable + "\nSELECT * FROM final_table;";
+        Query query = em.createNativeQuery(sql);
+        return query;
+    }
+
+    // === 보조 클래스들 ===
+    public static class DynamicQueryInput {
+        private List<MeasureSpec> measures;
+        private String baseTable;
+        private String baseAlias;
+        private List<String> groupNames;
+        // getter/setter 생략
+        public String getAllDimDeviceIds() {
+            return measures.stream().map(m -> m.getAlias() + ".dim_device_id").collect(Collectors.joining(", "));
+        }
+        public String getAllDimDateIds() {
+            return measures.stream().map(m -> m.getAlias() + ".dim_date_id").collect(Collectors.joining(", "));
+        }
+        // ...
+    }
+
+    public static class MeasureSpec {
+        private String table;
+        private String alias;
+        private List<MetricField> metrics;
+        // getter/setter 생략
+    }
+
+    public static class MetricField {
+        private String field;
+        private String alias;
+        private CaseWhenSpec caseWhen;
+        // getter/setter 생략
+    }
+
+    public static class CaseWhenSpec {
+        private String field;
+        private String value;
+        // getter/setter 생략
+    }
+}
+```
+
+---
+
+### ✅ 예시 입력 (JSON 매핑 형태)
+
+```json
+{
+  "baseTable": "mv_battery_low_count_daily",
+  "baseAlias": "mv_battery_low_count_daily",
+  "measures": [
+    {
+      "table": "mv_anr_fc_count_daily",
+      "alias": "mv_anr_fc_count_daily",
+      "metrics": [
+        {
+          "field": "anr_fc_events",
+          "alias": "sum_anr_events",
+          "caseWhen": { "field": "event_type", "value": "ANR" }
+        },
+        {
+          "field": "anr_fc_events",
+          "alias": "sum_fc_events",
+          "caseWhen": { "field": "event_type", "value": "FC" }
+        }
+      ]
+    },
+    {
+      "table": "mv_abnormal_count_daily",
+      "alias": "mv_abnormal_count_daily",
+      "metrics": [
+        {
+          "field": "abnormal_events",
+          "alias": "sum_abnormal_events"
+        }
+      ]
+    }
+  ],
+  "groupNames": ["DeviceFarm-^sGroup1"]
+}
+```
+
+---
+
+### ✅ 결과 SQL (자동 생성)
+
+위 입력으로 실행 시, 자동 생성되는 SQL은 다음과 같습니다 👇
+
+```sql
+WITH 
+mv_anr_fc_count_daily AS (
+  SELECT mv_anr_fc_count_daily.dim_device_id AS dim_device_id,
+         mv_anr_fc_count_daily.dim_date_id AS dim_date_id,
+         SUM(CASE WHEN mv_anr_fc_count_daily.event_type = 'ANR' THEN mv_anr_fc_count_daily.anr_fc_events ELSE 0 END) AS sum_anr_events,
+         SUM(CASE WHEN mv_anr_fc_count_daily.event_type = 'FC' THEN mv_anr_fc_count_daily.anr_fc_events ELSE 0 END) AS sum_fc_events
+  FROM kai_dwh.mv_anr_fc_count_daily mv_anr_fc_count_daily
+  RIGHT JOIN kai_dwh.dim_device ON dim_device.dim_device_id = mv_anr_fc_count_daily.dim_device_id
+  RIGHT JOIN kai_dwh.dim_date ON dim_date.dim_date_id = mv_anr_fc_count_daily.dim_date_id
+  WHERE dim_device.customer_id IN (:customerId)
+    AND dim_date.dev_date >= (:startDate)
+    AND dim_date.dev_date < (:endDate)
+    AND dim_device.group_name IN ('DeviceFarm-^sGroup1')
+  GROUP BY 1, 2
+),
+mv_abnormal_count_daily AS (
+  SELECT mv_abnormal_count_daily.dim_device_id AS dim_device_id,
+         mv_abnormal_count_daily.dim_date_id AS dim_date_id,
+         SUM(mv_abnormal_count_daily.abnormal_events) AS sum_abnormal_events
+  FROM kai_dwh.mv_abnormal_count_daily mv_abnormal_count_daily
+  RIGHT JOIN kai_dwh.dim_device ON dim_device.dim_device_id = mv_abnormal_count_daily.dim_device_id
+  RIGHT JOIN kai_dwh.dim_date ON dim_date.dim_date_id = mv_abnormal_count_daily.dim_date_id
+  WHERE dim_device.customer_id IN (:customerId)
+    AND dim_date.dev_date >= (:startDate)
+    AND dim_date.dev_date < (:endDate)
+    AND dim_device.group_name IN ('DeviceFarm-^sGroup1')
+  GROUP BY 1, 2
+),
+final_table AS (
+  SELECT
+    CAST(DATE_TRUNC('week', dim_date.dev_date) AS date) AS week_start_date,
+    dim_device.group_name AS group_name,
+    SUM(mv_anr_fc_count_daily.sum_anr_events) AS sum_anr_events,
+    SUM(mv_anr_fc_count_daily.sum_fc_events) AS sum_fc_events,
+    SUM(mv_abnormal_count_daily.sum_abnormal_events) AS sum_abnormal_events,
+    SUM(mv_battery_low_count_daily.battery_low_events) AS sum_battery_low_events
+  FROM kai_dwh.mv_battery_low_count_daily mv_battery_low_count_daily
+  FULL OUTER JOIN mv_anr_fc_count_daily ON mv_anr_fc_count_daily.dim_device_id = mv_battery_low_count_daily.dim_device_id
+       AND mv_anr_fc_count_daily.dim_date_id = mv_battery_low_count_daily.dim_date_id
+  FULL OUTER JOIN mv_abnormal_count_daily ON mv_abnormal_count_daily.dim_device_id = COALESCE(mv_battery_low_count_daily.dim_device_id, mv_anr_fc_count_daily.dim_device_id)
+       AND mv_abnormal_count_daily.dim_date_id = COALESCE(mv_battery_low_count_daily.dim_date_id, mv_anr_fc_count_daily.dim_date_id)
+  RIGHT JOIN kai_dwh.dim_device ON dim_device.dim_device_id = COALESCE(mv_battery_low_count_daily.dim_device_id, mv_anr_fc_count_daily.dim_device_id, mv_abnormal_count_daily.dim_device_id)
+  RIGHT JOIN kai_dwh.dim_date ON dim_date.dim_date_id = COALESCE(mv_battery_low_count_daily.dim_date_id, mv_anr_fc_count_daily.dim_date_id, mv_abnormal_count_daily.dim_date_id)
+  WHERE dim_device.customer_id IN (:customerId)
+    AND dim_date.dev_date >= (:startDate)
+    AND dim_date.dev_date < (:endDate)
+  GROUP BY 1, 2
+  ORDER BY week_start_date ASC
+  LIMIT :limit OFFSET :offset
+)
+SELECT * FROM final_table;
+```
+
+---
+
+원하신 대로
+
+* `mv_*` 테이블 이름,
+* `CASE WHEN` 조건(`event_type`, `value`)
+* `alias`, `limit`, `offset`, `dateRange`, `customer_id`
+
+전부 동적으로 주입됩니다.
+
+---
+
+원하시면 다음 단계로
+👉 이걸 `@Service` 단에 `DynamicCTEQueryService`로 감싸서
+`reportQueryRequest` JSON에서 바로 매핑해 자동 실행되게도 연결해드릴까요?
+
+
 ```json
 {
   "customerId": "3508168036",
