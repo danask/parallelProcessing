@@ -548,6 +548,98 @@ LEFT JOIN mv_anr_fc f
 GROUP BY d.device_model
 ORDER BY d.device_model;
 
+----
+
+WITH
+-- ✅ 필터 기준
+filtered_devices AS (
+    SELECT dim_device_id, device_model
+    FROM kai_dwh.dim_device
+    WHERE customer_id = '3508168036'
+      AND device_firmware_version IN ('1.1.1.1')
+),
+filtered_apps AS (
+    SELECT dim_package_id, package_name, app_name
+    FROM kai_dwh.dim_package
+    WHERE app_name = 'Accessibility'
+      AND package_name = 'com.samsung.accessibility'
+      AND app_version IN ('15.5.00.29', '15.5.00.30')
+),
+filtered_dates AS (
+    SELECT dim_date_id
+    FROM kai_dwh.dim_date
+    WHERE dev_date BETWEEN 20250721 AND 20250922
+),
+
+-- ✅ 각 measure별 필터 적용 집계
+mv_battery_low AS (
+    SELECT dim_device_id, dim_date_id,
+           SUM(battery_low_events) AS sum_battery_low_events
+    FROM kai_dwh.mv_battery_low_count_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    GROUP BY dim_device_id, dim_date_id
+),
+mv_abnormal AS (
+    SELECT dim_device_id, dim_date_id, dim_package_id,
+           SUM(abnormal_events) AS sum_abnormal_events
+    FROM kai_dwh.mv_abnormal_count_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+      AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+    GROUP BY dim_device_id, dim_date_id, dim_package_id
+),
+mv_anr_fc AS (
+    SELECT dim_device_id, dim_date_id, dim_package_id,
+           SUM(CASE WHEN event_type = 'ANR' THEN anr_fc_events ELSE 0 END) AS sum_anr_event,
+           SUM(CASE WHEN event_type = 'FC' THEN anr_fc_events ELSE 0 END) AS sum_fc_event
+    FROM kai_dwh.mv_anr_fc_count_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+      AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+    GROUP BY dim_device_id, dim_date_id, dim_package_id
+),
+
+-- ✅ 기준 key 세트 (UNION 역할)
+all_keys AS (
+    SELECT dim_device_id, dim_date_id, dim_package_id
+    FROM mv_abnormal
+    UNION
+    SELECT dim_device_id, dim_date_id, NULL AS dim_package_id
+    FROM mv_battery_low
+    UNION
+    SELECT dim_device_id, dim_date_id, dim_package_id
+    FROM mv_anr_fc
+)
+
+-- ✅ 최종 집계 (디바이스 × 앱 단위)
+SELECT
+    d.device_model AS device_model,
+    a.package_name,
+    a.app_name,
+    COALESCE(SUM(b.sum_battery_low_events), 0) AS sum_battery_low_events,
+    COALESCE(SUM(ab.sum_abnormal_events), 0) AS sum_abnormal_events,
+    COALESCE(SUM(f.sum_anr_event), 0) AS sum_anr_event,
+    COALESCE(SUM(f.sum_fc_event), 0) AS sum_fc_event
+FROM all_keys k
+JOIN filtered_devices d
+    ON k.dim_device_id = d.dim_device_id
+LEFT JOIN filtered_apps a
+    ON k.dim_package_id = a.dim_package_id
+LEFT JOIN mv_battery_low b
+    ON k.dim_device_id = b.dim_device_id
+   AND k.dim_date_id = b.dim_date_id
+LEFT JOIN mv_abnormal ab
+    ON k.dim_device_id = ab.dim_device_id
+   AND k.dim_date_id = ab.dim_date_id
+   AND (k.dim_package_id = ab.dim_package_id OR k.dim_package_id IS NULL)
+LEFT JOIN mv_anr_fc f
+    ON k.dim_device_id = f.dim_device_id
+   AND k.dim_date_id = f.dim_date_id
+   AND k.dim_package_id = f.dim_package_id
+GROUP BY d.device_model, a.package_name, a.app_name
+ORDER BY d.device_model, a.package_name;
+
 
 -----
 
