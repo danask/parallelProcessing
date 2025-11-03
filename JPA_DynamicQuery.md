@@ -1,4 +1,207 @@
 
+네, 각 쿼리의 오류를 수정한 최종 코드를 각각 알려드리겠습니다.
+
+두 쿼리는 **서로 다른 논리적 접근 방식**을 가지고 있으며, 각각 다른 지점에서 오류가 발생했습니다.
+
+-----
+
+## 쿼리 1 수정본 (디바이스별 선-집계 후 조인)
+
+이 쿼리는 각 이벤트 테이블을 `dim_device_id`로 먼저 집계(Aggregate)한 후, 최종적으로 `device_model` 단위로 합산하는 방식입니다.
+
+**수정된 부분 🎯**
+`final_table` CTE에서 `GROUP BY fd.device_model`을 사용하여 디바이스 모델별로 그룹화를 했습니다. 이때 `SELECT` 절의 집계 값들(`sum_battery_low_events` 등)이 **집계 함수(예: `SUM()`)로 묶여있지 않아** 발생한 오류를 수정했습니다.
+
+```sql
+WITH
+filtered_devices AS (
+  SELECT dim_device_id, device_model
+  FROM kai_dwh.dim_device
+  WHERE customer_id = '3508168036'
+    AND device_firmware_version IN ('1.1.1.1')
+),
+filtered_apps AS (
+  SELECT dim_package_id
+  FROM kai_dwh.dim_package
+  WHERE ((app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.29')
+      OR (app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.30'))
+),
+filtered_dates AS (
+  SELECT dim_date_id
+  FROM kai_dwh.dim_date
+  WHERE dev_date >= 20250721 AND dev_date <= 20250922
+),
+-- 1. Battery Low 이벤트를 디바이스 ID별로만 집계
+mv_battery_low_agg AS (
+  SELECT
+    mv.dim_device_id,
+    SUM(mv.battery_low_events) AS sum_battery_low_events
+  FROM kai_dwh.mv_battery_low_count_daily mv
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+  GROUP BY mv.dim_device_id
+),
+-- 2. Abnormal 이벤트를 디바이스 ID별로만 집계
+mv_abnormal_agg AS (
+  SELECT
+    mv.dim_device_id,
+    SUM(mv.abnormal_events) AS sum_abnormal_events
+  FROM kai_dwh.mv_abnormal_count_daily mv
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+  GROUP BY mv.dim_device_id
+),
+-- 3. ANR/FC 이벤트를 디바이스 ID별로만 집계 및 피벗
+mv_anr_fc_agg AS (
+  SELECT
+    mv.dim_device_id,
+    SUM(CASE WHEN mv.event_type = 'ANR' THEN mv.anr_fc_events ELSE 0 END) AS sum_anr_event,
+    SUM(CASE WHEN mv.event_type = 'FC' THEN mv.anr_fc_events ELSE 0 END) AS sum_fc_event
+  FROM kai_dwh.mv_anr_fc_count_daily mv
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+  GROUP BY mv.dim_device_id
+),
+final_table AS (
+  SELECT
+    fd.device_model AS deviceModel,
+    -- ✅ BUG FIX: 동일 모델의 여러 디바이스 값을 합산하기 위해 SUM() 추가
+    SUM(COALESCE(mba.sum_battery_low_events, 0)) AS sum_battery_low_events,
+    SUM(COALESCE(maa.sum_abnormal_events, 0)) AS sum_abnormal_events,
+    SUM(COALESCE(mafa.sum_anr_event, 0)) AS sum_anr_event,
+    SUM(COALESCE(mafa.sum_fc_event, 0)) AS sum_fc_event
+  FROM filtered_devices fd -- 모든 디바이스를 기준으로 시작
+  LEFT JOIN mv_battery_low_agg mba ON fd.dim_device_id = mba.dim_device_id
+  LEFT JOIN mv_abnormal_agg maa ON fd.dim_device_id = maa.dim_device_id
+  LEFT JOIN mv_anr_fc_agg mafa ON fd.dim_device_id = mafa.dim_device_id
+  GROUP BY fd.device_model -- device_model별 합산
+  ORDER BY fd.device_model
+)
+SELECT * FROM final_table;
+```
+
+-----
+
+## 쿼리 2 수정본 (unique\_combinations 키 생성 후 조인)
+
+이 쿼리는 모든 이벤트의 `(날짜, 디바이스, 패키지)` 키의 합집합(UNION)을 먼저 만들고, 이 키를 기준으로 데이터를 채우는 방식입니다.
+
+**수정된 부분 🎯**
+`mv_anr_fc_count_daily` CTE의 `GROUP BY` 절에 **키(Key)가 아닌 값(`mv.event_type`, `mv.anr_fc_events`)이 포함**되어 있었습니다. 이로 인해 `(날짜, 디바이스, 패키지)`가 동일하더라도 `event_type` 등에 따라 불필요하게 행이 나뉘어, `final_table`에서 합산 시 데이터가 중복 집계(Over-counting)되는 심각한 버그가 있었습니다.
+
+```sql
+WITH
+filtered_devices AS (
+  SELECT dim_device_id, device_model
+  FROM kai_dwh.dim_device
+  WHERE customer_id = '3508168036'
+    AND device_firmware_version IN ('1.1.1.1')
+),
+filtered_apps AS (
+  SELECT dim_package_id
+  FROM kai_dwh.dim_package
+  WHERE ((app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.29')
+      OR (app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.30'))
+),
+filtered_dates AS (
+  SELECT dim_date_id
+  FROM kai_dwh.dim_date
+  WHERE dev_date >= 20250721 AND dev_date <= 20250922
+),
+unique_combinations AS (
+  -- (참고: 이 CTE는 원본 테이블을 3번 읽으므로 비효율적일 수 있습니다.)
+  SELECT dim_date_id, dim_device_id, NULL AS dim_package_id
+  FROM kai_dwh.mv_battery_low_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+  UNION
+  SELECT dim_date_id, dim_device_id, dim_package_id
+  FROM kai_dwh.mv_abnormal_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+  UNION
+  SELECT dim_date_id, dim_device_id, dim_package_id
+  FROM kai_dwh.mv_anr_fc_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+),
+mv_battery_low_count_daily AS (
+  SELECT
+    uc.dim_device_id, uc.dim_date_id,
+    COALESCE(sum(mv.battery_low_events),0) AS sum_battery_low_events
+  FROM unique_combinations uc
+  LEFT JOIN kai_dwh.mv_battery_low_count_daily mv
+    ON uc.dim_device_id = mv.dim_device_id AND uc.dim_date_id = mv.dim_date_id
+  -- (uc.dim_package_id IS NULL 필터가 있으면 더 정확하지만, 여기서는 생략)
+  GROUP BY uc.dim_device_id, uc.dim_date_id
+),
+mv_abnormal_count_daily AS (
+  SELECT
+    uc.dim_device_id, uc.dim_date_id, uc.dim_package_id,
+    COALESCE(sum(mv.abnormal_events),0) AS sum_abnormal_events
+  FROM unique_combinations uc
+  LEFT JOIN kai_dwh.mv_abnormal_count_daily mv
+    ON uc.dim_device_id = mv.dim_device_id
+   AND uc.dim_date_id = mv.dim_date_id
+   AND uc.dim_package_id = mv.dim_package_id
+  GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+mv_anr_fc_count_daily AS (
+  SELECT
+    uc.dim_device_id, uc.dim_date_id, uc.dim_package_id,
+    sum(CASE WHEN mv.event_type = 'ANR' THEN mv.anr_fc_events ELSE 0 END) AS sum_anr_event,
+    sum(CASE WHEN mv.event_type = 'FC' THEN mv.anr_fc_events ELSE 0 END) AS sum_fc_event
+  FROM unique_combinations uc
+  LEFT JOIN kai_dwh.mv_anr_fc_count_daily mv
+    ON uc.dim_device_id = mv.dim_device_id
+   AND uc.dim_date_id = mv.dim_date_id
+   AND uc.dim_package_id = mv.dim_package_id
+  -- ✅ BUG FIX: GROUP BY 절에서 키(Key)가 아닌 컬럼들(mv.event_type, mv.anr_fc_events)을 제거
+  GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+final_table AS (
+  SELECT
+    fd.device_model AS deviceModel,
+    sum(mbl.sum_battery_low_events) AS sum_battery_low_events,
+    sum(ma.sum_abnormal_events) AS sum_abnormal_events,
+    sum(maf.sum_anr_event) AS sum_anr_event,
+    sum(maf.sum_fc_event) AS sum_fc_event
+  FROM unique_combinations uc
+  JOIN filtered_devices fd
+    ON uc.dim_device_id = fd.dim_device_id
+  LEFT JOIN mv_battery_low_count_daily mbl
+    ON uc.dim_device_id = mbl.dim_device_id
+   AND uc.dim_date_id = mbl.dim_date_id
+  LEFT JOIN mv_abnormal_count_daily ma
+    ON uc.dim_device_id = ma.dim_device_id
+   AND uc.dim_date_id = ma.dim_date_id
+   AND COALESCE(uc.dim_package_id, -1) = COALESCE(ma.dim_package_id, -1) -- (NULL-safe join)
+  LEFT JOIN mv_anr_fc_count_daily maf
+    ON uc.dim_device_id = maf.dim_device_id
+   AND uc.dim_date_id = maf.dim_date_id
+   AND COALESCE(uc.dim_package_id, -1) = COALESCE(maf.dim_package_id, -1) -- (NULL-safe join)
+  GROUP BY fd.device_model
+  ORDER BY fd.device_model
+)
+SELECT *
+FROM final_table;
+```
+
+### 요약
+
+  * **쿼리 1**은 `final_table`에서 `SUM()` 집계 함수가 누락된 오류를 수정했습니다.
+  * **쿼리 2**는 `mv_anr_fc_count_daily` CTE의 `GROUP BY` 절에 키가 아닌 값이 포함되어 데이터가 중복 집계되는 오류를 수정했습니다. (또한, `NULL` 값 조인을 더 안전하게 처리하도록 조인 조건을 수정했습니다.)
+
+개인적으로는 **쿼리 1**의 접근 방식이 더 직관적이고, `unique_combinations` 같은 비효율적인 중간 단계를 거치지 않으므로 성능 면에서도 더 유리할 가능성이 높습니다.
+
+이 쿼리들의 논리나 성능에 대해 더 궁금한 점이 있으신가요?
+
+-----
+
 아주 좋은 질문이에요. 👏
 핵심은 **“데이터량이 많을 때 CTE 기반(=improved JOIN + UNION key 구조)”이 실제로 temp table 없이 효율적으로 수행 가능한가?** 입니다.
 정확히 구분해서 설명드릴게요.
