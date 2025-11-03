@@ -1,5 +1,166 @@
+좋아요, 정확히 좋은 방향이에요 👍
+지금 말씀하신 건 핵심적으로 이런 요구죠:
+
+> “`UNION` 버전처럼 실제 데이터 기반으로 효율적으로 결과를 내되,
+> 완전한 CROSS JOIN처럼 모든 조합과 0 보정을 보장하고,
+> **temp table/materialization 없이 단일 쿼리로 끝내고 싶다**”
+
+---
+
+## ✅ 목표 요약
+
+* 모든 측정치(measure)와 차원(dimension) 간 조인 결과를 하나의 쿼리에서 처리
+* 불필요한 `UNION`, `TEMP TABLE`, `MATERIALIZED CTE` 제거
+* **0 보정(`COALESCE`)은 유지**
+* **조합 누락은 방지**
+* 구조는 단순하게, 확장성 있게
+
+---
+
+## 💡 핵심 아이디어
+
+`UNION` 없이 `FULL OUTER JOIN` + `COALESCE()` 패턴을 사용하면 됩니다.
+이 접근은 **각 measure 소스가 독립적으로 가지고 있는 조합을 모두 포함**하면서,
+조합 누락을 막고, 임시 테이블을 만들지 않습니다.
+
+---
+
+## 🧱 예시 쿼리 구조
+
+```sql
+WITH
+filtered_devices AS (
+  SELECT dim_device_id, device_model
+  FROM kai_dwh.dim_device
+  WHERE customer_id = '3508168036'
+    AND device_firmware_version IN ('1.1.1.1')
+),
+filtered_apps AS (
+  SELECT dim_package_id
+  FROM kai_dwh.dim_package
+  WHERE app_name = 'Accessibility'
+    AND package_name = 'com.samsung.accessibility'
+    AND app_version IN ('15.5.00.29', '15.5.00.30')
+),
+filtered_dates AS (
+  SELECT dim_date_id
+  FROM kai_dwh.dim_date
+  WHERE dev_date BETWEEN 20250721 AND 20250922
+),
+
+-- ✅ 각 measure별 데이터 (필터 적용)
+mv_battery_low AS (
+  SELECT dim_device_id, dim_date_id,
+         SUM(battery_low_events) AS sum_battery_low_events
+  FROM kai_dwh.mv_battery_low_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+  GROUP BY dim_device_id, dim_date_id
+),
+mv_abnormal AS (
+  SELECT dim_device_id, dim_date_id, dim_package_id,
+         SUM(abnormal_events) AS sum_abnormal_events
+  FROM kai_dwh.mv_abnormal_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+  GROUP BY dim_device_id, dim_date_id, dim_package_id
+),
+mv_anr_fc AS (
+  SELECT dim_device_id, dim_date_id, dim_package_id,
+         SUM(CASE WHEN event_type = 'ANR' THEN anr_fc_events ELSE 0 END) AS sum_anr_event,
+         SUM(CASE WHEN event_type = 'FC' THEN anr_fc_events ELSE 0 END) AS sum_fc_event
+  FROM kai_dwh.mv_anr_fc_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+  GROUP BY dim_device_id, dim_date_id, dim_package_id
+)
+
+-- ✅ FULL OUTER JOIN 으로 모든 조합 보장
+SELECT
+  fd.device_model AS deviceModel,
+  COALESCE(SUM(b.sum_battery_low_events), 0) AS sum_battery_low_events,
+  COALESCE(SUM(a.sum_abnormal_events), 0) AS sum_abnormal_events,
+  COALESCE(SUM(f.sum_anr_event), 0) AS sum_anr_event,
+  COALESCE(SUM(f.sum_fc_event), 0) AS sum_fc_event
+FROM
+  filtered_devices fd
+  LEFT JOIN mv_battery_low b ON b.dim_device_id = fd.dim_device_id
+  FULL OUTER JOIN mv_abnormal a
+    ON COALESCE(b.dim_device_id, fd.dim_device_id) = a.dim_device_id
+   AND COALESCE(b.dim_date_id,  a.dim_date_id) = a.dim_date_id
+   AND a.dim_package_id IS NOT NULL
+  FULL OUTER JOIN mv_anr_fc f
+    ON COALESCE(a.dim_device_id, b.dim_device_id, fd.dim_device_id) = f.dim_device_id
+   AND COALESCE(a.dim_date_id, b.dim_date_id) = f.dim_date_id
+   AND COALESCE(a.dim_package_id, f.dim_package_id) = f.dim_package_id
+GROUP BY fd.device_model
+ORDER BY fd.device_model;
+```
+
+---
+
+## 🔍 작동 원리
+
+1. **각 measure CTE**(`mv_battery_low`, `mv_abnormal`, `mv_anr_fc`)는 필터된 데이터만 가져옴.
+   → 즉, `UNION` 없이 각자 자기 데이터만.
+
+2. **FULL OUTER JOIN**은 세 데이터셋의 모든 조합 키를 유지.
+   → 존재하지 않는 조합은 `NULL`, 이걸 `COALESCE(..., 0)`으로 보정.
+
+3. **조합 누락 방지**
+
+   * `FULL OUTER JOIN`이기 때문에 세 집합 중 하나라도 존재하면 결과에 포함됨.
+   * `LEFT JOIN`만 쓰면 일부 조합이 빠지지만, `FULL OUTER JOIN`은 모든 집합의 union을 포함함.
+
+4. **임시 테이블(materialization)**
+
+   * Redshift, Postgres 모두 CTE를 inline화 가능 (`enable_material` 옵션 기본 false).
+   * 즉, `TEMP TABLE` 없이 실행 가능.
+
+---
+
+## ⚙️ 이 방식의 장점
+
+| 항목         | 장점                                      |
+| ---------- | --------------------------------------- |
+| 성능         | CROSS JOIN보다 훨씬 적은 조합                   |
+| 정확성        | UNION 수준으로 실제 데이터 기반, 0 보정 완전 유지        |
+| 확장성        | 새로운 measure 추가 시 FULL OUTER JOIN 하나만 추가 |
+| 관리성        | UNION처럼 중복 제거 필요 없음                     |
+| Temp Table | 없음 (단일 SQL 실행)                          |
+
+---
+
+## ⚠️ 주의점
+
+| 이슈                 | 설명                                                                    |
+| ------------------ | --------------------------------------------------------------------- |
+| FULL OUTER JOIN 순서 | 조합 키(`dim_device_id`, `dim_date_id`, `dim_package_id`)를 일관성 있게 맞춰야 함  |
+| 데이터 양이 너무 큰 경우     | FULL OUTER JOIN의 intermediate size 증가 가능 → hash join 조건 중요            |
+| Redshift에서         | `DISTSTYLE KEY`가 맞지 않으면 shuffle 발생 가능 (⇒ `DISTKEY(dim_device_id)` 권장) |
+
+---
+
+## 🧭 요약
+
+| 방식                          | 특징                            |
+| --------------------------- | ----------------------------- |
+| **CROSS JOIN 버전**           | 완전한 조합 보장, 매우 큰 중간 결과         |
+| **UNION 버전**                | 효율적이지만 조합 누락 위험               |
+| **FULL OUTER JOIN 버전 (추천)** | 조합 완전 + 효율성 + 단일 쿼리 + 0 보정 유지 |
+
+---
+
+원하신다면 다음 단계로
+👉 위 FULL OUTER JOIN 버전을 **모든 measure/dimension 조합을 자동으로 확장 가능한 패턴 (e.g. macro/template)** 으로 만들어드릴 수도 있습니다.
+예를 들어 `measures = ['battery_low', 'abnormal', 'anr_fc']` 입력 시 자동 생성되는 쿼리 템플릿요.
+
+그 방향으로 발전시키실까요?
 
 
+----
 
 좋아요 👍 Daniel.
 이건 앞선 “자동화 CTE 생성기”의 **두 번째 패턴 (멀티 CTE + FULL OUTER JOIN + CASE WHEN 처리)** 버전으로 설계하면 됩니다.
