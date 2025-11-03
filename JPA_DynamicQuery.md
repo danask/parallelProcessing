@@ -547,6 +547,127 @@ LEFT JOIN mv_anr_fc f
      AND k.dim_package_id = f.dim_package_id
 GROUP BY d.device_model
 ORDER BY d.device_model;
+
+
+-----
+
+WITH 
+filtered_devices AS (
+  SELECT dim_device_id, device_model
+  FROM kai_dwh.dim_device
+  WHERE customer_id = '3508168036'
+    AND device_firmware_version IN ('1.1.1.1')
+),
+
+filtered_apps AS (
+  SELECT dim_package_id
+  FROM kai_dwh.dim_package
+  WHERE (
+    (app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.29')
+    OR
+    (app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.30')
+  )
+),
+
+filtered_dates AS (
+  SELECT dim_date_id
+  FROM kai_dwh.dim_date
+  WHERE dev_date >= 20250721 AND dev_date <= 20250922
+),
+
+unique_combinations AS (
+  SELECT dim_date_id, dim_device_id, NULL AS dim_package_id
+  FROM kai_dwh.mv_battery_low_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+
+  UNION
+
+  SELECT dim_date_id, dim_device_id, dim_package_id
+  FROM kai_dwh.mv_abnormal_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+
+  UNION
+
+  SELECT dim_date_id, dim_device_id, dim_package_id
+  FROM kai_dwh.mv_anr_fc_count_daily
+  WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+    AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+),
+
+mv_battery_low_count_daily AS (
+  SELECT 
+    uc.dim_device_id,
+    uc.dim_date_id,
+    COALESCE(SUM(mv.battery_low_events), 0) AS sum_battery_low_events
+  FROM unique_combinations uc
+  LEFT JOIN kai_dwh.mv_battery_low_count_daily mv
+    ON uc.dim_device_id = mv.dim_device_id
+   AND uc.dim_date_id = mv.dim_date_id
+  GROUP BY uc.dim_device_id, uc.dim_date_id
+),
+
+mv_abnormal_count_daily AS (
+  SELECT 
+    uc.dim_device_id,
+    uc.dim_date_id,
+    uc.dim_package_id,
+    COALESCE(SUM(mv.abnormal_events), 0) AS sum_abnormal_events
+  FROM unique_combinations uc
+  LEFT JOIN kai_dwh.mv_abnormal_count_daily mv
+    ON uc.dim_device_id = mv.dim_device_id
+   AND uc.dim_date_id = mv.dim_date_id
+   AND uc.dim_package_id = mv.dim_package_id
+  GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+
+mv_anr_fc_count_daily AS (
+  SELECT 
+    uc.dim_device_id,
+    uc.dim_date_id,
+    uc.dim_package_id,
+    SUM(CASE WHEN mv.event_type = 'ANR' THEN mv.anr_fc_events ELSE 0 END) AS sum_anr_event,
+    SUM(CASE WHEN mv.event_type = 'FC'  THEN mv.anr_fc_events ELSE 0 END) AS sum_fc_event
+  FROM unique_combinations uc
+  LEFT JOIN kai_dwh.mv_anr_fc_count_daily mv
+    ON uc.dim_device_id = mv.dim_device_id
+   AND uc.dim_date_id = mv.dim_date_id
+   AND uc.dim_package_id = mv.dim_package_id
+  GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id, mv.event_type, mv.anr_fc_events
+),
+
+final_table AS (
+  SELECT 
+    fd.device_model AS deviceModel,
+    SUM(mv_battery_low_count_daily.sum_battery_low_events) AS sum_battery_low_events,
+    SUM(mv_abnormal_count_daily.sum_abnormal_events)       AS sum_abnormal_events,
+    SUM(mv_anr_fc_count_daily.sum_anr_event)               AS sum_anr_event,
+    SUM(mv_anr_fc_count_daily.sum_fc_event)                AS sum_fc_event
+  FROM unique_combinations uc
+  JOIN filtered_devices fd
+    ON uc.dim_device_id = fd.dim_device_id
+  LEFT JOIN mv_battery_low_count_daily mv_battery_low_count_daily
+    ON uc.dim_device_id = mv_battery_low_count_daily.dim_device_id
+   AND uc.dim_date_id = mv_battery_low_count_daily.dim_date_id
+  LEFT JOIN mv_abnormal_count_daily mv_abnormal_count_daily
+    ON uc.dim_device_id = mv_abnormal_count_daily.dim_device_id
+   AND uc.dim_date_id = mv_abnormal_count_daily.dim_date_id
+   AND uc.dim_package_id = mv_abnormal_count_daily.dim_package_id
+  LEFT JOIN mv_anr_fc_count_daily mv_anr_fc_count_daily
+    ON uc.dim_device_id = mv_anr_fc_count_daily.dim_device_id
+   AND uc.dim_date_id = mv_anr_fc_count_daily.dim_date_id
+   AND uc.dim_package_id = mv_anr_fc_count_daily.dim_package_id
+  GROUP BY fd.device_model
+  ORDER BY fd.device_model
+)
+
+SELECT *
+FROM final_table;
+
+
 ```
 
 ---
