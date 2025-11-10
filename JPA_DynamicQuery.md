@@ -75,8 +75,8 @@ COALESCE(sum(mv_abnormal_count_daily.sum_abnormal_events), 0) AS sum_abnormal_ev
 COALESCE(sum(mv_anr_fc_count_daily.sum_anr_event), 0) AS sum_anr_event,
 COALESCE(sum(mv_anr_fc_count_daily.sum_fc_event), 0) AS sum_fc_event
 FROM mv_apps_data_usage_sum_dailymv_apps_data_usage_sum_daily 
-JOIN filtered_devices fd  ON mv_apps_data_usage_sum_daily.dim_device_id = fd.dim_device_id
-JOIN filtered_apps fa  ON mv_apps_data_usage_sum_daily.dim_package_id = fa.dim_package_id
+JOIN filtered_devices fd  ON mv_apps_data_usage_sum_daily.dim_device_id = fd.dim_device_id -- left join -- uc?
+JOIN filtered_apps fa  ON mv_apps_data_usage_sum_daily.dim_package_id = fa.dim_package_id -- left join -- uc?
 LEFT JOIN mv_apps_usage_sum_daily
  ON mv_apps_data_usage_sum_daily.dim_device_id = mv_apps_usage_sum_daily.dim_device_id
  AND mv_apps_data_usage_sum_daily.dim_package_id = mv_apps_usage_sum_daily.dim_package_id
