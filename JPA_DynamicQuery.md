@@ -166,10 +166,10 @@ mv_anr_fc_count_daily AS (
 final_table AS (
   SELECT
     fd.device_model AS deviceModel,
-    sum(mbl.sum_battery_low_events) AS sum_battery_low_events,
-    sum(ma.sum_abnormal_events) AS sum_abnormal_events,
-    sum(maf.sum_anr_event) AS sum_anr_event,
-    sum(maf.sum_fc_event) AS sum_fc_event
+    sum(COALESCE(mbl.sum_battery_low_events), 0)) AS sum_battery_low_events,
+    sum(COALESCE(ma.sum_abnormal_events), 0)) AS sum_abnormal_events,
+    sum(COALESCE(maf.sum_anr_event), 0)) AS sum_anr_event,
+    sum(COALESCE(maf.sum_fc_event), 0)) AS sum_fc_event
   FROM unique_combinations uc
   JOIN filtered_devices fd
     ON uc.dim_device_id = fd.dim_device_id
