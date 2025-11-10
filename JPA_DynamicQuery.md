@@ -204,7 +204,7 @@ fa.app_name AS  appName,
 fa.package_name AS  packageName, 
 fa.app_version AS  appVersion, 
 , 
-sum(mv_apps_data_usage_sum_daily.sum_mobile_usage) AS  sum_mobile_usage, 
+sum(mv_apps_data_usage_sum_daily.sum_mobile_usage) AS  sum_mobile_usage, --- coalesc
 sum(mv_apps_usage_sum_daily.sum_usage_usage_time) AS  sum_usage_usage_time, 
 sum(mv_battery_low_count_daily.sum_battery_low_events) AS  sum_battery_low_events, 
 sum(mv_abnormal_count_daily.sum_abnormal_events) AS  sum_abnormal_events, 
