@@ -1,4 +1,101 @@
 
+```sql
+
+WITH 
+filtered_devices AS  (
+SELECT dim_device_id, device_model
+FROM kai_dwh.dim_device
+WHERE customer_id = '3508168036'
+ AND device_firmware_version IN ('1.1.1.1')
+),
+filtered_apps AS  (
+SELECT dim_package_id, app_name, package_name, app_version
+FROM kai_dwh.dim_package
+WHERE ((app_name = 'Accessibility'  AND  package_name = 'com.samsung.accessibility' AND  app_version = '15.5.00.29') OR  (app_name = 'Accessibility'  AND  package_name = 'com.samsung.accessibility' AND  app_version = '15.5.00.30'))
+),
+filtered_dates AS  (
+SELECT dim_date_id
+FROM kai_dwh.dim_date
+WHERE dev_date >= 20250921  AND  dev_date <= 20250922
+),
+mv_apps_data_usage_sum_daily AS  (
+SELECT dim_device_id, dim_package_id,
+sum(mobile_usage) AS sum_mobile_usage
+FROM kai_dwh.mv_apps_data_usage_sum_daily mv
+WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+ AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+ AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+GROUP BY mv.dim_device_id, mv.dim_package_id
+),
+mv_apps_usage_sum_daily AS  (
+SELECT dim_device_id, dim_package_id,
+sum(usage_usage_time) AS sum_usage_usage_time
+FROM kai_dwh.mv_apps_usage_sum_daily mv
+WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+ AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+ AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+GROUP BY mv.dim_device_id, mv.dim_package_id
+),
+mv_battery_low_count_daily AS  (
+SELECT dim_device_id,
+sum(battery_low_events) AS sum_battery_low_events
+FROM kai_dwh.mv_battery_low_count_daily mv
+WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+ AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+GROUP BY mv.dim_device_id
+),
+mv_abnormal_count_daily AS  (
+SELECT dim_device_id, dim_package_id,
+sum(abnormal_events) AS sum_abnormal_events
+FROM kai_dwh.mv_abnormal_count_daily mv
+WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+ AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+ AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+GROUP BY mv.dim_device_id, mv.dim_package_id
+),
+mv_anr_fc_count_daily AS  (
+SELECT dim_device_id, dim_package_id,
+SUM(CASE WHEN mv.event_type = 'ANR' THEN mv.anr_fc_events ELSE 0 END) AS sum_anr_event,
+SUM(CASE WHEN mv.event_type = 'FC' THEN mv.anr_fc_events ELSE 0 END) AS sum_fc_event
+FROM kai_dwh.mv_anr_fc_count_daily mv
+WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+ AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+ AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+GROUP BY mv.dim_device_id, mv.dim_package_id, mv.dim_package_id
+),
+final_table AS  (
+SELECT fd.device_model AS deviceModel,
+fa.app_name AS appName,
+fa.package_name AS packageName,
+fa.app_version AS appVersion,
+COALESCE(sum(mv_apps_data_usage_sum_daily.sum_mobile_usage), 0) AS sum_mobile_usage,
+COALESCE(sum(mv_apps_usage_sum_daily.sum_usage_usage_time), 0) AS sum_usage_usage_time,
+COALESCE(sum(mv_battery_low_count_daily.sum_battery_low_events), 0) AS sum_battery_low_events,
+COALESCE(sum(mv_abnormal_count_daily.sum_abnormal_events), 0) AS sum_abnormal_events,
+COALESCE(sum(mv_anr_fc_count_daily.sum_anr_event), 0) AS sum_anr_event,
+COALESCE(sum(mv_anr_fc_count_daily.sum_fc_event), 0) AS sum_fc_event
+FROM mv_apps_data_usage_sum_dailymv_apps_data_usage_sum_daily 
+JOIN filtered_devices fd  ON mv_apps_data_usage_sum_daily.dim_device_id = fd.dim_device_id
+JOIN filtered_apps fa  ON mv_apps_data_usage_sum_daily.dim_package_id = fa.dim_package_id
+LEFT JOIN mv_apps_usage_sum_daily
+ ON mv_apps_data_usage_sum_daily.dim_device_id = mv_apps_usage_sum_daily.dim_device_id
+ AND mv_apps_data_usage_sum_daily.dim_package_id = mv_apps_usage_sum_daily.dim_package_id
+LEFT JOIN mv_battery_low_count_daily
+ ON mv_apps_data_usage_sum_daily.dim_device_id = mv_battery_low_count_daily.dim_device_id
+LEFT JOIN mv_abnormal_count_daily
+ ON mv_apps_data_usage_sum_daily.dim_device_id = mv_abnormal_count_daily.dim_device_id
+ AND mv_apps_data_usage_sum_daily.dim_package_id = mv_abnormal_count_daily.dim_package_id
+LEFT JOIN mv_anr_fc_count_daily
+ ON mv_apps_data_usage_sum_daily.dim_device_id = mv_anr_fc_count_daily.dim_device_id
+ AND mv_apps_data_usage_sum_daily.dim_package_id = mv_anr_fc_count_daily.dim_package_id
+GROUP BY fd.device_model, fa.app_name, fa.package_name, fa.app_version
+ORDER BY fd.device_model
+)
+SELECT  * 
+FROM final_table 
+
+````
+
 네, 각 쿼리의 오류를 수정한 최종 코드를 각각 알려드리겠습니다.
 
 두 쿼리는 **서로 다른 논리적 접근 방식**을 가지고 있으며, 각각 다른 지점에서 오류가 발생했습니다.
