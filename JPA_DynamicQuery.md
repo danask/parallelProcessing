@@ -1,4 +1,106 @@
 
+전문가로서 조언 드리자면, **두 번째 쿼리의 방식(통합 키셋을 생성하고 이를 기준으로 모든 측정값을 LEFT JOIN하는 방식)을 적용하되, 측정값의 성격에 따라 키셋을 다르게 사용하는 것이 가장 바람직합니다.**
+
+제시하신 대로 단순히 "동일한 타입이면 두 번째, 복합적이면 첫 번째"를 선택하는 것은 문제가 해결되지 않을 수 있습니다. 두 번째 쿼리의 통합 방식은 데이터의 누락을 방지하고 모든 조합을 보장하는 장점이 있지만, `Battery Low`처럼 앱과 무관한 지표를 앱별 행에 **중복 합산**하는 문제가 있었습니다.
+
+이 문제를 해결하는 **가장 좋은 데이터 웨어하우스(DW) 설계 전략**은 다음과 같습니다.
+
+-----
+
+## ✅ 권장 DW 집계 전략: 키셋 분리와 최종 결합
+
+핵심은 \*\*앱에 종속적인 지표(앱 이벤트)와 앱에 종속적이지 않은 지표(디바이스 이벤트)\*\*를 분리하여 집계하고, 최종적으로 디바이스 모델 기준으로 결합하는 것입니다.
+
+### 1\. 앱 종속 측정값 (App-Specific Metrics)
+
+  * **지표:** `abnormal_events`, `anr_event`, `fc_event`, (그리고 무시한다고 가정했던) `usage_time`, `data_usage`.
+  * **키셋:** `(dim_device_id, dim_date_id, dim_package_id)`.
+  * **전략:** 두 번째 쿼리의 통합 키셋 (`unique_combinations`) 전략을 사용합니다. 이 키셋이 앱 관련 측정값을 결합할 수 있는 가장 완벽한 기준이 됩니다.
+
+### 2\. 디바이스 종속 측정값 (Device-Specific Metrics)
+
+  * **지표:** `battery_low_events`.
+  * **키셋:** `(dim_device_id, dim_date_id)`.
+  * **전략:** `dim_package_id`를 포함하지 않고 `(dim_device_id, dim_date_id)`만 사용하여 별도로 집계합니다.
+
+-----
+
+## 🛠️ 개선된 하이브리드 쿼리 구조 (모범 사례)
+
+다음은 두 번째 쿼리 방식의 장점(결과 누락 방지)을 취하면서, 첫 번째 쿼리 방식의 문제점(Battery Low 중복 합산)을 피하는 모범적인 SQL 구조입니다.
+
+```sql
+WITH -- 1. 필터 CTE는 동일하게 유지
+filtered_devices AS (...),
+filtered_apps AS (...),
+filtered_dates AS (...),
+
+-- 2. 앱 종속 이벤트들을 위한 통합 키셋 (Package ID 포함)
+app_keys AS (
+    -- 앱 사용, 비정상, ANR/FC 등의 데이터가 존재하는 모든 키 조합
+    SELECT dim_device_id, dim_date_id, dim_package_id FROM kai_dwh.mv_abnormal_count_daily WHERE ...
+    UNION -- 기타 앱 관련 MV 테이블 (Usage, ANR/FC 등)
+),
+
+-- 3. 디바이스 종속 이벤트 (Battery Low) 별도 집계
+mv_battery_low_aggregated AS (
+    SELECT dim_device_id, dim_date_id,
+           SUM(battery_low_events) AS sum_battery_low_events
+    FROM kai_dwh.mv_battery_low_count_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    GROUP BY dim_device_id, dim_date_id -- (Device, Date) 단위로만 집계 완료
+),
+
+-- 4. 앱 관련 측정값 CTE (두 번째 쿼리처럼 App-Keys를 기준으로 JOIN & COALESCE)
+mv_abnormal_agg AS (
+    SELECT k.dim_device_id, k.dim_date_id, k.dim_package_id,
+           COALESCE(SUM(mv.abnormal_events), 0) AS sum_abnormal_events
+    FROM app_keys k
+    LEFT JOIN kai_dwh.mv_abnormal_count_daily mv
+        ON k.dim_device_id = mv.dim_device_id AND k.dim_date_id = mv.dim_date_id 
+        AND k.dim_package_id = mv.dim_package_id
+    GROUP BY 1, 2, 3
+),
+-- mv_anr_fc_agg 등 다른 앱 관련 측정값 CTE들도 app_keys 기반으로 동일하게 생성
+
+-- 5. 최종 결합
+SELECT
+    d.device_model,
+    a.package_name,
+    a.app_name, 
+    a.app_version,
+    COALESCE(SUM(ab.sum_abnormal_events), 0) AS sum_abnormal_events,
+    COALESCE(SUM(f.sum_anr_event), 0) AS sum_anr_event,
+    -- ... 다른 앱 관련 지표 (sum_usage_time 등)
+
+    -- Battery Low 값은 각 App 행에 '반복'하여 할당 (최종 그룹핑에 영향 받지 않도록)
+    MAX(b.sum_battery_low_events) AS sum_battery_low_events 
+    -- 또는 AVG(b.sum_battery_low_events) 사용
+    
+FROM app_keys k
+JOIN filtered_devices d ON k.dim_device_id = d.dim_device_id
+JOIN filtered_apps a ON k.dim_package_id = a.dim_package_id
+
+LEFT JOIN mv_abnormal_agg ab ON k.dim_device_id = ab.dim_device_id AND k.dim_date_id = ab.dim_date_id AND k.dim_package_id = ab.dim_package_id
+-- ... 다른 앱 관련 JOIN
+
+-- (Device, Date) 키로 LEFT JOIN: Battery Low는 Package ID가 없으므로 k.dim_package_id는 제외
+LEFT JOIN mv_battery_low_aggregated b ON k.dim_device_id = b.dim_device_id AND k.dim_date_id = b.dim_date_id
+
+GROUP BY d.device_model, a.package_name, a.app_name, a.app_version
+ORDER BY d.device_model, a.package_name;
+```
+
+이 구조를 사용하면:
+
+1.  **앱 관련 지표:** 두 번째 쿼리처럼 앱별로 정확히 **0** 또는 실제 값이 할당됩니다.
+2.  **Battery Low 지표:** 이미 `(Device, Date)` 단위로 집계된 값이 `app_keys`의 각 행에 붙습니다. 최종 **GROUP BY**에서 `MAX()`나 `AVG()`를 사용하여 \*\*중복 합산(SUM)\*\*을 피하고, 해당 디바이스/날짜에 발생한 정확한 Battery Low 이벤트 수(**100**)가 각 앱 버전 행에 표시됩니다. (예: `MAX(100)` 또는 `AVG(100)`의 결과는 `100`입니다.)
+
+**요약:** 데이터의 성격에 따라 키셋을 분리하여 집계하고, 최종 보고서 키(여기서는 App + Device)에 맞게 \*\*적절한 Aggregation Function (SUM, MAX, AVG)\*\*을 사용하여 결합해야 합니다. 이것이 데이터 모델링 전문가가 권장하는 방식입니다.
+
+------
+
 수정된 q1
 ``` sql
 
