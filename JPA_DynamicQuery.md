@@ -1,4 +1,6 @@
 
+
+
 전문가로서 조언 드리자면, **두 번째 쿼리의 방식(통합 키셋을 생성하고 이를 기준으로 모든 측정값을 LEFT JOIN하는 방식)을 적용하되, 측정값의 성격에 따라 키셋을 다르게 사용하는 것이 가장 바람직합니다.**
 
 제시하신 대로 단순히 "동일한 타입이면 두 번째, 복합적이면 첫 번째"를 선택하는 것은 문제가 해결되지 않을 수 있습니다. 두 번째 쿼리의 통합 방식은 데이터의 누락을 방지하고 모든 조합을 보장하는 장점이 있지만, `Battery Low`처럼 앱과 무관한 지표를 앱별 행에 **중복 합산**하는 문제가 있었습니다.
@@ -98,6 +100,192 @@ ORDER BY d.device_model, a.package_name;
 2.  **Battery Low 지표:** 이미 `(Device, Date)` 단위로 집계된 값이 `app_keys`의 각 행에 붙습니다. 최종 **GROUP BY**에서 `MAX()`나 `AVG()`를 사용하여 \*\*중복 합산(SUM)\*\*을 피하고, 해당 디바이스/날짜에 발생한 정확한 Battery Low 이벤트 수(**100**)가 각 앱 버전 행에 표시됩니다. (예: `MAX(100)` 또는 `AVG(100)`의 결과는 `100`입니다.)
 
 **요약:** 데이터의 성격에 따라 키셋을 분리하여 집계하고, 최종 보고서 키(여기서는 App + Device)에 맞게 \*\*적절한 Aggregation Function (SUM, MAX, AVG)\*\*을 사용하여 결합해야 합니다. 이것이 데이터 모델링 전문가가 권장하는 방식입니다.
+
+
+제시해주신 두 번째 쿼리 구조를 기반으로, **`sum_battery_low_events`의 중복 합산 문제를 해결**하고 데이터 일관성을 유지하는 방향으로 수정된 최종 SQL을 정리해 드리겠습니다.
+
+핵심 변경 사항은 `unique_combinations`를 앱 관련 지표의 기준으로만 사용하고, \*\*`sum_battery_low_events`\*\*는 최종 집계 시 `SUM()` 대신 \*\*`MAX()`\*\*를 사용하여 중복을 제거하는 것입니다.
+
+-----
+
+## 🚀 개선된 최종 SQL 쿼리
+
+다음은 `unique_combinations` (앱 관련 키셋)을 기반으로 모든 지표를 조인하되, 앱과 무관한 지표는 \*\*`MAX()`\*\*를 사용하여 정확성을 확보한 쿼리입니다.
+
+```sql
+WITH 
+-- ✅ 필터 기준 (기존과 동일)
+filtered_devices AS (
+    SELECT dim_device_id, device_model
+    FROM kai_dwh.dim_device
+    WHERE customer_id = '3508168036'
+      AND device_firmware_version IN ('1.1.1.1')
+),
+filtered_apps AS (
+    SELECT dim_package_id, app_name, package_name, app_version
+    FROM kai_dwh.dim_package
+    WHERE (
+        (app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.29') 
+        OR 
+        (app_name = 'Accessibility' AND package_name = 'com.samsung.accessibility' AND app_version = '15.5.00.30')
+    )
+),
+filtered_dates AS (
+    SELECT dim_date_id
+    FROM kai_dwh.dim_date
+    WHERE dev_date >= 20250921 AND dev_date <= 20250922
+),
+
+-- ✅ 앱 관련 지표의 통합 기준 키셋 (dim_package_id가 NULL인 Battery Low 행 제외)
+-- Battery Low는 별도 CTE로 분리하여 처리합니다.
+app_unique_combinations AS (
+    -- 앱 데이터 사용량
+    SELECT dim_date_id, dim_device_id, dim_package_id
+    FROM kai_dwh.mv_apps_data_usage_sum_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+      AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+    UNION
+    -- 앱 사용 시간
+    SELECT dim_date_id, dim_device_id, dim_package_id
+    FROM kai_dwh.mv_apps_usage_sum_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+      AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+    UNION
+    -- 비정상 이벤트
+    SELECT dim_date_id, dim_device_id, dim_package_id
+    FROM kai_dwh.mv_abnormal_count_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+      AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+    UNION
+    -- ANR/FC 이벤트
+    SELECT dim_date_id, dim_device_id, dim_package_id
+    FROM kai_dwh.mv_anr_fc_count_daily
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+      AND dim_package_id IN (SELECT dim_package_id FROM filtered_apps)
+),
+
+-- ✅ 각 측정값별 집계 (App-Keys를 기준으로 JOIN하여 COALESCE(0))
+mv_apps_data_usage_sum_daily AS (
+    SELECT uc.dim_device_id, uc.dim_date_id, uc.dim_package_id,
+           COALESCE(SUM(mv.mobile_usage), 0) AS sum_mobile_usage
+    FROM app_unique_combinations uc
+    LEFT JOIN kai_dwh.mv_apps_data_usage_sum_daily mv
+        ON uc.dim_device_id = mv.dim_device_id 
+        AND uc.dim_date_id = mv.dim_date_id
+        AND uc.dim_package_id = mv.dim_package_id
+    GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+mv_apps_usage_sum_daily AS (
+    SELECT uc.dim_device_id, uc.dim_date_id, uc.dim_package_id,
+           COALESCE(SUM(mv.usage_usage_time), 0) AS sum_usage_usage_time
+    FROM app_unique_combinations uc
+    LEFT JOIN kai_dwh.mv_apps_usage_sum_daily mv
+        ON uc.dim_device_id = mv.dim_device_id 
+        AND uc.dim_date_id = mv.dim_date_id
+        AND uc.dim_package_id = mv.dim_package_id
+    GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+mv_abnormal_count_daily AS (
+    SELECT uc.dim_device_id, uc.dim_date_id, uc.dim_package_id,
+           COALESCE(SUM(mv.abnormal_events), 0) AS sum_abnormal_events
+    FROM app_unique_combinations uc
+    LEFT JOIN kai_dwh.mv_abnormal_count_daily mv
+        ON uc.dim_device_id = mv.dim_device_id 
+        AND uc.dim_date_id = mv.dim_date_id
+        AND uc.dim_package_id = mv.dim_package_id
+    GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+mv_anr_fc_count_daily AS (
+    SELECT uc.dim_device_id, uc.dim_date_id, uc.dim_package_id,
+           SUM(CASE WHEN mv.event_type = 'ANR' THEN mv.anr_fc_events ELSE 0 END) AS sum_anr_event, 
+           SUM(CASE WHEN mv.event_type = 'FC' THEN mv.anr_fc_events ELSE 0 END) AS sum_fc_event
+    FROM app_unique_combinations uc
+    LEFT JOIN kai_dwh.mv_anr_fc_count_daily mv
+        ON uc.dim_device_id = mv.dim_device_id 
+        AND uc.dim_date_id = mv.dim_date_id
+        AND uc.dim_package_id = mv.dim_package_id
+    GROUP BY uc.dim_device_id, uc.dim_date_id, uc.dim_package_id
+),
+
+-- 🔑 Battery Low는 디바이스/날짜 단위로만 집계 (앱과 무관한 지표)
+mv_battery_low_aggregated AS (
+    SELECT dim_device_id, dim_date_id,
+           COALESCE(SUM(battery_low_events), 0) AS sum_battery_low_events
+    FROM kai_dwh.mv_battery_low_count_daily mv
+    WHERE dim_device_id IN (SELECT dim_device_id FROM filtered_devices)
+      AND dim_date_id IN (SELECT dim_date_id FROM filtered_dates)
+    GROUP BY dim_device_id, dim_date_id
+),
+
+-- ✅ 최종 집계 (앱 키셋을 기준으로 모든 지표 결합)
+final_table AS (
+    SELECT 
+        fd.device_model AS deviceModel, 
+        fa.app_name AS appName, 
+        fa.package_name AS packageName, 
+        fa.app_version AS appVersion, 
+        
+        -- 앱 관련 지표는 SUM()을 통해 최종 집계 (날짜별 합산)
+        SUM(aud.sum_mobile_usage) AS sum_mobile_usage, 
+        SUM(aus.sum_usage_usage_time) AS sum_usage_usage_time, 
+        SUM(mab.sum_abnormal_events) AS sum_abnormal_events, 
+        SUM(maf.sum_anr_event) AS sum_anr_event, 
+        SUM(maf.sum_fc_event) AS sum_fc_event,
+        
+        -- ⚠️ Battery Low는 MAX()를 사용해 중복 합산 방지 (가장 중요한 수정 사항)
+        MAX(mbl.sum_battery_low_events) AS sum_battery_low_events
+        
+    FROM app_unique_combinations uc
+    -- 앱 정보와 디바이스 정보 결합 (앱 관련 키셋만 사용했으므로 JOIN)
+    JOIN filtered_devices fd ON uc.dim_device_id = fd.dim_device_id
+    JOIN filtered_apps fa ON uc.dim_package_id = fa.dim_package_id
+    
+    -- 앱 관련 지표 LEFT JOIN
+    LEFT JOIN mv_apps_data_usage_sum_daily aud 
+        ON uc.dim_device_id = aud.dim_device_id 
+        AND uc.dim_date_id = aud.dim_date_id 
+        AND uc.dim_package_id = aud.dim_package_id
+    LEFT JOIN mv_apps_usage_sum_daily aus 
+        ON uc.dim_device_id = aus.dim_device_id 
+        AND uc.dim_date_id = aus.dim_date_id 
+        AND uc.dim_package_id = aus.dim_package_id
+    LEFT JOIN mv_abnormal_count_daily mab 
+        ON uc.dim_device_id = mab.dim_device_id 
+        AND uc.dim_date_id = mab.dim_date_id 
+        AND uc.dim_package_id = mab.dim_package_id
+    LEFT JOIN mv_anr_fc_count_daily maf 
+        ON uc.dim_device_id = maf.dim_device_id 
+        AND uc.dim_date_id = maf.dim_date_id 
+        AND uc.dim_package_id = maf.dim_package_id
+
+    -- 디바이스 관련 지표 (Battery Low) LEFT JOIN - Package ID 제외
+    LEFT JOIN mv_battery_low_aggregated mbl
+        ON uc.dim_device_id = mbl.dim_device_id 
+        AND uc.dim_date_id = mbl.dim_date_id
+        
+    -- 최종 그룹핑: 앱 버전별로 집계
+    GROUP BY fd.device_model, fa.app_name, fa.package_name, fa.app_version
+    ORDER BY fd.device_model, fa.package_name
+) 
+SELECT * FROM final_table;
+```
+
+-----
+
+## 🔑 주요 변경 사항 요약
+
+| CTE/단계 | 기존 쿼리 (`unique_combinations` 포함) | 수정된 쿼리 | 이유 |
+| :--- | :--- | :--- | :--- |
+| **기준 키셋** | `unique_combinations` (Battery Low 키 포함) | **`app_unique_combinations`** (Battery Low 키 **제외**) | 앱 관련 지표의 기준을 명확히 하고, Battery Low로 인한 불필요한 키 조합 생성을 막음. |
+| **Battery Low CTE** | `unique_combinations` 기반 JOIN | \*\*`mv_battery_low_aggregated`\*\*로 별도 분리하여 `(Device, Date)` 단위로 **미리 집계** | Battery Low는 앱과 무관하므로 독립적으로 집계하여 앱 행에 할당할 준비. |
+| **최종 SELECT** | `SUM(mv_battery_low_count_daily.sum_battery_low_events)` | **`MAX(mbl.sum_battery_low_events)`** | 최종 `GROUP BY`가 앱 버전별로 이루어질 때, 디바이스 지표(Battery Low)가 앱 버전 수만큼 **중복 합산되는 것을 방지**하고 정확한 1회 값만 표시. |
+
+이 쿼리는 앱 관련 지표에 대해서는 누락 없이 `COALESCE(0)`을 적용하고, 앱과 무관한 지표(Battery Low)에 대해서는 **중복 계산을 피하는** 가장 안정적인 구조입니다.
+
 
 ------
 
