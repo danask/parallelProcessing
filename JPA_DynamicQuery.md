@@ -273,8 +273,9 @@ final_table AS (
 ) 
 SELECT * FROM final_table;
 ```
+----
 
-```sql
+
 -- device only
 
 네, 알겠습니다. `CROSS JOIN`을 사용하는 대신 **`UNION`을 사용하여 기준 키셋**을 만드는 방식으로 디바이스 전용 쿼리를 구성해 드리겠습니다.
@@ -375,8 +376,9 @@ final_table AS (
 ) 
 SELECT * FROM final_table;
 ```
+------
 
-```sql
+
 -- app + device
 
 네, **'앱'과 '디바이스' 관련 지표가 섞인 경우**가 우리가 다루던 가장 핵심적이고 복잡한 시나리오입니다.
